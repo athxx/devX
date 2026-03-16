@@ -1,5 +1,10 @@
 import { For } from "solid-js";
 import { SectionCard } from "../components/section-card";
+import { SyncPanel } from "../features/sync/components/sync-panel";
+
+type SidebarWorkspaceProps = {
+  sidebarOpen: boolean;
+};
 
 const homeCards = [
   { title: "API Requests", meta: "12 collections", summary: "继续进入 REST 工作台，管理请求集合、历史记录和环境变量。" },
@@ -15,66 +20,72 @@ const toolGroups = [
 
 export function HomeWorkspace() {
   return (
-    <div class="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-      <SectionCard eyebrow="Overview" title="Workspace Home">
-        <div class="grid gap-4 md:grid-cols-3">
-          <For each={homeCards}>
-            {(card) => (
-              <article class="theme-control rounded-3xl p-4">
-                <p class="theme-text text-sm font-semibold">{card.title}</p>
-                <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">{card.meta}</p>
-                <p class="theme-text-muted mt-3 text-sm leading-6">{card.summary}</p>
-              </article>
-            )}
-          </For>
-        </div>
-      </SectionCard>
+    <div class="grid gap-4">
+      <SyncPanel />
 
-      <SectionCard eyebrow="Today" title="Recent Activity">
-        <div class="grid gap-3">
-          <div class="theme-control rounded-2xl px-4 py-4">
-            <p class="theme-text text-sm font-medium">REST collection refreshed</p>
-            <p class="theme-text-soft mt-1 text-xs">Core APIs · 12 requests</p>
+      <div class="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+        <SectionCard eyebrow="Overview" title="Workspace Home">
+          <div class="grid gap-4 md:grid-cols-3">
+            <For each={homeCards}>
+              {(card) => (
+                <article class="theme-control rounded-3xl p-4">
+                  <p class="theme-text text-sm font-semibold">{card.title}</p>
+                  <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">{card.meta}</p>
+                  <p class="theme-text-muted mt-3 text-sm leading-6">{card.summary}</p>
+                </article>
+              )}
+            </For>
           </div>
-          <div class="theme-control rounded-2xl px-4 py-4">
-            <p class="theme-text text-sm font-medium">JSON diff snapshot saved</p>
-            <p class="theme-text-soft mt-1 text-xs">Billing payload · 09:21</p>
+        </SectionCard>
+
+        <SectionCard eyebrow="Today" title="Recent Activity">
+          <div class="grid gap-3">
+            <div class="theme-control rounded-2xl px-4 py-4">
+              <p class="theme-text text-sm font-medium">REST collection refreshed</p>
+              <p class="theme-text-soft mt-1 text-xs">Core APIs · 12 requests</p>
+            </div>
+            <div class="theme-control rounded-2xl px-4 py-4">
+              <p class="theme-text text-sm font-medium">JSON diff snapshot saved</p>
+              <p class="theme-text-soft mt-1 text-xs">Billing payload · 09:21</p>
+            </div>
+            <div class="theme-control rounded-2xl px-4 py-4">
+              <p class="theme-text text-sm font-medium">Environment switched to Staging</p>
+              <p class="theme-text-soft mt-1 text-xs">Shared workspace state</p>
+            </div>
           </div>
-          <div class="theme-control rounded-2xl px-4 py-4">
-            <p class="theme-text text-sm font-medium">Environment switched to Staging</p>
-            <p class="theme-text-soft mt-1 text-xs">Shared workspace state</p>
-          </div>
-        </div>
-      </SectionCard>
+        </SectionCard>
+      </div>
     </div>
   );
 }
 
-export function DbWorkspace() {
+export function DbWorkspace(props: SidebarWorkspaceProps) {
   return (
-    <div class="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
-      <aside class="theme-sidebar py-2">
-        <div class="mb-5 border-b pb-4" style={{ "border-color": "var(--app-border)" }}>
-          <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">Connections</p>
-          <h2 class="theme-text mt-2 text-lg font-semibold">Database</h2>
-          <p class="theme-text-soft mt-1 text-sm leading-6">连接、查询历史和结果视图都从这里进入。</p>
-        </div>
+    <div class={`grid gap-4 ${props.sidebarOpen ? "xl:grid-cols-[220px_minmax(0,1fr)]" : "xl:grid-cols-[minmax(0,1fr)]"}`}>
+      {props.sidebarOpen ? (
+        <aside class="theme-sidebar py-2">
+          <div class="mb-5 border-b pb-4" style={{ "border-color": "var(--app-border)" }}>
+            <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">Connections</p>
+            <h2 class="theme-text mt-2 text-lg font-semibold">Database</h2>
+            <p class="theme-text-soft mt-1 text-sm leading-6">连接、查询历史和结果视图都从这里进入。</p>
+          </div>
 
-        <div class="grid gap-3">
-          <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
-            <p class="theme-text text-sm font-semibold">Primary PostgreSQL</p>
-            <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">staging / readonly</p>
+          <div class="grid gap-3">
+            <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
+              <p class="theme-text text-sm font-semibold">Primary PostgreSQL</p>
+              <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">staging / readonly</p>
+            </div>
+            <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
+              <p class="theme-text text-sm font-semibold">Analytics MySQL</p>
+              <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">warehouse / readonly</p>
+            </div>
+            <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
+              <p class="theme-text text-sm font-semibold">Redis Cache</p>
+              <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">session / inspect</p>
+            </div>
           </div>
-          <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
-            <p class="theme-text text-sm font-semibold">Analytics MySQL</p>
-            <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">warehouse / readonly</p>
-          </div>
-          <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
-            <p class="theme-text text-sm font-semibold">Redis Cache</p>
-            <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">session / inspect</p>
-          </div>
-        </div>
-      </aside>
+        </aside>
+      ) : null}
 
       <div class="grid gap-4">
         <SectionCard eyebrow="Query Editor" title="Query Draft">
@@ -110,27 +121,29 @@ LIMIT 50;`}</code>
   );
 }
 
-export function ToolsWorkspace() {
+export function ToolsWorkspace(props: SidebarWorkspaceProps) {
   return (
-    <div class="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
-      <aside class="theme-sidebar py-2">
-        <div class="mb-5 border-b pb-4" style={{ "border-color": "var(--app-border)" }}>
-          <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">Utilities</p>
-          <h2 class="theme-text mt-2 text-lg font-semibold">Tools</h2>
-          <p class="theme-text-soft mt-1 text-sm leading-6">格式转换、差异对比和编码工具统一放在左侧菜单里。</p>
-        </div>
+    <div class={`grid gap-4 ${props.sidebarOpen ? "xl:grid-cols-[220px_minmax(0,1fr)]" : "xl:grid-cols-[minmax(0,1fr)]"}`}>
+      {props.sidebarOpen ? (
+        <aside class="theme-sidebar py-2">
+          <div class="mb-5 border-b pb-4" style={{ "border-color": "var(--app-border)" }}>
+            <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">Utilities</p>
+            <h2 class="theme-text mt-2 text-lg font-semibold">Tools</h2>
+            <p class="theme-text-soft mt-1 text-sm leading-6">格式转换、差异对比和编码工具统一放在左侧菜单里。</p>
+          </div>
 
-        <div class="grid gap-3">
-          <For each={toolGroups}>
-            {(tool) => (
-              <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
-                <p class="theme-text text-sm font-semibold">{tool.name}</p>
-                <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">utility module</p>
-              </div>
-            )}
-          </For>
-        </div>
-      </aside>
+          <div class="grid gap-3">
+            <For each={toolGroups}>
+              {(tool) => (
+                <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
+                  <p class="theme-text text-sm font-semibold">{tool.name}</p>
+                  <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">utility module</p>
+                </div>
+              )}
+            </For>
+          </div>
+        </aside>
+      ) : null}
 
       <div class="grid gap-4">
         <SectionCard eyebrow="Toolkit" title="Utility Modules">
@@ -162,31 +175,33 @@ export function ToolsWorkspace() {
   );
 }
 
-export function SshWorkspace() {
+export function SshWorkspace(props: SidebarWorkspaceProps) {
   return (
-    <div class="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
-      <aside class="theme-sidebar py-2">
-        <div class="mb-5 border-b pb-4" style={{ "border-color": "var(--app-border)" }}>
-          <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">Profiles</p>
-          <h2 class="theme-text mt-2 text-lg font-semibold">SSH</h2>
-          <p class="theme-text-soft mt-1 text-sm leading-6">连接配置、跳板机和终端会话统一放在左侧管理。</p>
-        </div>
+    <div class={`grid gap-4 ${props.sidebarOpen ? "xl:grid-cols-[220px_minmax(0,1fr)]" : "xl:grid-cols-[minmax(0,1fr)]"}`}>
+      {props.sidebarOpen ? (
+        <aside class="theme-sidebar py-2">
+          <div class="mb-5 border-b pb-4" style={{ "border-color": "var(--app-border)" }}>
+            <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">Profiles</p>
+            <h2 class="theme-text mt-2 text-lg font-semibold">SSH</h2>
+            <p class="theme-text-soft mt-1 text-sm leading-6">连接配置、跳板机和终端会话统一放在左侧管理。</p>
+          </div>
 
-        <div class="grid gap-3">
-          <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
-            <p class="theme-text text-sm font-semibold">Staging Web 01</p>
-            <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">deploy · jump enabled</p>
+          <div class="grid gap-3">
+            <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
+              <p class="theme-text text-sm font-semibold">Staging Web 01</p>
+              <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">deploy · jump enabled</p>
+            </div>
+            <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
+              <p class="theme-text text-sm font-semibold">Production Bastion</p>
+              <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">ops · restricted</p>
+            </div>
+            <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
+              <p class="theme-text text-sm font-semibold">Local Sandbox</p>
+              <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">testing shell</p>
+            </div>
           </div>
-          <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
-            <p class="theme-text text-sm font-semibold">Production Bastion</p>
-            <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">ops · restricted</p>
-          </div>
-          <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
-            <p class="theme-text text-sm font-semibold">Local Sandbox</p>
-            <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">testing shell</p>
-          </div>
-        </div>
-      </aside>
+        </aside>
+      ) : null}
 
       <div class="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
         <SectionCard eyebrow="SSH" title="Terminal Workspace">

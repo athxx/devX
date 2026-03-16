@@ -118,7 +118,11 @@ a {
 
 .theme-sidebar {
   border-right: 1px solid var(--app-border);
+  background: var(--app-panel);
+  backdrop-filter: blur(20px);
+  padding-left: 12px;
   padding-right: 16px;
+  padding-top: 12px;
 }
 
 .theme-sidebar-item {

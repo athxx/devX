@@ -154,75 +154,77 @@ function SidebarListSection(props: { title: string; eyebrow: string; children: J
   );
 }
 
-export function RestPlayground() {
+export function RestPlayground(props: { sidebarOpen: boolean }) {
   const [editorTab, setEditorTab] = createSignal<EditorTab>("params");
   const [responseTab, setResponseTab] = createSignal<ResponseTab>("body");
 
   return (
-    <div class="grid min-h-[calc(100vh-72px)] gap-4 xl:grid-cols-[220px_minmax(0,1fr)_320px]">
-      <aside class="theme-sidebar py-2">
-        <div class="mb-5 border-b pb-4" style={{ "border-color": "var(--app-border)" }}>
-          <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">Workspace</p>
-          <h2 class="theme-text mt-2 text-lg font-semibold">API Studio</h2>
-          <p class="theme-text-soft mt-1 text-sm leading-6">全屏工作区，按后台管理台的节奏组织模块和资源。</p>
-        </div>
+    <div class={`grid min-h-[calc(100vh-72px)] gap-4 ${props.sidebarOpen ? "xl:grid-cols-[220px_minmax(0,1fr)_320px]" : "xl:grid-cols-[minmax(0,1fr)_320px]"}`}>
+      {props.sidebarOpen ? (
+        <aside class="theme-sidebar py-2">
+          <div class="mb-5 border-b pb-4" style={{ "border-color": "var(--app-border)" }}>
+            <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">Workspace</p>
+            <h2 class="theme-text mt-2 text-lg font-semibold">API Studio</h2>
+            <p class="theme-text-soft mt-1 text-sm leading-6">全屏工作区，按后台管理台的节奏组织模块和资源。</p>
+          </div>
 
-        <div class="mb-5 grid gap-2">
-          <For each={navItems}>
-            {(item) => (
-              <button
-                class={`theme-sidebar-item w-full rounded-xl px-3 py-2.5 text-left ${
-                  item.active ? "theme-sidebar-item-active" : "theme-text-muted"
-                }`}
-              >
-                <p class={`text-sm font-semibold ${item.active ? "theme-text" : "theme-text-muted"}`}>
-                  {item.name}
-                </p>
-                <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">{item.summary}</p>
-              </button>
-            )}
-          </For>
-        </div>
+          <div class="mb-5 grid gap-2">
+            <For each={navItems}>
+              {(item) => (
+                <button
+                  class={`theme-sidebar-item w-full rounded-xl px-3 py-2.5 text-left ${
+                    item.active ? "theme-sidebar-item-active" : "theme-text-muted"
+                  }`}
+                >
+                  <p class={`text-sm font-semibold ${item.active ? "theme-text" : "theme-text-muted"}`}>
+                    {item.name}
+                  </p>
+                  <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">{item.summary}</p>
+                </button>
+              )}
+            </For>
+          </div>
 
-        <div class="space-y-5">
-          <SidebarListSection eyebrow="Collections" title="Saved Requests">
-            <For each={mockCollections}>
-              {(collection) => (
-                <button class="theme-sidebar-item w-full rounded-xl px-3 py-2.5 text-left">
-                  <div class="flex items-center justify-between gap-3">
-                    <div>
-                      <p class="theme-text text-sm font-semibold">{collection.name}</p>
-                      <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">Request group</p>
+          <div class="space-y-5">
+            <SidebarListSection eyebrow="Collections" title="Saved Requests">
+              <For each={mockCollections}>
+                {(collection) => (
+                  <button class="theme-sidebar-item w-full rounded-xl px-3 py-2.5 text-left">
+                    <div class="flex items-center justify-between gap-3">
+                      <div>
+                        <p class="theme-text text-sm font-semibold">{collection.name}</p>
+                        <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">Request group</p>
+                      </div>
+                      <span class="theme-chip rounded-full px-2.5 py-1 text-xs font-medium">{collection.count}</span>
                     </div>
-                    <span class="theme-chip rounded-full px-2.5 py-1 text-xs font-medium">{collection.count}</span>
-                  </div>
-                </button>
-              )}
-            </For>
-          </SidebarListSection>
+                  </button>
+                )}
+              </For>
+            </SidebarListSection>
 
-          <SidebarListSection eyebrow="History" title="Recent Runs">
-            <For each={mockHistory}>
-              {(entry) => (
-                <button class="theme-sidebar-item w-full rounded-xl px-3 py-2.5 text-left">
-                  <div class="mb-2 flex items-center justify-between gap-3">
-                    <span
-                      class={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] ${
-                        entry.method === "GET" ? "theme-success" : "theme-warn"
-                      }`}
-                    >
-                      {entry.method}
-                    </span>
-                    <span class="theme-text-soft text-xs">{entry.time}</span>
-                  </div>
-                  <p class="theme-text text-sm font-medium">{entry.name}</p>
-                  <p class="theme-text-muted mt-1 text-xs">HTTP {entry.status}</p>
-                </button>
-              )}
-            </For>
-          </SidebarListSection>
-        </div>
-      </aside>
+            <SidebarListSection eyebrow="History" title="Recent Runs">
+              <For each={mockHistory}>
+                {(entry) => (
+                  <button class="theme-sidebar-item w-full rounded-xl px-3 py-2.5 text-left">
+                    <div class="mb-2 flex items-center justify-between gap-3">
+                      <span
+                        class={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] ${
+                          entry.method === "GET" ? "theme-success" : "theme-warn"
+                        }`}
+                      >
+                        {entry.method}
+                      </span>
+                      <span class="theme-text-soft text-xs">{entry.time}</span>
+                    </div>
+                    <p class="theme-text text-sm font-medium">{entry.name}</p>
+                    <p class="theme-text-muted mt-1 text-xs">HTTP {entry.status}</p>
+                  </button>
+                )}
+              </For>
+            </SidebarListSection>
+          </div>
+        </aside>
+      ) : null}
 
       <div class="grid min-h-0 gap-4">
         <div class="theme-panel rounded-3xl p-4">

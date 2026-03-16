@@ -1,3 +1,5 @@
+import { getStoredValue, setStoredValue } from "./platform-storage";
+
 export type AppSettings = {
   workspaceName: string;
   apiBaseUrl: string;
@@ -17,24 +19,22 @@ export const defaultSettings: AppSettings = {
 const SETTINGS_KEY = "app-settings";
 
 export async function loadSettings(): Promise<AppSettings> {
-  const result = await chrome.storage.sync.get(SETTINGS_KEY);
+  const stored = await getStoredValue<Partial<AppSettings>>(SETTINGS_KEY, "sync");
+
   return {
     ...defaultSettings,
-    ...(result[SETTINGS_KEY] as Partial<AppSettings> | undefined)
+    ...stored
   };
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
-  await chrome.storage.sync.set({
-    [SETTINGS_KEY]: settings
-  });
+  await setStoredValue(SETTINGS_KEY, settings, "sync");
 }
 
 export async function ensureDefaultSettings(): Promise<void> {
-  const result = await chrome.storage.sync.get(SETTINGS_KEY);
+  const stored = await getStoredValue<Partial<AppSettings>>(SETTINGS_KEY, "sync");
 
-  if (!result[SETTINGS_KEY]) {
+  if (!stored) {
     await saveSettings(defaultSettings);
   }
 }
-

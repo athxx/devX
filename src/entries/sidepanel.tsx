@@ -17,7 +17,7 @@ function SidePanelApp() {
         </div>
       }
     >
-      <RestPlayground />
+      <RestPlayground sidebarOpen={true} />
     </AppShell>
   );
 }

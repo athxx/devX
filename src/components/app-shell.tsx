@@ -26,7 +26,7 @@ export const AppShell: ParentComponent<AppShellProps> = (props) => {
               <div class="shrink-0">{props.actions}</div>
             </div>
           </header>
-          <div class="px-4 py-4 md:px-6 md:py-5">{props.children}</div>
+          <div>{props.children}</div>
         </div>
       </main>
     );
