@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "DevOX",
+  "description": "Developer toolbox for API testing, formatting, diffing, and data utilities.",
+  "version": "0.1.0",
+  "permissions": ["storage", "sidePanel"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "assets/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "DevOX",
+    "default_popup": "popup.html"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "options_page": "options.html"
+}
+

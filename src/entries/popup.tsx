@@ -1,0 +1,73 @@
+import { For } from "solid-js";
+import { render } from "solid-js/web";
+import { tools } from "../app/tool-registry";
+import { AppShell } from "../components/app-shell";
+import { openOptionsPage, openSidePanel } from "../lib/runtime";
+import "../styles/main.css";
+
+function PopupApp() {
+  const quickTools = tools.filter((tool) => tool.status === "ready").slice(0, 4);
+
+  const handleOpenSidePanel = async () => {
+    await openSidePanel();
+    window.close();
+  };
+
+  const handleOpenOptions = async () => {
+    await openOptionsPage();
+    window.close();
+  };
+
+  return (
+    <AppShell
+      compact
+      title="DevOX"
+      subtitle="开发者工具箱的基础壳已经就位，主工作区放在 Side Panel 里。"
+    >
+      <section class="rounded-3xl border border-white/10 bg-ink-900/72 p-4 shadow-panel">
+        <div class="grid gap-3">
+          <button
+            class="rounded-2xl bg-accent-500 px-4 py-3 text-sm font-semibold text-ink-950 transition hover:bg-accent-400"
+            onClick={() => void handleOpenSidePanel()}
+          >
+            Open Workspace
+          </button>
+          <button
+            class="rounded-2xl border border-white/12 bg-white/6 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/10"
+            onClick={() => void handleOpenOptions()}
+          >
+            Open Settings
+          </button>
+        </div>
+      </section>
+
+      <section class="rounded-3xl border border-white/10 bg-ink-900/72 p-4 shadow-panel">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="text-sm font-semibold uppercase tracking-[0.18em] text-white/70">
+            Quick Modules
+          </h2>
+          <span class="text-xs text-white/45">{quickTools.length} ready</span>
+        </div>
+        <div class="grid gap-3">
+          <For each={quickTools}>
+            {(tool) => (
+              <div class="rounded-2xl border border-white/8 bg-white/4 px-3 py-3">
+                <p class="text-sm font-medium text-white">{tool.name}</p>
+                <p class="mt-1 text-xs leading-5 text-white/65">{tool.summary}</p>
+              </div>
+            )}
+          </For>
+        </div>
+      </section>
+    </AppShell>
+  );
+}
+
+const root = document.getElementById("root");
+
+if (!root) {
+  throw new Error("Popup root element not found");
+}
+
+render(() => <PopupApp />, root);
+
