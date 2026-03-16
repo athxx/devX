@@ -1,15 +1,17 @@
 import { For } from "solid-js";
 import { render } from "solid-js/web";
+import "@unocss/reset/tailwind.css";
+import "uno.css";
 import { tools } from "../app/tool-registry";
 import { AppShell } from "../components/app-shell";
-import { openOptionsPage, openSidePanel } from "../lib/runtime";
+import { openAppPage, openOptionsPage } from "../lib/runtime";
 import "../styles/main.css";
 
 function PopupApp() {
   const quickTools = tools.filter((tool) => tool.status === "ready").slice(0, 4);
 
-  const handleOpenSidePanel = async () => {
-    await openSidePanel();
+  const handleOpenApp = async () => {
+    await openAppPage();
     window.close();
   };
 
@@ -22,15 +24,15 @@ function PopupApp() {
     <AppShell
       compact
       title="DevOX"
-      subtitle="开发者工具箱的基础壳已经就位，主工作区放在 Side Panel 里。"
+      subtitle="开发者工具箱现在以完整页面为主工作区，点击后会打开独立标签页。"
     >
       <section class="rounded-3xl border border-white/10 bg-ink-900/72 p-4 shadow-panel">
         <div class="grid gap-3">
           <button
             class="rounded-2xl bg-accent-500 px-4 py-3 text-sm font-semibold text-ink-950 transition hover:bg-accent-400"
-            onClick={() => void handleOpenSidePanel()}
+            onClick={() => void handleOpenApp()}
           >
-            Open Workspace
+            Open Full App
           </button>
           <button
             class="rounded-2xl border border-white/12 bg-white/6 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/10"
@@ -70,4 +72,3 @@ if (!root) {
 }
 
 render(() => <PopupApp />, root);
-

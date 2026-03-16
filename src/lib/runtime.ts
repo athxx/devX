@@ -2,13 +2,8 @@ export async function openOptionsPage() {
   await chrome.runtime.openOptionsPage();
 }
 
-export async function openSidePanel() {
-  const currentWindow = await chrome.windows.getCurrent();
-
-  if (!currentWindow.id) {
-    return;
-  }
-
-  await chrome.sidePanel.open({ windowId: currentWindow.id });
+export async function openAppPage() {
+  await chrome.tabs.create({
+    url: chrome.runtime.getURL("app.html")
+  });
 }
-

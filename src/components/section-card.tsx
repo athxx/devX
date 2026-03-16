@@ -7,17 +7,16 @@ type SectionCardProps = {
 
 export const SectionCard: ParentComponent<SectionCardProps> = (props) => {
   return (
-    <section class="rounded-3xl border border-white/10 bg-ink-900/72 p-5 shadow-panel backdrop-blur">
+    <section class="theme-panel rounded-3xl p-5">
       <div class="mb-4 space-y-1">
         {props.eyebrow ? (
-          <p class="text-xs font-semibold uppercase tracking-[0.22em] text-accent-400">
+          <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">
             {props.eyebrow}
           </p>
         ) : null}
-        <h2 class="text-lg font-semibold text-white">{props.title}</h2>
+        <h2 class="theme-text text-lg font-semibold">{props.title}</h2>
       </div>
       {props.children}
     </section>
   );
 };
-
