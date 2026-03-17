@@ -577,6 +577,23 @@ function MacCloseIcon() {
   );
 }
 
+function MacAddIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <g clip-path="url(#clip0_mac_add)">
+        <path d="M20 40c11.046 0 20-8.954 20-20S31.046 0 20 0 0 8.954 0 20s8.954 20 20 20z" fill="#28C840"/>
+        <path d="M20 39c10.493 0 19-8.507 19-19S30.493 1 20 1 1 9.507 1 20s8.507 19 19 19z" stroke="#000" stroke-opacity=".2" stroke-width="2"/>
+        <path d="M20 8a1 1 0 0 1 1 1v10h10a1 1 0 1 1 0 2H21v10a1 1 0 1 1-2 0V21H9a1 1 0 1 1 0-2h10V9a1 1 0 0 1 1-1z" fill="#000" fill-opacity=".5"/>
+      </g>
+      <defs>
+        <clipPath id="clip0_mac_add">
+          <rect width="40" height="40" fill="white"/>
+        </clipPath>
+      </defs>
+    </svg>
+  );
+}
+
 function PinIcon() {
   return (
     <svg
@@ -652,21 +669,21 @@ function KeyValueTableEditor(props: {
 }) {
   return (
     <div class="overflow-hidden border" style={{ "border-color": "var(--app-border)" }}>
-      <div class="theme-kv-grid grid grid-cols-[88px_1fr_1fr_54px] gap-px">
-        <div class="theme-kv-head px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em]">State</div>
-        <div class="theme-kv-head px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em]">Key</div>
-        <div class="theme-kv-head px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em]">Value</div>
-        <div class="theme-kv-head px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em]">Del</div>
+      <div class="theme-kv-grid grid grid-cols-[68px_1fr_1fr_44px] gap-px">
+        <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">State</div>
+        <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">Key</div>
+        <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">Value</div>
+        <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">Del</div>
 
         <For each={props.rows}>
           {(row) => (
             <>
-              <div class="theme-kv-cell-muted flex items-center px-3 py-3 text-sm">
+              <div class="theme-kv-cell-muted flex items-center justify-center px-2 py-1.5 text-sm">
                 <Show
                   when={!props.readOnly}
                   fallback={
                     <span
-                      class={`inline-flex rounded-full px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
+                      class={`inline-flex items-center justify-center rounded-full px-2 py-0.75 text-[10px] font-semibold uppercase tracking-[0.16em] ${
                         row.enabled
                           ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
                           : "theme-chip"
@@ -677,7 +694,7 @@ function KeyValueTableEditor(props: {
                   }
                 >
                   <button
-                    class={`rounded-full px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
+                    class={`inline-flex min-w-[38px] items-center justify-center rounded-full px-2 py-0.75 text-[10px] font-semibold uppercase tracking-[0.16em] ${
                       row.enabled
                         ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
                         : "theme-chip"
@@ -695,7 +712,7 @@ function KeyValueTableEditor(props: {
                   fallback={<div class="px-3 py-2 text-sm">{row.key}</div>}
                 >
                   <input
-                    class="theme-input w-full rounded-lg px-3 py-2 text-sm"
+                    class="theme-input h-8 w-full rounded-md px-2.5 py-1 text-sm"
                     placeholder="key"
                     value={row.key}
                     onInput={(event) => props.onUpdate?.(row.id, "key", event.currentTarget.value)}
@@ -703,13 +720,13 @@ function KeyValueTableEditor(props: {
                 </Show>
               </div>
 
-              <div class="theme-kv-cell-muted px-2 py-2">
+              <div class="theme-kv-cell-muted px-1.5 py-1.5">
                 <Show
                   when={!props.readOnly}
                   fallback={<div class="px-3 py-2 font-mono text-sm">{row.value}</div>}
                 >
                   <input
-                    class="theme-input w-full rounded-lg px-3 py-2 font-mono text-sm"
+                    class="theme-input h-8 w-full rounded-md px-2.5 py-1 font-mono text-sm"
                     placeholder={props.valuePlaceholder ?? "value"}
                     value={row.value}
                     onInput={(event) => props.onUpdate?.(row.id, "value", event.currentTarget.value)}
@@ -717,13 +734,13 @@ function KeyValueTableEditor(props: {
                 </Show>
               </div>
 
-              <div class="theme-kv-cell-muted flex items-center justify-center px-2 py-2">
+              <div class="theme-kv-cell-muted flex items-center justify-center px-1 py-1.5">
                 <Show when={!props.readOnly}>
                   <button
-                    class="theme-control rounded-lg px-3 py-2 text-sm"
+                    class="inline-flex h-6 w-6 items-center justify-center"
                     onClick={() => props.onRemove?.(row.id)}
                   >
-                    ×
+                    <MacCloseIcon />
                   </button>
                 </Show>
               </div>
@@ -732,15 +749,6 @@ function KeyValueTableEditor(props: {
         </For>
       </div>
 
-      <Show when={!props.readOnly}>
-        <div class="border-t px-2 py-2" style={{ "border-color": "var(--app-border)" }}>
-          <div class="flex justify-end">
-            <button class="theme-control rounded-lg px-3 py-2 text-sm font-medium" onClick={props.onAdd}>
-              Add Row
-            </button>
-          </div>
-        </div>
-      </Show>
     </div>
   );
 }
@@ -750,7 +758,11 @@ export function RestPlayground(props: RestPlaygroundProps) {
   const [isLoaded, setIsLoaded] = createSignal(false);
   const [sidebarPanel, setSidebarPanel] = createSignal<SidebarPanelId>("collections");
   const [editorTab, setEditorTab] = createSignal<EditorTabId>("params");
+  const [topEditorTab, setTopEditorTab] = createSignal<"headers" | "auth">("headers");
+  const [bottomEditorTab, setBottomEditorTab] = createSignal<"body" | "params">("body");
   const [responseTab, setResponseTab] = createSignal<ResponseTabId>("body");
+  const [mainPaneSplit, setMainPaneSplit] = createSignal(40);
+  const [mainPaneResizing, setMainPaneResizing] = createSignal(false);
   const [expandedCollectionIds, setExpandedCollectionIds] = createSignal<string[]>([]);
   const [collectionFilter, setCollectionFilter] = createSignal("");
   const [responseSummary, setResponseSummary] = createSignal<ResponseSummary | null>(null);
@@ -784,6 +796,8 @@ export function RestPlayground(props: RestPlaygroundProps) {
   let importCollectionInputRef: HTMLInputElement | undefined;
   let persistTimer: number | undefined;
   let saveFeedbackTimer: number | undefined;
+
+  const mainPaneSplitStorageKey = "devox-api-main-pane-split";
 
   const requestMap = createMemo(() => new Map(workspace.requests.map((request) => [request.id, request])));
   const activeRequest = createMemo(
@@ -924,6 +938,10 @@ export function RestPlayground(props: RestPlaygroundProps) {
     setRequestOrderMenuId(null);
     setRequestMoveMenuId(null);
     setRequestTabMenuState(null);
+  }
+
+  function clampMainPaneSplit(value: number) {
+    return Math.min(72, Math.max(28, Math.round(value)));
   }
 
   function snapshotWorkspace() {
@@ -1934,8 +1952,43 @@ export function RestPlayground(props: RestPlaygroundProps) {
     return expandedCollectionIds().includes(collectionId) || collectionFilter().trim().length > 0;
   }
 
+  function startMainPaneResize(event: MouseEvent) {
+    event.preventDefault();
+    const container = (event.currentTarget as HTMLElement | null)?.parentElement;
+    if (!container) {
+      return;
+    }
+
+    const bounds = container.getBoundingClientRect();
+    setMainPaneResizing(true);
+
+    const handlePointerMove = (moveEvent: MouseEvent) => {
+      const relativeX = moveEvent.clientX - bounds.left;
+      const nextSplit = clampMainPaneSplit((relativeX / bounds.width) * 100);
+      setMainPaneSplit(nextSplit);
+    };
+
+    const handlePointerUp = () => {
+      setMainPaneResizing(false);
+      window.localStorage.setItem(mainPaneSplitStorageKey, String(mainPaneSplit()));
+      window.removeEventListener("mousemove", handlePointerMove);
+      window.removeEventListener("mouseup", handlePointerUp);
+    };
+
+    window.addEventListener("mousemove", handlePointerMove);
+    window.addEventListener("mouseup", handlePointerUp, { once: true });
+  }
+
   onMount(() => {
     let disposed = false;
+
+    const savedMainPaneSplit = window.localStorage.getItem(mainPaneSplitStorageKey);
+    if (savedMainPaneSplit) {
+      const parsed = Number(savedMainPaneSplit);
+      if (!Number.isNaN(parsed)) {
+        setMainPaneSplit(clampMainPaneSplit(parsed));
+      }
+    }
 
     loadRestWorkspace()
       .then((state) => {
@@ -1994,7 +2047,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
         sidebarResizing={props.sidebarResizing}
         onResizeStart={props.onSidebarResizeStart}
         rootClass="min-h-[calc(100vh-72px)]"
-        contentClass="theme-workspace-pane grid min-h-0 gap-0"
+        contentClass="theme-workspace-pane grid min-h-0 content-start gap-0"
         contentStyle={{ "border-color": "var(--app-border)" }}
         sidebar={
           <div class="space-y-4">
@@ -2040,7 +2093,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                   </div>
 
                   <input
-                    class="theme-input w-full rounded-lg px-3 py-2 text-sm"
+                    class="theme-input h-8 w-full rounded-md px-2.5 py-1 text-sm"
                     placeholder="Filter collections, folders, requests"
                     value={collectionFilter()}
                     onInput={(event) => setCollectionFilter(event.currentTarget.value)}
@@ -2344,7 +2397,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                   {(folderEntry) => (
                                     <div class="grid gap-1">
                                       <div class="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5">
-                                        <span class="theme-chip rounded-full px-2 py-0.5 text-[11px] font-medium">dir</span>
+                                        <span class="theme-chip rounded-full px-2 py-0.5 text-[11px] font-medium">Dir</span>
                                         <p class="min-w-0 flex-1 truncate text-[13px] font-medium" title={folderEntry.folder.name}>
                                           {folderEntry.folder.name}
                                         </p>
@@ -2761,14 +2814,14 @@ export function RestPlayground(props: RestPlaygroundProps) {
               {(request) => (
                 <div class="flex flex-wrap items-center gap-2">
                   <input
-                    class="theme-input min-w-[180px] rounded-lg px-3 py-2 text-sm"
+                    class="theme-input h-8 min-w-[180px] rounded-md px-2.5 py-1 text-sm"
                     value={request().name}
                     onInput={(event) => updateActiveRequest((current) => {
                       current.name = event.currentTarget.value;
                     })}
                   />
                   <select
-                    class="theme-input rounded-lg px-3 py-2 text-sm font-semibold"
+                    class="theme-input h-8 rounded-md px-2.5 py-1 text-sm font-semibold"
                     value={request().method}
                     disabled={!canSendActiveRequest()}
                     onInput={(event) => updateActiveRequest((current) => {
@@ -2780,14 +2833,14 @@ export function RestPlayground(props: RestPlaygroundProps) {
                     </For>
                   </select>
                   <input
-                    class="theme-input min-w-[280px] flex-1 rounded-lg px-3 py-2 text-sm transition"
+                    class="theme-input h-8 min-w-[280px] flex-1 rounded-md px-2.5 py-1 text-sm transition"
                     value={request().url}
                     onInput={(event) => updateActiveRequest((current) => {
                       current.url = event.currentTarget.value;
                     })}
                   />
                   <select
-                    class="theme-input rounded-lg px-3 py-2 text-sm"
+                    class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
                     value={workspace.activeEnvironmentId}
                     onInput={(event) => commitWorkspace((next) => {
                       next.activeEnvironmentId = event.currentTarget.value;
@@ -2799,7 +2852,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                   </select>
                   <div class="flex items-center gap-2">
                     <button
-                      class={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+                      class={`h-8 rounded-md px-3 py-1 text-sm font-medium transition ${
                         saveState() === "saved"
                           ? "bg-[#34c759] text-white"
                           : saveState() === "error"
@@ -2819,7 +2872,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                     </button>
                   </div>
                   <button
-                    class="theme-button-primary rounded-lg px-4 py-2 text-sm font-semibold transition"
+                    class="theme-button-primary h-8 rounded-md px-4 py-1 text-sm font-semibold transition"
                     disabled={isSending() || !canSendActiveRequest()}
                     onClick={() => void sendActiveRequest()}
                   >
@@ -2831,198 +2884,290 @@ export function RestPlayground(props: RestPlaygroundProps) {
           </div>
         </div>
 
-        <LinearSection>
-          <div class="space-y-4">
-            <Show when={!canSendActiveRequest() && activeRequest()}>
-              {(request) => (
-                <div class="rounded-lg border px-3 py-2.5 text-sm" style={{ "border-color": "var(--app-border)", background: "var(--app-panel-soft)" }}>
-                  <span class="theme-text">
-                    {request().kind === "websocket" ? "WebSocket" : "Socket.IO"} workspace will be added next.
-                  </span>
+        <div
+          class="grid min-h-0 flex-1"
+          style={{
+            "grid-template-columns": `minmax(0, ${mainPaneSplit()}fr) 10px minmax(360px, ${100 - mainPaneSplit()}fr)`
+          }}
+        >
+          <div class="flex min-h-0 flex-col border-r" style={{ "border-color": "var(--app-border)" }}>
+            <div class="shrink-0 border-b px-3 py-2" style={{ "border-color": "var(--app-border)" }}>
+              <Show when={!canSendActiveRequest() && activeRequest()}>
+                {(request) => (
+                  <div class="mb-3 rounded-lg border px-3 py-2.5 text-sm" style={{ "border-color": "var(--app-border)", background: "var(--app-panel-soft)" }}>
+                    <span class="theme-text">
+                      {request().kind === "websocket" ? "WebSocket" : "Socket.IO"} workspace will be added next.
+                    </span>
+                  </div>
+                )}
+              </Show>
+
+              <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <EditorToggle active={topEditorTab() === "headers"} label="Headers" onClick={() => setTopEditorTab("headers")} />
+                  <EditorToggle active={topEditorTab() === "auth"} label="Auth" onClick={() => setTopEditorTab("auth")} />
                 </div>
-              )}
-            </Show>
+                <Show when={topEditorTab() === "headers"}>
+                  <button
+                    class="inline-flex h-6 w-6 items-center justify-center rounded-full transition"
+                    title="Add header"
+                    onClick={() => updateActiveRequest((current) => {
+                      current.headers = [...current.headers, createKeyValueEntry()];
+                    })}
+                  >
+                    <MacAddIcon />
+                  </button>
+                </Show>
+              </div>
 
-            <div class="mb-3 flex flex-wrap items-center gap-1.5">
-              <For each={editorTabs}>
-                {(tab) => <EditorToggle active={editorTab() === tab.id} label={tab.label} onClick={() => setEditorTab(tab.id)} />}
-              </For>
-            </div>
-
-            <Show when={activeRequest()}>
-              {(request) => (
-                <Switch>
-                  <Match when={editorTab() === "params"}>
-                    <KeyValueTableEditor
-                      rows={request().query}
-                      valuePlaceholder="{{variable}}"
-                      onUpdate={(id, key, value) => updateActiveRequest((current) => {
-                        current.query = current.query.map((entry) =>
-                          entry.id === id ? { ...entry, [key]: value } : entry
-                        );
-                      })}
-                      onToggle={(id) => updateActiveRequest((current) => {
-                        current.query = current.query.map((entry) =>
-                          entry.id === id ? { ...entry, enabled: !entry.enabled } : entry
-                        );
-                      })}
-                      onRemove={(id) => updateActiveRequest((current) => {
-                        current.query = current.query.filter((entry) => entry.id !== id);
-                      })}
-                      onAdd={() => updateActiveRequest((current) => {
-                        current.query = [...current.query, createKeyValueEntry()];
-                      })}
-                    />
-                  </Match>
-
-                  <Match when={editorTab() === "headers"}>
-                    <KeyValueTableEditor
-                      rows={request().headers}
-                      valuePlaceholder="application/json"
-                      onUpdate={(id, key, value) => updateActiveRequest((current) => {
-                        current.headers = current.headers.map((entry) =>
-                          entry.id === id ? { ...entry, [key]: value } : entry
-                        );
-                      })}
-                      onToggle={(id) => updateActiveRequest((current) => {
-                        current.headers = current.headers.map((entry) =>
-                          entry.id === id ? { ...entry, enabled: !entry.enabled } : entry
-                        );
-                      })}
-                      onRemove={(id) => updateActiveRequest((current) => {
-                        current.headers = current.headers.filter((entry) => entry.id !== id);
-                      })}
-                      onAdd={() => updateActiveRequest((current) => {
-                        current.headers = [...current.headers, createKeyValueEntry()];
-                      })}
-                    />
-                  </Match>
-
-                  <Match when={editorTab() === "body"}>
-                    <div class="grid gap-4">
-                      <div class="flex flex-wrap items-center gap-3">
-                        <select
-                          class="theme-input rounded-lg px-3 py-2 text-sm"
-                          value={request().body.type}
-                          onInput={(event) => {
-                            const nextType = event.currentTarget.value as RequestBody["type"];
-                            updateActiveRequest((current) => {
-                              switch (nextType) {
-                                case "json":
-                                  current.body = { type: "json", value: "{\n  \n}" };
-                                  break;
-                                case "raw":
-                                  current.body = { type: "raw", value: "", contentType: "text/plain" };
-                                  break;
-                                case "form-urlencoded":
-                                  current.body = { type: "form-urlencoded", entries: [createKeyValueEntry()] };
-                                  break;
-                                default:
-                                  current.body = { type: "none" };
-                              }
-                            });
-                          }}
-                        >
-                          <option value="none">None</option>
-                          <option value="json">JSON</option>
-                          <option value="raw">Raw</option>
-                          <option value="form-urlencoded">Form Urlencoded</option>
-                        </select>
-                      </div>
-                      <Show when={request().body.type === "json" || request().body.type === "raw"}>
-                        <textarea
-                          class="theme-input min-h-[220px] w-full rounded-lg px-3 py-3 font-mono text-sm leading-6 transition"
-                          value={request().body.type === "json" || request().body.type === "raw" ? request().body.value : ""}
-                          onInput={(event) => updateActiveRequest((current) => {
-                            if (current.body.type === "json" || current.body.type === "raw") {
-                              current.body = { ...current.body, value: event.currentTarget.value };
-                            }
-                          })}
-                        />
-                      </Show>
-                      <Show when={request().body.type === "form-urlencoded"}>
+              <div class="max-h-[34dvh] overflow-auto">
+                <Show when={activeRequest()}>
+                  {(request) => (
+                    <Switch>
+                      <Match when={topEditorTab() === "headers"}>
                         <KeyValueTableEditor
-                          rows={request().body.type === "form-urlencoded" ? request().body.entries : []}
+                          rows={request().headers}
+                          valuePlaceholder="application/json"
                           onUpdate={(id, key, value) => updateActiveRequest((current) => {
-                            if (current.body.type === "form-urlencoded") {
-                              current.body = {
-                                ...current.body,
-                                entries: current.body.entries.map((entry) =>
-                                  entry.id === id ? { ...entry, [key]: value } : entry
-                                )
-                              };
-                            }
+                            current.headers = current.headers.map((entry) =>
+                              entry.id === id ? { ...entry, [key]: value } : entry
+                            );
                           })}
                           onToggle={(id) => updateActiveRequest((current) => {
-                            if (current.body.type === "form-urlencoded") {
-                              current.body = {
-                                ...current.body,
-                                entries: current.body.entries.map((entry) =>
-                                  entry.id === id ? { ...entry, enabled: !entry.enabled } : entry
-                                )
-                              };
-                            }
+                            current.headers = current.headers.map((entry) =>
+                              entry.id === id ? { ...entry, enabled: !entry.enabled } : entry
+                            );
                           })}
                           onRemove={(id) => updateActiveRequest((current) => {
-                            if (current.body.type === "form-urlencoded") {
-                              current.body = {
-                                ...current.body,
-                                entries: current.body.entries.filter((entry) => entry.id !== id)
-                              };
-                            }
+                            current.headers = current.headers.filter((entry) => entry.id !== id);
                           })}
                           onAdd={() => updateActiveRequest((current) => {
-                            if (current.body.type === "form-urlencoded") {
-                              current.body = {
-                                ...current.body,
-                                entries: [...current.body.entries, createKeyValueEntry()]
-                              };
-                            }
+                            current.headers = [...current.headers, createKeyValueEntry()];
                           })}
                         />
-                      </Show>
-                    </div>
-                  </Match>
+                      </Match>
 
-                  <Match when={editorTab() === "auth"}>
-                    <div class="grid gap-4 md:grid-cols-2">
-                      <label class="theme-text-muted grid gap-2 text-sm">
-                        <span class="theme-text font-medium">Auth Type</span>
-                        <select
-                          class="theme-input rounded-lg px-3 py-2 text-sm"
-                          value={request().auth.type}
-                          onInput={(event) => updateActiveRequest((current) => {
-                            const nextType = event.currentTarget.value;
-                            if (nextType === "bearer") {
-                              current.auth = { type: "bearer", token: "" };
-                            } else if (nextType === "basic") {
-                              current.auth = { type: "basic", username: "", password: "" };
-                            } else if (nextType === "api-key") {
-                              current.auth = { type: "api-key", key: "x-api-key", value: "", addTo: "header" };
-                            } else {
-                              current.auth = { type: "none" };
-                            }
+                      <Match when={topEditorTab() === "auth"}>
+                        <div class="flex flex-wrap content-start gap-3">
+                          <label class="theme-text-muted grid min-w-[220px] flex-1 gap-1.5 text-sm">
+                            <span class="theme-text font-medium">Auth Type</span>
+                            <select
+                              class="theme-input rounded-lg px-2.5 py-1.5 text-sm"
+                              value={request().auth.type}
+                              onInput={(event) => updateActiveRequest((current) => {
+                                const nextType = event.currentTarget.value;
+                                if (nextType === "bearer") {
+                                  current.auth = { type: "bearer", token: "" };
+                                } else if (nextType === "basic") {
+                                  current.auth = { type: "basic", username: "", password: "" };
+                                } else if (nextType === "api-key") {
+                                  current.auth = { type: "api-key", key: "x-api-key", value: "", addTo: "header" };
+                                } else {
+                                  current.auth = { type: "none" };
+                                }
+                              })}
+                            >
+                              <option value="none">None</option>
+                              <option value="bearer">Bearer Token</option>
+                              <option value="basic">Basic Auth</option>
+                              <option value="api-key">API Key</option>
+                            </select>
+                          </label>
+
+                          <Show when={request().auth.type === "bearer"}>
+                            <label class="theme-text-muted grid min-w-[220px] flex-1 gap-1.5 text-sm">
+                              <span class="theme-text font-medium">Token</span>
+                              <input
+                                class="theme-input rounded-lg px-2.5 py-1.5 text-sm"
+                                value={request().auth.type === "bearer" ? request().auth.token : ""}
+                                onInput={(event) => updateActiveRequest((current) => {
+                                  if (current.auth.type === "bearer") {
+                                    current.auth = { ...current.auth, token: event.currentTarget.value };
+                                  }
+                                })}
+                              />
+                            </label>
+                          </Show>
+                        </div>
+                      </Match>
+                    </Switch>
+                  )}
+                </Show>
+              </div>
+            </div>
+
+            <div class="min-h-0 flex-1 overflow-auto px-3 py-2">
+              <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <EditorToggle active={bottomEditorTab() === "body"} label="Body" onClick={() => setBottomEditorTab("body")} />
+                  <EditorToggle active={bottomEditorTab() === "params"} label="Params" onClick={() => setBottomEditorTab("params")} />
+                </div>
+                <Show when={bottomEditorTab() === "params"}>
+                  <button
+                    class="inline-flex h-6 w-6 items-center justify-center rounded-full transition"
+                    title="Add param"
+                    onClick={() => updateActiveRequest((current) => {
+                      current.query = [...current.query, createKeyValueEntry()];
+                    })}
+                  >
+                    <MacAddIcon />
+                  </button>
+                </Show>
+              </div>
+
+              <div class="min-h-0">
+                <Show when={activeRequest()}>
+                  {(request) => (
+                    <Switch>
+                      <Match when={bottomEditorTab() === "params"}>
+                        <KeyValueTableEditor
+                          rows={request().query}
+                          valuePlaceholder="{{variable}}"
+                          onUpdate={(id, key, value) => updateActiveRequest((current) => {
+                            current.query = current.query.map((entry) =>
+                              entry.id === id ? { ...entry, [key]: value } : entry
+                            );
                           })}
-                        >
-                          <option value="none">None</option>
-                          <option value="bearer">Bearer Token</option>
-                          <option value="basic">Basic Auth</option>
-                          <option value="api-key">API Key</option>
-                        </select>
-                      </label>
-                    </div>
-                  </Match>
-                </Switch>
-              )}
-            </Show>
-          </div>
-        </LinearSection>
+                          onToggle={(id) => updateActiveRequest((current) => {
+                            current.query = current.query.map((entry) =>
+                              entry.id === id ? { ...entry, enabled: !entry.enabled } : entry
+                            );
+                          })}
+                          onRemove={(id) => updateActiveRequest((current) => {
+                            current.query = current.query.filter((entry) => entry.id !== id);
+                          })}
+                          onAdd={() => updateActiveRequest((current) => {
+                            current.query = [...current.query, createKeyValueEntry()];
+                          })}
+                        />
+                      </Match>
 
-        <LinearSection eyebrow="Response" title="Response Viewer" class="border-b">
-          <div class="space-y-4">
+                      <Match when={bottomEditorTab() === "body"}>
+                        <div class="flex flex-col items-start gap-3">
+                          <div class="flex flex-wrap items-center justify-between gap-3">
+                            <select
+                              class="theme-input rounded-lg px-2.5 py-1.5 text-sm"
+                              value={request().body.type}
+                              onInput={(event) => {
+                                const nextType = event.currentTarget.value as RequestBody["type"];
+                                updateActiveRequest((current) => {
+                                  switch (nextType) {
+                                    case "json":
+                                      current.body = { type: "json", value: "{\n  \n}" };
+                                      break;
+                                    case "raw":
+                                      current.body = { type: "raw", value: "", contentType: "text/plain" };
+                                      break;
+                                    case "form-urlencoded":
+                                      current.body = { type: "form-urlencoded", entries: [createKeyValueEntry()] };
+                                      break;
+                                    default:
+                                      current.body = { type: "none" };
+                                  }
+                                });
+                              }}
+                            >
+                              <option value="none">None</option>
+                              <option value="json">JSON</option>
+                              <option value="raw">Raw</option>
+                              <option value="form-urlencoded">Form Urlencoded</option>
+                            </select>
+                            <Show when={request().body.type === "form-urlencoded"}>
+                              <button
+                                class="inline-flex h-6 w-6 items-center justify-center rounded-full transition"
+                                title="Add body row"
+                                onClick={() => updateActiveRequest((current) => {
+                                  if (current.body.type === "form-urlencoded") {
+                                    current.body = {
+                                      ...current.body,
+                                      entries: [...current.body.entries, createKeyValueEntry()]
+                                    };
+                                  }
+                                })}
+                              >
+                                <MacAddIcon />
+                              </button>
+                            </Show>
+                          </div>
+
+                          <Show when={request().body.type === "json" || request().body.type === "raw"}>
+                            <textarea
+                              class="theme-input min-h-[220px] w-full rounded-lg px-2.5 py-2 font-mono text-sm leading-6 transition"
+                              value={request().body.type === "json" || request().body.type === "raw" ? request().body.value : ""}
+                              onInput={(event) => updateActiveRequest((current) => {
+                                if (current.body.type === "json" || current.body.type === "raw") {
+                                  current.body = { ...current.body, value: event.currentTarget.value };
+                                }
+                              })}
+                            />
+                          </Show>
+
+                          <Show when={request().body.type === "form-urlencoded"}>
+                            <KeyValueTableEditor
+                              rows={request().body.type === "form-urlencoded" ? request().body.entries : []}
+                              onUpdate={(id, key, value) => updateActiveRequest((current) => {
+                                if (current.body.type === "form-urlencoded") {
+                                  current.body = {
+                                    ...current.body,
+                                    entries: current.body.entries.map((entry) =>
+                                      entry.id === id ? { ...entry, [key]: value } : entry
+                                    )
+                                  };
+                                }
+                              })}
+                              onToggle={(id) => updateActiveRequest((current) => {
+                                if (current.body.type === "form-urlencoded") {
+                                  current.body = {
+                                    ...current.body,
+                                    entries: current.body.entries.map((entry) =>
+                                      entry.id === id ? { ...entry, enabled: !entry.enabled } : entry
+                                    )
+                                  };
+                                }
+                              })}
+                              onRemove={(id) => updateActiveRequest((current) => {
+                                if (current.body.type === "form-urlencoded") {
+                                  current.body = {
+                                    ...current.body,
+                                    entries: current.body.entries.filter((entry) => entry.id !== id)
+                                  };
+                                }
+                              })}
+                            />
+                          </Show>
+                        </div>
+                      </Match>
+                    </Switch>
+                  )}
+                </Show>
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="relative cursor-col-resize select-none"
+            aria-hidden="true"
+            onMouseDown={startMainPaneResize}
+          >
+            <div
+              class={`absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2 transition ${
+                mainPaneResizing() ? "bg-[var(--app-accent)]" : ""
+              }`}
+              style={{
+                background: mainPaneResizing()
+                  ? "var(--app-accent)"
+                  : "color-mix(in srgb, var(--app-accent) 28%, var(--app-border))"
+              }}
+            />
+          </div>
+
+          <div
+            class="flex min-h-0 flex-col px-3 py-2"
+            style={{ "min-height": "calc(100dvh - 128px)" }}
+          >
             <Show when={responseSummary()}>
               {(summary) => (
-                <div class="grid gap-px overflow-hidden border md:grid-cols-4" style={{ "border-color": "var(--app-border)", background: "var(--app-border)" }}>
+                <div class="mb-3 grid gap-px overflow-hidden border md:grid-cols-4" style={{ "border-color": "var(--app-border)", background: "var(--app-border)" }}>
                   <div class="theme-kv-cell-muted px-4 py-3">
                     <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">Status</p>
                     <p class="theme-text mt-1 text-base font-semibold">{summary().status} {summary().statusText}</p>
@@ -3044,47 +3189,34 @@ export function RestPlayground(props: RestPlaygroundProps) {
             </Show>
 
             <Show when={responseError()}>
-              <div class="border px-4 py-3 text-sm theme-warn" style={{ "border-color": "var(--app-border)" }}>
+              <div class="mb-3 border px-4 py-3 text-sm theme-warn" style={{ "border-color": "var(--app-border)" }}>
                 {responseError()}
               </div>
             </Show>
 
-            <div class="mb-2 flex flex-wrap items-center gap-1.5">
-              <For each={responseTabs}>
-                {(tab) => <EditorToggle active={responseTab() === tab.id} label={tab.label} onClick={() => setResponseTab(tab.id)} />}
-              </For>
+            <div class="mb-3 flex flex-wrap items-center gap-1.5">
+              <EditorToggle active={responseTab() === "body"} label="Body" onClick={() => setResponseTab("body")} />
+              <EditorToggle active={responseTab() === "headers"} label="Headers" onClick={() => setResponseTab("headers")} />
             </div>
 
+            <div class="min-h-0 flex-1">
             <Switch>
               <Match when={responseTab() === "body"}>
-                <div class="theme-code border" style={{ "border-color": "var(--app-border)" }}>
-                  <pre class="theme-text-muted overflow-x-auto px-3 py-3 font-mono text-sm leading-7">
+                <div class="theme-code flex h-full min-h-[240px] flex-col border" style={{ "border-color": "var(--app-border)" }}>
+                  <pre class="theme-text-muted h-full flex-1 overflow-x-auto px-3 py-3 font-mono text-sm leading-7">
                     <code>{responseSummary()?.body ?? "Send a request to inspect the response body."}</code>
                   </pre>
                 </div>
               </Match>
               <Match when={responseTab() === "headers"}>
-                <KeyValueTableEditor rows={responseSummary()?.headers ?? []} readOnly />
-              </Match>
-              <Match when={responseTab() === "timeline"}>
-                <div class="grid gap-px overflow-hidden border md:grid-cols-3" style={{ "border-color": "var(--app-border)", background: "var(--app-border)" }}>
-                  <div class="theme-kv-cell-muted px-4 py-4">
-                    <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">Resolved URL</p>
-                    <p class="theme-text mt-2 break-all text-sm font-medium">{responseSummary()?.finalUrl ?? activeRequestResolvedUrl()}</p>
-                  </div>
-                  <div class="theme-kv-cell-muted px-4 py-4">
-                    <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">Runtime</p>
-                    <p class="theme-text mt-2 text-lg font-semibold">{responseSummary() ? `${responseSummary()!.timeMs} ms` : "Pending"}</p>
-                  </div>
-                  <div class="theme-kv-cell-muted px-4 py-4">
-                    <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">History</p>
-                    <p class="theme-text mt-2 text-lg font-semibold">{workspace.history.length} Entries</p>
-                  </div>
+                <div class="min-h-[240px]">
+                  <KeyValueTableEditor rows={responseSummary()?.headers ?? []} readOnly />
                 </div>
               </Match>
             </Switch>
+            </div>
           </div>
-        </LinearSection>
+        </div>
       </WorkspaceSidebarLayout>
 
       <Show when={curlImportCollectionId()}>
