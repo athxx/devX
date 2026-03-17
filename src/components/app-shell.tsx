@@ -15,10 +15,9 @@ export const AppShell: ParentComponent<AppShellProps> = (props) => {
       <main class="grid-bg min-h-screen theme-text">
         <div class="min-h-screen">
           <header
-            class="sticky top-0 z-20 border-b backdrop-blur-xl"
+            class="theme-workspace-header sticky top-0 z-20 border-b"
             style={{
-              "border-color": "var(--app-border)",
-              background: "var(--app-header)"
+              "border-color": "var(--app-border)"
             }}
           >
             <div class="flex h-9 items-center justify-between gap-3 px-4 md:px-5">

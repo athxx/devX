@@ -24,8 +24,39 @@
   --app-accent-strong: #0066cc;
   --app-shadow: 0 18px 55px rgba(15, 23, 42, 0.08);
   --app-header: rgba(248, 248, 250, 0.78);
+  --app-header-glass:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.58)),
+    rgba(248, 248, 250, 0.62);
+  --app-sidebar-glass:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.48)),
+    rgba(255, 255, 255, 0.44);
+  --app-pane-glass:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.34)),
+    rgba(255, 255, 255, 0.26);
+  --app-glass-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+  --app-glass-highlight: rgba(255, 255, 255, 0.42);
   --app-success-bg: rgba(52, 199, 89, 0.12);
   --app-success-text: #13803d;
+  --app-sidebar-hover: rgba(52, 199, 89, 0.16);
+  --app-sidebar-hover-strong: rgba(52, 199, 89, 0.24);
+  --app-method-get: #248a3d;
+  --app-method-get-bg: rgba(52, 199, 89, 0.14);
+  --app-method-post: #007aff;
+  --app-method-post-bg: rgba(0, 122, 255, 0.14);
+  --app-method-put: #5856d6;
+  --app-method-put-bg: rgba(88, 86, 214, 0.14);
+  --app-method-patch: #ff9f0a;
+  --app-method-patch-bg: rgba(255, 159, 10, 0.16);
+  --app-method-delete: #ff3b30;
+  --app-method-delete-bg: rgba(255, 59, 48, 0.14);
+  --app-method-head: #30b0c7;
+  --app-method-head-bg: rgba(48, 176, 199, 0.16);
+  --app-method-options: #6e6e73;
+  --app-method-options-bg: rgba(110, 110, 115, 0.14);
+  --app-method-trace: #bf5af2;
+  --app-method-trace-bg: rgba(191, 90, 242, 0.14);
+  --app-method-connect: #ff6482;
+  --app-method-connect-bg: rgba(255, 100, 130, 0.14);
   --app-warn-bg: rgba(255, 159, 10, 0.12);
   --app-warn-text: #b76a00;
   color-scheme: light;
@@ -52,8 +83,39 @@
   --app-accent-strong: #409cff;
   --app-shadow: 0 22px 65px rgba(0, 0, 0, 0.28);
   --app-header: rgba(18, 18, 20, 0.78);
+  --app-header-glass:
+    linear-gradient(180deg, rgba(42, 42, 46, 0.62), rgba(24, 24, 27, 0.48)),
+    rgba(18, 18, 20, 0.54);
+  --app-sidebar-glass:
+    linear-gradient(180deg, rgba(36, 36, 40, 0.54), rgba(24, 24, 27, 0.44)),
+    rgba(18, 18, 20, 0.42);
+  --app-pane-glass:
+    linear-gradient(180deg, rgba(34, 34, 38, 0.4), rgba(22, 22, 25, 0.32)),
+    rgba(18, 18, 20, 0.24);
+  --app-glass-shadow: 0 12px 34px rgba(0, 0, 0, 0.18);
+  --app-glass-highlight: rgba(255, 255, 255, 0.08);
   --app-success-bg: rgba(48, 209, 88, 0.14);
   --app-success-text: #7dff9d;
+  --app-sidebar-hover: rgba(48, 209, 88, 0.18);
+  --app-sidebar-hover-strong: rgba(48, 209, 88, 0.26);
+  --app-method-get: #7dff9d;
+  --app-method-get-bg: rgba(48, 209, 88, 0.18);
+  --app-method-post: #5ac8fa;
+  --app-method-post-bg: rgba(90, 200, 250, 0.18);
+  --app-method-put: #8e8cff;
+  --app-method-put-bg: rgba(142, 140, 255, 0.2);
+  --app-method-patch: #ffd166;
+  --app-method-patch-bg: rgba(255, 209, 102, 0.18);
+  --app-method-delete: #ff8a80;
+  --app-method-delete-bg: rgba(255, 69, 58, 0.2);
+  --app-method-head: #7ce7f2;
+  --app-method-head-bg: rgba(100, 210, 255, 0.18);
+  --app-method-options: #c7c7cc;
+  --app-method-options-bg: rgba(142, 142, 147, 0.2);
+  --app-method-trace: #e090ff;
+  --app-method-trace-bg: rgba(191, 90, 242, 0.2);
+  --app-method-connect: #ff95a8;
+  --app-method-connect-bg: rgba(255, 100, 130, 0.2);
   --app-warn-bg: rgba(255, 159, 10, 0.16);
   --app-warn-text: #ffcc71;
   color-scheme: dark;
@@ -116,13 +178,75 @@ a {
   backdrop-filter: blur(16px);
 }
 
+.theme-workspace-header {
+  background: var(--app-header-glass);
+  box-shadow: var(--app-glass-shadow);
+  backdrop-filter: blur(10px) saturate(1.08);
+  -webkit-backdrop-filter: blur(10px) saturate(1.08);
+}
+
 .theme-sidebar {
   border-right: 1px solid var(--app-border);
-  background: var(--app-panel);
-  backdrop-filter: blur(20px);
+  background: var(--app-sidebar-glass);
+  box-shadow: inset -1px 0 0 var(--app-glass-highlight);
+  backdrop-filter: blur(10px) saturate(1.04);
+  -webkit-backdrop-filter: blur(10px) saturate(1.04);
   padding-left: 12px;
   padding-right: 16px;
   padding-top: 12px;
+}
+
+.theme-workspace-pane {
+  background: var(--app-pane-glass);
+}
+
+.workspace-sidebar-layout {
+  display: grid;
+  gap: 0;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace-sidebar {
+  min-width: 0;
+}
+
+.workspace-sidebar-resizer {
+  display: none;
+}
+
+@media (min-width: 1280px) {
+  .workspace-sidebar-layout[data-sidebar-open="true"] {
+    grid-template-columns: var(--workspace-sidebar-width, 220px) 10px minmax(0, 1fr);
+  }
+
+  .workspace-sidebar-layout[data-sidebar-open="false"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-sidebar-resizer {
+    display: block;
+    position: relative;
+    cursor: col-resize;
+    user-select: none;
+    touch-action: none;
+  }
+
+  .workspace-sidebar-resizer::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 4px;
+    width: 1px;
+    background: var(--app-border);
+    transition: background 140ms ease;
+  }
+
+  .workspace-sidebar-resizer:hover::before,
+  .workspace-sidebar-layout[data-sidebar-resizing="true"] .workspace-sidebar-resizer::before {
+    background: color-mix(in srgb, var(--app-accent) 45%, var(--app-border));
+  }
 }
 
 .theme-sidebar-item {
@@ -131,7 +255,13 @@ a {
 }
 
 .theme-sidebar-item:hover {
-  background: var(--app-panel-soft);
+  background: var(--app-sidebar-hover);
+  color: var(--app-text);
+}
+
+.theme-sidebar-item:hover .theme-text-soft,
+.theme-sidebar-item:hover .theme-text-muted {
+  color: color-mix(in srgb, var(--app-success-text) 72%, var(--app-text));
 }
 
 .theme-sidebar-item-active {
@@ -202,6 +332,69 @@ a {
   border: 1px solid var(--app-border);
   background: var(--app-panel-soft);
   color: var(--app-text-muted);
+}
+
+.theme-method-badge {
+  display: inline-flex;
+  min-width: 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.theme-method-get {
+  background: var(--app-method-get-bg);
+  color: var(--app-method-get);
+}
+
+.theme-method-post {
+  background: var(--app-method-post-bg);
+  color: var(--app-method-post);
+}
+
+.theme-method-put {
+  background: var(--app-method-put-bg);
+  color: var(--app-method-put);
+}
+
+.theme-method-patch {
+  background: var(--app-method-patch-bg);
+  color: var(--app-method-patch);
+}
+
+.theme-method-delete {
+  background: var(--app-method-delete-bg);
+  color: var(--app-method-delete);
+}
+
+.theme-method-head {
+  background: var(--app-method-head-bg);
+  color: var(--app-method-head);
+}
+
+.theme-method-options {
+  background: var(--app-method-options-bg);
+  color: var(--app-method-options);
+}
+
+.theme-method-trace {
+  background: var(--app-method-trace-bg);
+  color: var(--app-method-trace);
+}
+
+.theme-method-connect {
+  background: var(--app-method-connect-bg);
+  color: var(--app-method-connect);
+}
+
+.theme-method-default {
+  background: var(--app-panel-soft);
+  color: var(--app-text-soft);
 }
 
 .theme-code {

@@ -1,11 +1,9 @@
 import { For } from "solid-js";
 import { render } from "solid-js/web";
-import "@unocss/reset/tailwind.css";
-import "uno.css";
+import "./setup";
 import { tools } from "../app/tool-registry";
 import { AppShell } from "../components/app-shell";
 import { openAppPage, openOptionsPage } from "../lib/runtime";
-import "../styles/main.css";
 
 function PopupApp() {
   const quickTools = tools.filter((tool) => tool.status === "ready").slice(0, 4);

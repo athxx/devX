@@ -1,9 +1,7 @@
 import { render } from "solid-js/web";
-import "@unocss/reset/tailwind.css";
-import "uno.css";
+import "./setup";
 import { AppShell } from "../components/app-shell";
 import { RestPlayground } from "../features/rest/components/rest-playground";
-import "../styles/main.css";
 
 function SidePanelApp() {
   return (
@@ -17,7 +15,12 @@ function SidePanelApp() {
         </div>
       }
     >
-      <RestPlayground sidebarOpen={true} />
+      <RestPlayground
+        sidebarOpen={true}
+        sidebarWidth={220}
+        sidebarResizing={false}
+        onSidebarResizeStart={() => undefined}
+      />
     </AppShell>
   );
 }

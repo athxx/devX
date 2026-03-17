@@ -62,6 +62,23 @@ function mergeSyncSettings(settings?: Partial<SyncSettings>): SyncSettings {
   };
 }
 
+function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<WorkspaceSnapshot>;
+
+  return (
+    candidate.version === 1 &&
+    typeof candidate.updatedAt === "string" &&
+    !!candidate.appSettings &&
+    Array.isArray(candidate.collections) &&
+    Array.isArray(candidate.environments) &&
+    Array.isArray(candidate.history)
+  );
+}
+
 async function buildSnapshotFromLocalState(): Promise<WorkspaceSnapshot> {
   const appSettings = await loadSettings();
   const existing = await loadWorkspaceSnapshot();
@@ -236,6 +253,26 @@ export async function getLocalSnapshotMeta(): Promise<Pick<WorkspaceSnapshot, "u
     updatedAt: snapshot.updatedAt,
     version: snapshot.version
   };
+}
+
+export async function exportLocalSnapshot(): Promise<WorkspaceSnapshot> {
+  const snapshot = await ensureWorkspaceSnapshot(await buildSnapshotFromLocalState());
+  await saveWorkspaceSnapshot(snapshot);
+  return snapshot;
+}
+
+export async function importLocalSnapshot(payload: unknown): Promise<WorkspaceSnapshot> {
+  if (!isWorkspaceSnapshot(payload)) {
+    throw new Error("Imported file is not a valid DevOX workspace snapshot.");
+  }
+
+  const snapshot: WorkspaceSnapshot = {
+    ...payload,
+    updatedAt: payload.updatedAt || new Date().toISOString()
+  };
+
+  await applySnapshotLocally(snapshot);
+  return snapshot;
 }
 
 export function startSyncScheduler(): () => void {

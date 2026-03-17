@@ -1,8 +1,6 @@
 import { render } from "solid-js/web";
-import "@unocss/reset/tailwind.css";
-import "uno.css";
+import "./setup";
 import { WorkspacePage } from "../app/workspace-page";
-import "../styles/main.css";
 
 const root = document.getElementById("root");
 
@@ -11,4 +9,3 @@ if (!root) {
 }
 
 render(() => <WorkspacePage platform="web" />, root);
-

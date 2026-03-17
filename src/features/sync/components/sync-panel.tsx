@@ -4,7 +4,9 @@ import { SectionCard } from "../../../components/section-card";
 import {
   connectSyncProvider,
   disconnectSyncProvider,
+  exportLocalSnapshot,
   getLocalSnapshotMeta,
+  importLocalSnapshot,
   loadSyncSettings,
   runSyncCycle,
   saveSyncSettings
@@ -34,6 +36,7 @@ export function SyncPanel() {
   const [busy, setBusy] = createSignal(false);
   const [notice, setNotice] = createSignal<string>();
   const [localUpdatedAt, setLocalUpdatedAt] = createSignal<string>();
+  let importInputRef: HTMLInputElement | undefined;
 
   const refreshPanel = async () => {
     const [loadedSettings, localMeta] = await Promise.all([
@@ -111,6 +114,60 @@ export function SyncPanel() {
       setSettings(nextSettings);
       setNotice("Sync provider disconnected. Local IndexedDB data was kept.");
     } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleExport = async () => {
+    setBusy(true);
+    setNotice(undefined);
+
+    try {
+      const snapshot = await exportLocalSnapshot();
+      const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
+        type: "application/json"
+      });
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const dateStamp = new Date().toISOString().slice(0, 10);
+
+      anchor.href = url;
+      anchor.download = `devox-workspace-${dateStamp}.json`;
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+
+      await refreshPanel();
+      setNotice("Workspace snapshot exported from IndexedDB.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleImportClick = () => {
+    importInputRef?.click();
+  };
+
+  const handleImportChange = async (event: Event) => {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    setBusy(true);
+    setNotice(undefined);
+
+    try {
+      const content = await file.text();
+      const payload = JSON.parse(content) as unknown;
+      await importLocalSnapshot(payload);
+      await refreshPanel();
+      setNotice("Workspace snapshot imported into IndexedDB.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Import failed.");
+    } finally {
+      input.value = "";
       setBusy(false);
     }
   };
@@ -412,6 +469,40 @@ export function SyncPanel() {
             >
               Disconnect
             </button>
+          </div>
+
+          <div class="theme-control rounded-3xl p-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p class="theme-text text-sm font-semibold">Import / Export</p>
+                <p class="theme-text-soft mt-1 text-xs leading-5">
+                  Backup the local IndexedDB snapshot as JSON, or restore it from a previous export.
+                </p>
+              </div>
+              <div class="flex flex-wrap items-center gap-3">
+                <button
+                  class="theme-control rounded-2xl px-4 py-3 text-sm font-medium transition"
+                  disabled={busy()}
+                  onClick={handleImportClick}
+                >
+                  Import JSON
+                </button>
+                <button
+                  class="theme-control rounded-2xl px-4 py-3 text-sm font-medium transition"
+                  disabled={busy()}
+                  onClick={handleExport}
+                >
+                  Export JSON
+                </button>
+              </div>
+            </div>
+            <input
+              ref={importInputRef}
+              accept="application/json"
+              class="hidden"
+              type="file"
+              onChange={handleImportChange}
+            />
           </div>
 
           <Show when={notice()}>

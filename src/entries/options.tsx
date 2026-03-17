@@ -1,11 +1,9 @@
 import { createSignal, onMount } from "solid-js";
 import { render } from "solid-js/web";
-import "@unocss/reset/tailwind.css";
-import "uno.css";
+import "./setup";
 import { AppShell } from "../components/app-shell";
 import { SectionCard } from "../components/section-card";
 import { defaultSettings, loadSettings, saveSettings, type AppSettings } from "../lib/storage";
-import "../styles/main.css";
 
 function OptionsApp() {
   const [settings, setSettings] = createSignal<AppSettings>(defaultSettings);

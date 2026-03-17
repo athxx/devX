@@ -1,23 +1,24 @@
-import { For, createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { For, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { AppShell } from "../components/app-shell";
-import { DbWorkspace, HomeWorkspace, SshWorkspace, ToolsWorkspace } from "./workspace-sections";
+import {
+  DbWorkspace,
+  HomeWorkspace,
+  SettingsWorkspace,
+  SshWorkspace,
+  ToolsWorkspace
+} from "./workspace-sections";
+import { workspaceCopy, workspaceLocaleOptions, type WorkspaceLocale } from "./workspace-copy";
 import { RestPlayground } from "../features/rest/components/rest-playground";
 import { startSyncScheduler } from "../features/sync/service";
 
 type WorkspacePlatform = "extension" | "web";
-type WorkspaceTab = "home" | "api" | "db" | "tools" | "ssh";
+type WorkspaceTab = "home" | "api" | "db" | "tools" | "ssh" | "settings";
 
 type WorkspacePageProps = {
   platform: WorkspacePlatform;
 };
 
-const topTabs = [
-  { id: "home", label: "Home" },
-  { id: "api", label: "API" },
-  { id: "db", label: "DB" },
-  { id: "ssh", label: "SSH" },
-  { id: "tools", label: "Tools" }
-] as const;
+const topTabs = [{ id: "home" }, { id: "api" }, { id: "db" }, { id: "ssh" }, { id: "tools" }] as const;
 
 function HomeIcon() {
   return (
@@ -46,20 +47,66 @@ function HomeIcon() {
   );
 }
 
+function SettingsIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      class="h-4 w-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M12 8.75a3.25 3.25 0 1 0 0 6.5 3.25 3.25 0 0 0 0-6.5Z"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="1.8"
+      />
+      <path
+        d="M19 12a7 7 0 0 0-.09-1.1l1.63-1.27-1.5-2.6-1.97.53a7.02 7.02 0 0 0-1.9-1.1L14.9 4h-3l-.27 2.46a7.02 7.02 0 0 0-1.9 1.1l-1.97-.53-1.5 2.6 1.63 1.27A7 7 0 0 0 8 12c0 .37.03.74.09 1.1l-1.63 1.27 1.5 2.6 1.97-.53c.58.45 1.21.82 1.9 1.1L11.9 20h3l.27-2.46c.69-.28 1.32-.65 1.9-1.1l1.97.53 1.5-2.6-1.63-1.27c.06-.36.09-.73.09-1.1Z"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="1.4"
+      />
+    </svg>
+  );
+}
+
 export function WorkspacePage(_props: WorkspacePageProps) {
+  const sidebarWidthStorageKey = "devox-sidebar-width";
+  const clampSidebarWidth = (value: number) => Math.min(360, Math.max(180, Math.round(value)));
   const [darkMode, setDarkMode] = createSignal(true);
+  const [locale, setLocale] = createSignal<WorkspaceLocale>("zh-CN");
   const [activeTab, setActiveTab] = createSignal<WorkspaceTab>("api");
   const [sidebarOpen, setSidebarOpen] = createSignal(true);
+  const [sidebarWidth, setSidebarWidth] = createSignal(220);
+  const [sidebarResizing, setSidebarResizing] = createSignal(false);
+  const copy = createMemo(() => workspaceCopy[locale()]);
 
   onMount(() => {
     const stopSyncScheduler = startSyncScheduler();
     const savedTheme = window.localStorage.getItem("devox-theme");
+    const savedLocale = window.localStorage.getItem("devox-locale");
+    const savedSidebarWidth = window.localStorage.getItem(sidebarWidthStorageKey);
 
     if (savedTheme === "dark" || savedTheme === "light") {
       setDarkMode(savedTheme === "dark");
     } else {
       const preferredDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
       setDarkMode(preferredDark);
+    }
+
+    if (savedLocale === "zh-CN" || savedLocale === "en-US") {
+      setLocale(savedLocale);
+    }
+
+    if (savedSidebarWidth) {
+      const parsedWidth = Number(savedSidebarWidth);
+      if (!Number.isNaN(parsedWidth)) {
+        setSidebarWidth(clampSidebarWidth(parsedWidth));
+      }
     }
 
     onCleanup(stopSyncScheduler);
@@ -71,19 +118,90 @@ export function WorkspacePage(_props: WorkspacePageProps) {
     window.localStorage.setItem("devox-theme", theme);
   });
 
+  createEffect(() => {
+    document.documentElement.lang = locale();
+    window.localStorage.setItem("devox-locale", locale());
+  });
+
+  createEffect(() => {
+    window.localStorage.setItem(sidebarWidthStorageKey, String(sidebarWidth()));
+  });
+
+  const handleSidebarResizeStart = (event: MouseEvent) => {
+    if (!sidebarOpen()) {
+      return;
+    }
+
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sidebarWidth();
+    setSidebarResizing(true);
+
+    const handlePointerMove = (moveEvent: MouseEvent) => {
+      const nextWidth = clampSidebarWidth(startWidth + (moveEvent.clientX - startX));
+      setSidebarWidth(nextWidth);
+    };
+
+    const handlePointerUp = () => {
+      setSidebarResizing(false);
+      window.removeEventListener("mousemove", handlePointerMove);
+      window.removeEventListener("mouseup", handlePointerUp);
+    };
+
+    window.addEventListener("mousemove", handlePointerMove);
+    window.addEventListener("mouseup", handlePointerUp, { once: true });
+  };
+
   const renderActivePage = () => {
     switch (activeTab()) {
+      case "settings":
+        return (
+          <SettingsWorkspace
+            sidebarOpen={sidebarOpen()}
+            sidebarWidth={sidebarWidth()}
+            sidebarResizing={sidebarResizing()}
+            onSidebarResizeStart={handleSidebarResizeStart}
+          />
+        );
       case "home":
         return <HomeWorkspace />;
       case "db":
-        return <DbWorkspace sidebarOpen={sidebarOpen()} />;
+        return (
+          <DbWorkspace
+            sidebarOpen={sidebarOpen()}
+            sidebarWidth={sidebarWidth()}
+            sidebarResizing={sidebarResizing()}
+            onSidebarResizeStart={handleSidebarResizeStart}
+          />
+        );
       case "tools":
-        return <ToolsWorkspace sidebarOpen={sidebarOpen()} />;
+        return (
+          <ToolsWorkspace
+            sidebarOpen={sidebarOpen()}
+            sidebarWidth={sidebarWidth()}
+            sidebarResizing={sidebarResizing()}
+            onSidebarResizeStart={handleSidebarResizeStart}
+          />
+        );
       case "ssh":
-        return <SshWorkspace sidebarOpen={sidebarOpen()} />;
+        return (
+          <SshWorkspace
+            sidebarOpen={sidebarOpen()}
+            sidebarWidth={sidebarWidth()}
+            sidebarResizing={sidebarResizing()}
+            onSidebarResizeStart={handleSidebarResizeStart}
+          />
+        );
       case "api":
       default:
-        return <RestPlayground sidebarOpen={sidebarOpen()} />;
+        return (
+          <RestPlayground
+            sidebarOpen={sidebarOpen()}
+            sidebarWidth={sidebarWidth()}
+            sidebarResizing={sidebarResizing()}
+            onSidebarResizeStart={handleSidebarResizeStart}
+          />
+        );
     }
   };
 
@@ -94,8 +212,8 @@ export function WorkspacePage(_props: WorkspacePageProps) {
       nav={
         <nav class="flex h-9 items-center gap-1" aria-label="Primary">
           <button
-            aria-label={sidebarOpen() ? "Collapse sidebar" : "Expand sidebar"}
-            title={sidebarOpen() ? "Collapse sidebar" : "Expand sidebar"}
+            aria-label={sidebarOpen() ? copy().actions.collapseSidebar : copy().actions.expandSidebar}
+            title={sidebarOpen() ? copy().actions.collapseSidebar : copy().actions.expandSidebar}
             class="theme-control inline-flex h-7 w-7 items-center justify-center rounded-md p-0 transition"
             onClick={() => setSidebarOpen((value) => !value)}
           >
@@ -127,7 +245,11 @@ export function WorkspacePage(_props: WorkspacePageProps) {
                 onFocus={() => setActiveTab(tab.id)}
               >
                 {tab.id === "home" ? <HomeIcon /> : null}
-                {tab.id === "home" ? <span class="sr-only">{tab.label}</span> : tab.label}
+                {tab.id === "home" ? (
+                  <span class="sr-only">{copy().tabs.home}</span>
+                ) : (
+                  copy().tabs[tab.id]
+                )}
               </button>
             )}
           </For>
@@ -135,9 +257,22 @@ export function WorkspacePage(_props: WorkspacePageProps) {
       }
       actions={
         <div class="flex h-9 items-center gap-2">
+          <select
+            id="workspace-locale-select"
+            aria-label={copy().actions.language}
+            class="theme-input h-7 rounded-full px-3 text-sm"
+            value={locale()}
+            onInput={(event) => setLocale(event.currentTarget.value as WorkspaceLocale)}
+          >
+            <For each={workspaceLocaleOptions}>
+              {(option) => <option value={option.code}>{option.label}</option>}
+            </For>
+          </select>
           <button
-            aria-label={darkMode() ? "Switch to light mode" : "Switch to dark mode"}
-            title={darkMode() ? "Switch to light mode" : "Switch to dark mode"}
+            aria-label={
+              darkMode() ? copy().actions.switchToLightMode : copy().actions.switchToDarkMode
+            }
+            title={darkMode() ? copy().actions.switchToLightMode : copy().actions.switchToDarkMode}
             class={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
               darkMode()
                 ? "bg-[var(--app-accent)] text-white"
@@ -153,10 +288,17 @@ export function WorkspacePage(_props: WorkspacePageProps) {
             />
           </button>
           <button
-            class="theme-control inline-flex h-7 items-center rounded-full px-3 text-sm font-medium transition"
-            onClick={() => setActiveTab("home")}
+            aria-label={copy().actions.openSettings}
+            title={copy().actions.openSettings}
+            class={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
+              activeTab() === "settings"
+                ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
+                : "theme-control"
+            }`}
+            style={{ "border-color": "var(--app-border)" }}
+            onClick={() => setActiveTab("settings")}
           >
-            Login
+            <SettingsIcon />
           </button>
         </div>
       }
