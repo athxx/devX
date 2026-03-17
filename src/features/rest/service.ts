@@ -170,7 +170,7 @@ function normalizeCollectionFolders(
   }));
 }
 
-function normalizeRestWorkspace(state: RestWorkspaceState): RestWorkspaceState {
+export function normalizeRestWorkspace(state: RestWorkspaceState): RestWorkspaceState {
   const collections = state.collections.map((collection) => {
     const collectionRequests = state.requests
       .filter((request) => request.collectionId === collection.id)
