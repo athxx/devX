@@ -19,6 +19,10 @@ function makeId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function cloneRestValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 export function createKeyValueEntry(
   partial: Partial<KeyValueEntry> = {}
 ): KeyValueEntry {
@@ -319,7 +323,7 @@ function buildRequestBody(
   }
 }
 
-export async function executeRestRequest(
+export async function executeRestRequestDirect(
   request: RequestDraft,
   environment?: Environment
 ): Promise<ResponseSummary> {
@@ -340,10 +344,12 @@ export async function executeRestRequest(
 
   const init: RequestInit = {
     method: request.method,
-    headers
+    headers,
+    redirect: "follow",
+    cache: "no-store"
   };
 
-  if (!["GET", "DELETE"].includes(request.method)) {
+  if (!["GET", "DELETE", "HEAD"].includes(request.method)) {
     init.body = buildRequestBody(request.body, headers, environment);
   }
 
@@ -371,7 +377,7 @@ export async function executeRestRequest(
   );
 
   return {
-    ok: response.ok,
+    ok: response.ok || response.status === 304,
     status: response.status,
     statusText: response.statusText,
     timeMs: Math.round(finishedAt - startedAt),
@@ -381,6 +387,57 @@ export async function executeRestRequest(
     headers: serializedHeaders,
     finalUrl: response.url || url.toString()
   };
+}
+
+export async function executeRestRequest(
+  request: RequestDraft,
+  environment?: Environment
+): Promise<ResponseSummary> {
+  const canUseExtensionRuntime =
+    typeof chrome !== "undefined" &&
+    Boolean(chrome.runtime?.id) &&
+    typeof document !== "undefined";
+
+  if (canUseExtensionRuntime) {
+    try {
+      const runtimeResponse = await chrome.runtime.sendMessage({
+        type: "devox:rest-execute",
+        payload: {
+          request,
+          environment
+        }
+      }) as
+        | { ok: true; result: ResponseSummary }
+        | { ok: false; error: string }
+        | undefined;
+
+      if (runtimeResponse?.ok) {
+        return runtimeResponse.result;
+      }
+
+      if (runtimeResponse && !runtimeResponse.ok) {
+        throw new Error(runtimeResponse.error || "Extension request failed.");
+      }
+    } catch {
+      // Fall back to direct fetch below.
+    }
+  }
+
+  try {
+    return await executeRestRequestDirect(request, environment);
+  } catch (error) {
+    if (
+      error instanceof TypeError &&
+      error.message === "Failed to fetch" &&
+      typeof chrome === "undefined"
+    ) {
+      throw new Error(
+        "Failed to fetch. In web mode this usually means the target API blocks CORS. Try the Chrome extension build for cross-origin requests."
+      );
+    }
+
+    throw error;
+  }
 }
 
 export function createHistoryEntry(
@@ -395,6 +452,6 @@ export function createHistoryEntry(
     status: response?.status ?? null,
     timeMs: response?.timeMs ?? 0,
     createdAt: new Date().toISOString(),
-    requestSnapshot: structuredClone(request)
+    requestSnapshot: cloneRestValue(request)
   };
 }

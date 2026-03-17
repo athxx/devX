@@ -547,6 +547,48 @@ function parseCurlCommand(
   });
 }
 
+function sanitizeFileName(value: string) {
+  return value
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "-")
+    .toLowerCase();
+}
+
+function downloadJsonFile(filename: string, data: unknown) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json"
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function tryFormatJson(value: string) {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
+function cloneRestValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function getResponseStatusClass(status: number) {
+  if (status >= 200 && status < 300) {
+    return "text-[#34c759]";
+  }
+  if (status >= 300 && status < 400) {
+    return "text-[#ff9f0a]";
+  }
+  return "text-[#ff3b30]";
+}
+
 function MacCloseIcon() {
   return (
     <svg
@@ -945,7 +987,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
   }
 
   function snapshotWorkspace() {
-    return normalizeRestWorkspace(structuredClone(unwrap(workspace)));
+    return normalizeRestWorkspace(cloneRestValue(unwrap(workspace)));
   }
 
   function schedulePersist() {
@@ -1264,6 +1306,78 @@ export function RestPlayground(props: RestPlaygroundProps) {
     });
   }
 
+  function duplicateEnvironment(environmentId: string) {
+    const environment = workspace.environments.find((item) => item.id === environmentId);
+    if (!environment) {
+      return;
+    }
+
+    commitWorkspace((next) => {
+      const duplicateId = makeId("env");
+      const duplicate = {
+        ...cloneRestValue(environment),
+        id: duplicateId,
+        name: `${environment.name} Copy`,
+        variables: environment.variables.map((entry) =>
+          createKeyValueEntry({
+            key: entry.key,
+            value: entry.value,
+            enabled: entry.enabled
+          })
+        )
+      };
+      next.environments.push(duplicate);
+      next.activeEnvironmentId = duplicateId;
+    });
+  }
+
+  function deleteEnvironment(environmentId: string) {
+    const environment = workspace.environments.find((item) => item.id === environmentId);
+    if (!environment) {
+      return;
+    }
+
+    if (workspace.environments.length <= 1) {
+      window.alert("At least one environment is required.");
+      return;
+    }
+
+    if (!window.confirm(`Delete environment "${environment.name}"?`)) {
+      return;
+    }
+
+    commitWorkspace((next) => {
+      next.environments = next.environments.filter((item) => item.id !== environmentId);
+      if (next.activeEnvironmentId === environmentId) {
+        next.activeEnvironmentId = next.environments[0]?.id ?? "";
+      }
+    });
+  }
+
+  function exportCollection(collectionId: string) {
+    const collection = workspace.collections.find((item) => item.id === collectionId);
+    if (!collection) {
+      return;
+    }
+
+    const requestMapById = new Map(workspace.requests.map((request) => [request.id, request]));
+    const exportPayload = {
+      format: "devox-collection",
+      version: 1,
+      collection: {
+        id: collection.id,
+        name: collection.name
+      },
+      folders: collection.folders,
+      requests: collection.requestIds
+        .map((requestId) => requestMapById.get(requestId))
+        .filter((request): request is RequestDraft => Boolean(request))
+    };
+
+    downloadJsonFile(`${sanitizeFileName(collection.name || "collection")}.json`, exportPayload);
+    closeAllMenus();
+  }
+
   function renameCollection(collectionId: string) {
     const collection = workspace.collections.find((item) => item.id === collectionId);
     if (!collection) {
@@ -1398,7 +1512,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
         .filter((request): request is RequestDraft => Boolean(request))
         .map((request) =>
           createRequestDraft(collectionId, {
-            ...structuredClone(request),
+            ...cloneRestValue(request),
             id: makeId("request"),
             createdAt: new Date().toISOString(),
             folderId: duplicateFolderId,
@@ -1607,7 +1721,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
       }
 
       const duplicate = createRequestDraft(request.collectionId, {
-        ...structuredClone(target),
+        ...cloneRestValue(target),
         id: makeId("request"),
         name: `${target.name} Copy`,
         createdAt: new Date().toISOString(),
@@ -1833,11 +1947,20 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
     try {
       const parsed = JSON.parse(await file.text()) as {
+        format?: string;
         collection?: { name?: string };
+        folders?: Array<Partial<CollectionFolder>>;
         requests?: Array<Partial<RequestDraft>>;
       };
 
       const collectionId = makeId("collection");
+      const importedFolders =
+        parsed.folders?.map((folder, index) => ({
+          id: folder.id ?? makeId("folder"),
+          name: folder.name?.trim() || `Folder ${index + 1}`,
+          requestIds: []
+        })) ?? [];
+      const importedFolderIds = new Set(importedFolders.map((folder) => folder.id));
       const importedRequests =
         parsed.requests?.map((request, index) =>
           createRequestDraft(collectionId, {
@@ -1846,7 +1969,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
             createdAt: new Date().toISOString(),
             name: request.name ?? `Imported Request ${index + 1}`,
             kind: request.kind ?? "http",
-            folderId: request.folderId ?? null
+            folderId: request.folderId && importedFolderIds.has(request.folderId) ? request.folderId : null
           })
         ) ?? [];
 
@@ -1855,11 +1978,21 @@ export function RestPlayground(props: RestPlaygroundProps) {
           ? importedRequests
           : [createRequestDraft(collectionId, { name: "Imported Request", url: "{{baseUrl}}/imported" })];
 
+      requests.forEach((request) => {
+        if (!request.folderId) {
+          return;
+        }
+        const folder = importedFolders.find((entry) => entry.id === request.folderId);
+        if (folder && !folder.requestIds.includes(request.id)) {
+          folder.requestIds.push(request.id);
+        }
+      });
+
       commitWorkspace((next) => {
         next.collections.push({
           id: collectionId,
           name: parsed.collection?.name || file.name.replace(/\.json$/i, ""),
-          folders: [],
+          folders: importedFolders,
           requestIds: requests.map((request) => request.id)
         });
         next.requests.push(...requests);
@@ -2191,6 +2324,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                         onClick={() => addFolder(entry.collection.id)}
                                       >
                                         Add Folder
+                                      </button>
+                                      <button
+                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                        onClick={() => exportCollection(entry.collection.id)}
+                                      >
+                                        Export
                                       </button>
                                       <div class="relative" data-rest-menu-root>
                                         <button
@@ -2563,6 +2702,115 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                               <button class="min-w-0 flex-1 text-left" onClick={() => openRequestTab(request.id, request.collectionId)}>
                                                 <p class="truncate text-[13px] font-medium" title={request.name}>{request.name}</p>
                                               </button>
+                                              <div class="relative shrink-0" data-rest-menu-root>
+                                                <button
+                                                  class="theme-control inline-flex h-5 w-5 items-center justify-center rounded-md text-[11px]"
+                                                  title="Request options"
+                                                  onMouseDown={(event) => event.stopPropagation()}
+                                                  onPointerDown={(event) => event.stopPropagation()}
+                                                  onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    setRequestMenuId((current) => current === request.id ? null : request.id);
+                                                    setRequestOrderMenuId(null);
+                                                    setRequestMoveMenuId(null);
+                                                  }}
+                                                >
+                                                  ⋯
+                                                </button>
+                                                <Show when={requestMenuId() === request.id}>
+                                                  <div
+                                                    class="theme-panel-soft absolute right-0 top-7 z-10 min-w-[172px] border p-1"
+                                                    data-rest-menu-root
+                                                    style={{ "border-color": "var(--app-border)" }}
+                                                  >
+                                                    <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => void copyRequestAsCurl(request.id)}>
+                                                      Copy cURL
+                                                    </button>
+                                                    <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => renameRequest(request.id)}>
+                                                      Rename
+                                                    </button>
+                                                    <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => duplicateRequest(request.id)}>
+                                                      Duplicate
+                                                    </button>
+                                                    <div class="relative" data-rest-menu-root>
+                                                      <button
+                                                        class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
+                                                        onClick={(event) => {
+                                                          event.stopPropagation();
+                                                          setRequestMoveMenuId((current) => current === request.id ? null : request.id);
+                                                          setRequestOrderMenuId(null);
+                                                        }}
+                                                      >
+                                                        <span>Move to</span>
+                                                        <span class="theme-text-soft text-[10px]">›</span>
+                                                      </button>
+                                                      <Show when={requestMoveMenuId() === request.id}>
+                                                        <div
+                                                          class="theme-panel-soft absolute left-full top-0 ml-1 min-w-[188px] border p-1"
+                                                          data-rest-menu-root
+                                                          style={{ "border-color": "var(--app-border)" }}
+                                                        >
+                                                          <For each={workspace.collections}>
+                                                            {(collection) => (
+                                                              <>
+                                                                <button
+                                                                  class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                                  onClick={() => moveRequest(request.id, { collectionId: collection.id, folderId: null })}
+                                                                >
+                                                                  {collection.name}
+                                                                </button>
+                                                                <For each={collection.folders}>
+                                                                  {(folder) => (
+                                                                    <button
+                                                                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 pl-7 text-left text-sm"
+                                                                      onClick={() => moveRequest(request.id, { collectionId: collection.id, folderId: folder.id })}
+                                                                    >
+                                                                      {collection.name} / {folder.name}
+                                                                    </button>
+                                                                  )}
+                                                                </For>
+                                                              </>
+                                                            )}
+                                                          </For>
+                                                        </div>
+                                                      </Show>
+                                                    </div>
+                                                    <div class="relative" data-rest-menu-root>
+                                                      <button
+                                                        class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
+                                                        onClick={(event) => {
+                                                          event.stopPropagation();
+                                                          setRequestOrderMenuId((current) => current === request.id ? null : request.id);
+                                                          setRequestMoveMenuId(null);
+                                                        }}
+                                                      >
+                                                        <span>Order</span>
+                                                        <span class="theme-text-soft text-[10px]">›</span>
+                                                      </button>
+                                                      <Show when={requestOrderMenuId() === request.id}>
+                                                        <div
+                                                          class="theme-panel-soft absolute left-full top-0 ml-1 min-w-[132px] border p-1"
+                                                          data-rest-menu-root
+                                                          style={{ "border-color": "var(--app-border)" }}
+                                                        >
+                                                          <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "top")}>
+                                                            Pin to Top
+                                                          </button>
+                                                          <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "up")}>
+                                                            Move Up
+                                                          </button>
+                                                          <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "down")}>
+                                                            Move Down
+                                                          </button>
+                                                        </div>
+                                                      </Show>
+                                                    </div>
+                                                    <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]" onClick={() => deleteRequest(request.id)}>
+                                                      Delete
+                                                    </button>
+                                                  </div>
+                                                </Show>
+                                              </div>
                                             </div>
                                           )}
                                         </For>
@@ -2621,6 +2869,94 @@ export function RestPlayground(props: RestPlaygroundProps) {
                       )}
                     </For>
                   </div>
+
+                  <Show when={activeEnvironment()}>
+                    {(environment) => (
+                      <div class="mt-3 space-y-2 border-t pt-3" style={{ "border-color": "var(--app-border)" }}>
+                        <div class="flex items-center justify-between gap-2">
+                          <input
+                            class="theme-input h-8 min-w-0 flex-1 rounded-md px-2.5 py-1 text-sm font-medium"
+                            value={environment().name}
+                            onInput={(event) =>
+                              commitWorkspace((next) => {
+                                const target = next.environments.find((item) => item.id === environment().id);
+                                if (target) {
+                                  target.name = event.currentTarget.value;
+                                }
+                              })
+                            }
+                          />
+                          <button
+                            class="theme-control inline-flex h-6 w-6 items-center justify-center rounded-full text-sm leading-none"
+                            title="Duplicate environment"
+                            onClick={() => duplicateEnvironment(environment().id)}
+                          >
+                            ⎘
+                          </button>
+                          <button
+                            class="theme-control inline-flex h-6 w-6 items-center justify-center rounded-full text-sm leading-none text-[#ff3b30]"
+                            title="Delete environment"
+                            onClick={() => deleteEnvironment(environment().id)}
+                          >
+                            <MacCloseIcon />
+                          </button>
+                        </div>
+
+                        <div class="flex items-center justify-between gap-2">
+                          <p class="theme-text-soft text-[11px] font-semibold uppercase tracking-[0.16em]">
+                            Variables
+                          </p>
+                          <button
+                            class="inline-flex h-6 w-6 items-center justify-center rounded-full transition"
+                            title="Add variable"
+                            onClick={() =>
+                              commitWorkspace((next) => {
+                                const target = next.environments.find((item) => item.id === environment().id);
+                                if (target) {
+                                  target.variables = [...target.variables, createKeyValueEntry()];
+                                }
+                              })
+                            }
+                          >
+                            <MacAddIcon />
+                          </button>
+                        </div>
+
+                        <KeyValueTableEditor
+                          rows={environment().variables}
+                          valuePlaceholder="https://api.example.com"
+                          onUpdate={(id, key, value) =>
+                            commitWorkspace((next) => {
+                              const target = next.environments.find((item) => item.id === environment().id);
+                              if (target) {
+                                target.variables = target.variables.map((entry) =>
+                                  entry.id === id ? { ...entry, [key]: value } : entry
+                                );
+                              }
+                            })
+                          }
+                          onToggle={(id) =>
+                            commitWorkspace((next) => {
+                              const target = next.environments.find((item) => item.id === environment().id);
+                              if (target) {
+                                target.variables = target.variables.map((entry) =>
+                                  entry.id === id ? { ...entry, enabled: !entry.enabled } : entry
+                                );
+                              }
+                            })
+                          }
+                          onRemove={(id) =>
+                            commitWorkspace((next) => {
+                              const target = next.environments.find((item) => item.id === environment().id);
+                              if (target) {
+                                target.variables = target.variables.filter((entry) => entry.id !== id);
+                              }
+                            })
+                          }
+                        />
+                      </div>
+                    )}
+                  </Show>
                 </div>
               </Show>
 
@@ -2952,7 +3288,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                           <label class="theme-text-muted grid min-w-[220px] flex-1 gap-1.5 text-sm">
                             <span class="theme-text font-medium">Auth Type</span>
                             <select
-                              class="theme-input rounded-lg px-2.5 py-1.5 text-sm"
+                              class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
                               value={request().auth.type}
                               onInput={(event) => updateActiveRequest((current) => {
                                 const nextType = event.currentTarget.value;
@@ -2974,11 +3310,17 @@ export function RestPlayground(props: RestPlaygroundProps) {
                             </select>
                           </label>
 
+                          <Show when={request().auth.type === "none"}>
+                            <div class="theme-text-soft flex min-h-[72px] min-w-[220px] flex-1 items-center rounded-md border px-3 text-sm" style={{ "border-color": "var(--app-border)", background: "var(--app-panel-soft)" }}>
+                              No authentication will be attached to this request.
+                            </div>
+                          </Show>
+
                           <Show when={request().auth.type === "bearer"}>
                             <label class="theme-text-muted grid min-w-[220px] flex-1 gap-1.5 text-sm">
                               <span class="theme-text font-medium">Token</span>
                               <input
-                                class="theme-input rounded-lg px-2.5 py-1.5 text-sm"
+                                class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
                                 value={request().auth.type === "bearer" ? request().auth.token : ""}
                                 onInput={(event) => updateActiveRequest((current) => {
                                   if (current.auth.type === "bearer") {
@@ -2987,6 +3329,83 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                 })}
                               />
                             </label>
+                          </Show>
+
+                          <Show when={request().auth.type === "basic"}>
+                            <>
+                              <label class="theme-text-muted grid min-w-[220px] flex-1 gap-1.5 text-sm">
+                                <span class="theme-text font-medium">Username</span>
+                                <input
+                                  class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
+                                  value={request().auth.type === "basic" ? request().auth.username : ""}
+                                  onInput={(event) => updateActiveRequest((current) => {
+                                    if (current.auth.type === "basic") {
+                                      current.auth = { ...current.auth, username: event.currentTarget.value };
+                                    }
+                                  })}
+                                />
+                              </label>
+                              <label class="theme-text-muted grid min-w-[220px] flex-1 gap-1.5 text-sm">
+                                <span class="theme-text font-medium">Password</span>
+                                <input
+                                  class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
+                                  type="password"
+                                  value={request().auth.type === "basic" ? request().auth.password : ""}
+                                  onInput={(event) => updateActiveRequest((current) => {
+                                    if (current.auth.type === "basic") {
+                                      current.auth = { ...current.auth, password: event.currentTarget.value };
+                                    }
+                                  })}
+                                />
+                              </label>
+                            </>
+                          </Show>
+
+                          <Show when={request().auth.type === "api-key"}>
+                            <>
+                              <label class="theme-text-muted grid min-w-[200px] flex-1 gap-1.5 text-sm">
+                                <span class="theme-text font-medium">Key</span>
+                                <input
+                                  class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
+                                  value={request().auth.type === "api-key" ? request().auth.key : ""}
+                                  onInput={(event) => updateActiveRequest((current) => {
+                                    if (current.auth.type === "api-key") {
+                                      current.auth = { ...current.auth, key: event.currentTarget.value };
+                                    }
+                                  })}
+                                />
+                              </label>
+                              <label class="theme-text-muted grid min-w-[200px] flex-1 gap-1.5 text-sm">
+                                <span class="theme-text font-medium">Value</span>
+                                <input
+                                  class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
+                                  value={request().auth.type === "api-key" ? request().auth.value : ""}
+                                  onInput={(event) => updateActiveRequest((current) => {
+                                    if (current.auth.type === "api-key") {
+                                      current.auth = { ...current.auth, value: event.currentTarget.value };
+                                    }
+                                  })}
+                                />
+                              </label>
+                              <label class="theme-text-muted grid min-w-[160px] gap-1.5 text-sm">
+                                <span class="theme-text font-medium">Add To</span>
+                                <select
+                                  class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
+                                  value={request().auth.type === "api-key" ? request().auth.addTo : "header"}
+                                  onInput={(event) => updateActiveRequest((current) => {
+                                    if (current.auth.type === "api-key") {
+                                      current.auth = {
+                                        ...current.auth,
+                                        addTo: event.currentTarget.value as "header" | "query"
+                                      };
+                                    }
+                                  })}
+                                >
+                                  <option value="header">Header</option>
+                                  <option value="query">Query</option>
+                                </select>
+                              </label>
+                            </>
                           </Show>
                         </div>
                       </Match>
@@ -3045,33 +3464,51 @@ export function RestPlayground(props: RestPlaygroundProps) {
                       <Match when={bottomEditorTab() === "body"}>
                         <div class="flex flex-col items-start gap-3">
                           <div class="flex flex-wrap items-center justify-between gap-3">
-                            <select
-                              class="theme-input rounded-lg px-2.5 py-1.5 text-sm"
-                              value={request().body.type}
-                              onInput={(event) => {
-                                const nextType = event.currentTarget.value as RequestBody["type"];
-                                updateActiveRequest((current) => {
-                                  switch (nextType) {
-                                    case "json":
-                                      current.body = { type: "json", value: "{\n  \n}" };
-                                      break;
-                                    case "raw":
-                                      current.body = { type: "raw", value: "", contentType: "text/plain" };
-                                      break;
-                                    case "form-urlencoded":
-                                      current.body = { type: "form-urlencoded", entries: [createKeyValueEntry()] };
-                                      break;
-                                    default:
-                                      current.body = { type: "none" };
-                                  }
-                                });
-                              }}
-                            >
-                              <option value="none">None</option>
-                              <option value="json">JSON</option>
-                              <option value="raw">Raw</option>
-                              <option value="form-urlencoded">Form Urlencoded</option>
-                            </select>
+                            <div class="flex flex-wrap items-center gap-2">
+                              <select
+                                class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
+                                value={request().body.type}
+                                onInput={(event) => {
+                                  const nextType = event.currentTarget.value as RequestBody["type"];
+                                  updateActiveRequest((current) => {
+                                    switch (nextType) {
+                                      case "json":
+                                        current.body = { type: "json", value: "{\n  \n}" };
+                                        break;
+                                      case "raw":
+                                        current.body = { type: "raw", value: "", contentType: "text/plain" };
+                                        break;
+                                      case "form-urlencoded":
+                                        current.body = { type: "form-urlencoded", entries: [createKeyValueEntry()] };
+                                        break;
+                                      default:
+                                        current.body = { type: "none" };
+                                    }
+                                  });
+                                }}
+                              >
+                                <option value="none">None</option>
+                                <option value="json">JSON</option>
+                                <option value="raw">Raw</option>
+                                <option value="form-urlencoded">Form Urlencoded</option>
+                              </select>
+
+                              <Show when={request().body.type === "json"}>
+                                <button
+                                  class="theme-control h-8 rounded-md px-3 py-1 text-sm font-medium"
+                                  onClick={() => updateActiveRequest((current) => {
+                                    if (current.body.type === "json") {
+                                      current.body = {
+                                        ...current.body,
+                                        value: tryFormatJson(current.body.value)
+                                      };
+                                    }
+                                  })}
+                                >
+                                  Format JSON
+                                </button>
+                              </Show>
+                            </div>
                             <Show when={request().body.type === "form-urlencoded"}>
                               <button
                                 class="inline-flex h-6 w-6 items-center justify-center rounded-full transition"
@@ -3089,6 +3526,24 @@ export function RestPlayground(props: RestPlaygroundProps) {
                               </button>
                             </Show>
                           </div>
+
+                          <Show when={request().body.type === "raw"}>
+                            <label class="theme-text-muted grid w-full max-w-[260px] gap-1.5 text-sm">
+                              <span class="theme-text font-medium">Content-Type</span>
+                              <input
+                                class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
+                                value={request().body.type === "raw" ? request().body.contentType : ""}
+                                onInput={(event) => updateActiveRequest((current) => {
+                                  if (current.body.type === "raw") {
+                                    current.body = {
+                                      ...current.body,
+                                      contentType: event.currentTarget.value
+                                    };
+                                  }
+                                })}
+                              />
+                            </label>
+                          </Show>
 
                           <Show when={request().body.type === "json" || request().body.type === "raw"}>
                             <textarea
@@ -3165,38 +3620,30 @@ export function RestPlayground(props: RestPlaygroundProps) {
             class="flex min-h-0 flex-col px-3 py-2"
             style={{ "min-height": "calc(100dvh - 128px)" }}
           >
-            <Show when={responseSummary()}>
-              {(summary) => (
-                <div class="mb-3 grid gap-px overflow-hidden border md:grid-cols-4" style={{ "border-color": "var(--app-border)", background: "var(--app-border)" }}>
-                  <div class="theme-kv-cell-muted px-4 py-3">
-                    <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">Status</p>
-                    <p class="theme-text mt-1 text-base font-semibold">{summary().status} {summary().statusText}</p>
-                  </div>
-                  <div class="theme-kv-cell-muted px-4 py-3">
-                    <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">Time</p>
-                    <p class="theme-text mt-1 text-base font-semibold">{summary().timeMs} ms</p>
-                  </div>
-                  <div class="theme-kv-cell-muted px-4 py-3">
-                    <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">Size</p>
-                    <p class="theme-text mt-1 text-base font-semibold">{formatBytes(summary().sizeBytes)}</p>
-                  </div>
-                  <div class="theme-kv-cell-muted px-4 py-3">
-                    <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">Content-Type</p>
-                    <p class="theme-text mt-1 text-base font-semibold">{summary().contentType}</p>
-                  </div>
-                </div>
-              )}
-            </Show>
-
             <Show when={responseError()}>
               <div class="mb-3 border px-4 py-3 text-sm theme-warn" style={{ "border-color": "var(--app-border)" }}>
                 {responseError()}
               </div>
             </Show>
 
-            <div class="mb-3 flex flex-wrap items-center gap-1.5">
-              <EditorToggle active={responseTab() === "body"} label="Body" onClick={() => setResponseTab("body")} />
-              <EditorToggle active={responseTab() === "headers"} label="Headers" onClick={() => setResponseTab("headers")} />
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <EditorToggle active={responseTab() === "body"} label="Body" onClick={() => setResponseTab("body")} />
+                <EditorToggle active={responseTab() === "headers"} label="Headers" onClick={() => setResponseTab("headers")} />
+              </div>
+              <Show when={responseSummary()}>
+                {(summary) => (
+                  <div class="theme-text-soft flex flex-wrap items-center gap-2 text-sm">
+                    <span class={`font-semibold ${getResponseStatusClass(summary().status)}`}>
+                      {summary().status} {summary().statusText}
+                    </span>
+                    <span>|</span>
+                    <span>{summary().timeMs} ms</span>
+                    <span>|</span>
+                    <span>{formatBytes(summary().sizeBytes)}</span>
+                  </div>
+                )}
+              </Show>
             </div>
 
             <div class="min-h-0 flex-1">
