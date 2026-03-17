@@ -2627,7 +2627,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                         <div
                           class={`group inline-flex max-w-[320px] shrink-0 items-center gap-1 rounded-md border px-2 py-1 transition ${
                             workspace.activeRequestId === requestId
-                              ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
+                              ? "border-transparent bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
                               : "theme-control"
                           } ${
                             tabDropTargetId() === requestId && draggedTabId() !== requestId
@@ -2709,7 +2709,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
                 <Show when={requestTabMenuState() && currentTabMenuRequest()}>
                   <div
-                    class="theme-panel-soft fixed z-[90] min-w-[160px] border p-1"
+                    class="theme-panel-soft fixed z-[90] w-max border p-1"
                     data-rest-menu-root
                     style={{
                       "border-color": "var(--app-border)",
