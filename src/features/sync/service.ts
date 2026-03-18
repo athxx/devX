@@ -28,10 +28,14 @@ async function scheduleSync(settings?: SyncSettings) {
   const nextSettings = settings ?? (await loadSyncSettings());
   stopScheduler();
 
+  if (!nextSettings.autoSync || nextSettings.provider === "none") {
+    return;
+  }
+
   syncScheduler = window.setInterval(async () => {
     const latestSettings = await loadSyncSettings();
 
-    if (!latestSettings.autoSync) {
+    if (!latestSettings.autoSync || latestSettings.provider === "none") {
       return;
     }
 
