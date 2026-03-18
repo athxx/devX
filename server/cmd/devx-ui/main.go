@@ -28,10 +28,12 @@ func main() {
 	}()
 
 	onReady := func() {
-		icon := ui.TrayIcon()
-		systray.SetIcon(icon)
+		runningIcon := ui.TrayIconRunning()
+		stoppedIcon := ui.TrayIconStopped()
+
+		systray.SetIcon(stoppedIcon)
 		if runtime.GOOS == "darwin" {
-			systray.SetTemplateIcon(icon, icon)
+			systray.SetTemplateIcon(stoppedIcon, stoppedIcon)
 		}
 		systray.SetTitle("DEVX")
 		systray.SetTooltip("DEVX local relay server")
@@ -77,9 +79,17 @@ func main() {
 			statusItem.SetTitle(label)
 
 			if status.Running {
+				systray.SetIcon(runningIcon)
+				if runtime.GOOS == "darwin" {
+					systray.SetTemplateIcon(runningIcon, runningIcon)
+				}
 				startItem.Disable()
 				stopItem.Enable()
 			} else {
+				systray.SetIcon(stoppedIcon)
+				if runtime.GOOS == "darwin" {
+					systray.SetTemplateIcon(stoppedIcon, stoppedIcon)
+				}
 				startItem.Enable()
 				stopItem.Disable()
 			}

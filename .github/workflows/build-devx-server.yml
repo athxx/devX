@@ -1,0 +1,130 @@
+name: Build DEVX Server
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "server/**"
+      - ".github/workflows/build-devx-server.yml"
+  pull_request:
+    paths:
+      - "server/**"
+      - ".github/workflows/build-devx-server.yml"
+
+jobs:
+  build:
+    name: ${{ matrix.target.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: linux-amd64
+            runs_on: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+            cli_name: devx-cli-linux-amd64
+            ui_name: devx-ui-linux-amd64
+          - name: linux-arm64
+            runs_on: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+            cli_name: devx-cli-linux-arm64
+            ui_name: devx-ui-linux-arm64
+          - name: windows-amd64
+            runs_on: windows-2025
+            goos: windows
+            goarch: amd64
+            msystem: UCRT64
+            compiler: C:\msys64\ucrt64\bin\gcc.exe
+            cli_name: devx-cli-windows-amd64.exe
+            ui_name: devx-ui-windows-amd64.exe
+          - name: windows-arm64
+            runs_on: windows-11-arm
+            goos: windows
+            goarch: arm64
+            msystem: CLANGARM64
+            compiler: C:\msys64\clangarm64\bin\clang.exe
+            cli_name: devx-cli-windows-arm64.exe
+            ui_name: devx-ui-windows-arm64.exe
+          - name: macos-amd64
+            runs_on: macos-15-intel
+            goos: darwin
+            goarch: amd64
+            cli_name: devx-cli-darwin-amd64
+            ui_name: devx-ui-darwin-amd64
+          - name: macos-arm64
+            runs_on: macos-15
+            goos: darwin
+            goarch: arm64
+            cli_name: devx-cli-darwin-arm64
+            ui_name: devx-ui-darwin-arm64
+
+    runs-on: ${{ matrix.target.runs_on }}
+
+    env:
+      CGO_ENABLED: "1"
+      GOOS: ${{ matrix.target.goos }}
+      GOARCH: ${{ matrix.target.goarch }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+
+      - name: Install Linux UI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc libgtk-3-dev libayatana-appindicator3-dev
+
+      - name: Setup Windows toolchain
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.target.msystem }}
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-clang-aarch64-clang
+
+      - name: Configure Windows C compiler
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CC=${{ matrix.target.compiler }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CXX=${{ matrix.target.compiler }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Download Go modules
+        working-directory: server
+        run: go mod download
+
+      - name: Prepare dist
+        run: mkdir -p server/dist
+
+      - name: Build CLI
+        working-directory: server
+        run: go build -trimpath -o "dist/${{ matrix.target.cli_name }}" ./cmd/devx-cli
+
+      - name: Build Tray UI
+        working-directory: server
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            go build -trimpath -ldflags="-H=windowsgui" -o "dist/${{ matrix.target.ui_name }}" ./cmd/devx-ui
+          else
+            go build -trimpath -o "dist/${{ matrix.target.ui_name }}" ./cmd/devx-ui
+          fi
+        shell: bash
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target.name }}
+          path: |
+            server/dist/${{ matrix.target.cli_name }}
+            server/dist/${{ matrix.target.ui_name }}
+          if-no-files-found: error

@@ -2,7 +2,6 @@ package app
 
 import (
 	"errors"
-	"fmt"
 	"time"
 
 	ws "github.com/gofiber/contrib/websocket"
@@ -10,7 +9,6 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
-	"github.com/redis/go-redis/v9"
 
 	"devx/server/internal/config"
 	"devx/server/internal/http/handlers"
@@ -20,8 +18,8 @@ func New(cfg config.Config) (*fiber.App, error) {
 	app := fiber.New(fiber.Config{
 		AppName:      "DevX Server",
 		ServerHeader: "DevX",
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 60 * time.Second,
+		ReadTimeout:  45 * time.Second,
+		WriteTimeout: 45 * time.Second,
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
 			var fiberErr *fiber.Error
 			if errors.As(err, &fiberErr) {
@@ -41,51 +39,40 @@ func New(cfg config.Config) (*fiber.App, error) {
 	app.Use(recover.New())
 	app.Use(cors.New(cors.Config{
 		AllowOrigins: cfg.AllowOrigins,
-		AllowHeaders: "Origin, Content-Type, Accept, Authorization, X-Requested-With",
+		AllowHeaders: "Origin, Content-Type, Accept, Authorization, X-Requested-With, X-Ason-Proxy, X-Ason-Url",
 		AllowMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS",
 	}))
 	if cfg.EnableRequestLog {
 		app.Use(logger.New())
 	}
 
-	var redisClient *redis.Client
-	if cfg.RedisURL != "" {
-		options, err := redis.ParseURL(cfg.RedisURL)
-		if err != nil {
-			return nil, fmt.Errorf("parse redis url: %w", err)
-		}
-		redisClient = redis.NewClient(options)
-	}
-
 	deps := handlers.Dependencies{
-		Config:      cfg,
-		RedisClient: redisClient,
+		Config: cfg,
 	}
 
-	app.Get("/health", handlers.Health(deps))
+	app.All("/api", handlers.ProxyRequest(deps))
 
-	api := app.Group("/api")
-	api.Post("/proxy/request", handlers.ProxyRequest(deps))
-
-	db := api.Group("/db")
-	db.Post("/sql/query", handlers.SQLQuery(deps))
-	db.Post("/redis/command", handlers.RedisCommand(deps))
-	db.Post("/mongo/query", handlers.MongoQuery(deps))
-
-	ssh := api.Group("/ssh")
-	ssh.Use("/ws", func(c *fiber.Ctx) error {
+	app.Use("/ws", func(c *fiber.Ctx) error {
+		if c.Get("x-ason-proxy") != "devx" {
+			return fiber.NewError(fiber.StatusForbidden, "missing x-ason-proxy=devx")
+		}
 		if ws.IsWebSocketUpgrade(c) {
 			return c.Next()
 		}
 		return fiber.ErrUpgradeRequired
 	})
-	ssh.Get("/ws", handlers.SSHRelay(deps))
+	app.Get("/ws", ws.New(handlers.UnifiedWebSocket(deps)))
 
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"ok":      true,
 			"service": "DevX Server",
 			"version": 1,
+			"routes": []string{
+				"/api",
+				"/ws",
+			},
+			"server_time": time.Now().Format(time.RFC3339),
 		})
 	})
 

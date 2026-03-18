@@ -1,21 +1,9 @@
 package handlers
 
-import (
-	"context"
-
-	"github.com/gofiber/fiber/v2"
-)
+import "github.com/gofiber/fiber/v2"
 
 func Health(deps Dependencies) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		redisStatus := "disabled"
-		if deps.RedisClient != nil {
-			redisStatus = "ok"
-			if err := deps.RedisClient.Ping(context.Background()).Err(); err != nil {
-				redisStatus = err.Error()
-			}
-		}
-
 		return c.JSON(fiber.Map{
 			"ok": true,
 			"service": fiber.Map{
@@ -26,7 +14,6 @@ func Health(deps Dependencies) fiber.Handler {
 				"db-proxy",
 				"ssh-relay",
 			},
-			"redis": redisStatus,
 		})
 	}
 }

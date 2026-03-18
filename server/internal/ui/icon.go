@@ -7,10 +7,16 @@ import (
 	"image/png"
 )
 
-func TrayIcon() []byte {
+func TrayIconRunning() []byte {
+	return trayCircleIcon(color.NRGBA{R: 0xFF, G: 0xBF, B: 0x00, A: 0xFF})
+}
+
+func TrayIconStopped() []byte {
+	return trayCircleIcon(color.NRGBA{R: 0x9A, G: 0x9A, B: 0x9A, A: 0xFF})
+}
+
+func trayCircleIcon(fill color.NRGBA) []byte {
 	canvas := image.NewNRGBA(image.Rect(0, 0, 16, 16))
-	green := color.NRGBA{R: 40, G: 200, B: 64, A: 255}
-	dark := color.NRGBA{R: 12, G: 18, B: 24, A: 230}
 	transparent := color.NRGBA{A: 0}
 
 	for y := 0; y < 16; y++ {
@@ -19,18 +25,10 @@ func TrayIcon() []byte {
 		}
 	}
 
-	for y := 2; y < 14; y++ {
-		for x := 2; x < 14; x++ {
+	for y := 1; y < 15; y++ {
+		for x := 1; x < 15; x++ {
 			if (x-8)*(x-8)+(y-8)*(y-8) <= 36 {
-				canvas.SetNRGBA(x, y, green)
-			}
-		}
-	}
-
-	for y := 5; y < 11; y++ {
-		for x := 5; x < 11; x++ {
-			if (x-8)*(x-8)+(y-8)*(y-8) <= 9 {
-				canvas.SetNRGBA(x, y, dark)
+				canvas.SetNRGBA(x, y, fill)
 			}
 		}
 	}

@@ -1,10 +1,9 @@
 # DevX Server
 
-`server/` 是 DevX 的中转服务层，给网页端和 Chrome 插件提供三类能力：
+`server/` 是 DevX 的执行层，网页端和 Chrome 插件把所有数据都传给它，它负责执行和转发：
 
 - API 代理：转发 HTTP 请求，绕过浏览器端 CORS 限制
-- DB 中转：代理 SQL / Redis / MongoDB 访问
-- SSH 中转：通过 WebSocket 把浏览器终端桥接到 SSH 会话
+- 统一 WebSocket 总线：承载普通 WebSocket 代理、DB 执行和 SSH relay
 
 ## 技术栈
 
@@ -33,51 +32,48 @@ server/
 
 ```bash
 cd server
-mise exec go@1.26 -- go mod tidy
-mise exec go@1.26 -- go run ./cmd/devox-cli
+go mod tidy
+go run ./cmd/devox-cli
 ```
 
 默认监听：
 
 ```text
-127.0.0.1:8787
+0.0.0.0:8787
 ```
 
 ## 环境变量
 
 ```bash
-DEVX_SERVER_HOST=127.0.0.1
-DEVXPORT=8787,8788,8789
-DEVX_SERVER_PORT=8787
-DEVX_ALLOW_ORIGINS=*
-DEVX_REDIS_URL=redis://localhost:6379/0
-DEVX_PROXY_TIMEOUT=45s
-DEVX_DATABASE_TIMEOUT=30s
-DEVX_MONGO_TIMEOUT=30s
-DEVX_REDIS_TIMEOUT=10s
-DEVX_SSH_TIMEOUT=20s
-DEVX_ENABLE_REQUEST_LOG=true
+DEVX_PORT=8787
 ```
 
 端口规则：
 
 - 默认菜单端口：`8787,8788,8789`
-- 可通过 `DEVXPORT=8787,8788,8789` 覆盖，最多 3 个，最少 1 个
-- 如果设置了 `DEVX_SERVER_PORT`，它的优先级更高，会锁定当前实际监听端口
+- 如果设置了 `DEVX_PORT`，它会锁定当前实际监听端口
+- 未设置时，tray 可在 `8787 / 8788 / 8789` 中切换
+
+默认行为：
+
+- 监听地址固定为 `0.0.0.0`
+- HTTP / SQL / Redis / Mongo 默认超时都是 `45s`
+- SSH WebSocket 默认超时是 `120s`
+- Redis 不读服务端配置，由前端请求体直接传入连接信息
 
 ## Tray UI
 
 ```bash
 cd server
-mise exec go@1.26 -- go run ./cmd/devox-ui
+go run ./cmd/devox-ui
 ```
 
 功能：
 
 - tray 图标显示 DEVX 状态
 - 右键菜单可启动/停止服务
-- 可在 `8787 / 8788 / 8789` 或 `DEVXPORT` 提供的端口中切换
-- 如果 `DEVX_SERVER_PORT` 已设置，tray 会显示端口被环境变量锁定
+- 可在 `8787 / 8788 / 8789` 中切换
+- 如果 `DEVX_PORT` 已设置，tray 会显示端口被环境变量锁定
 
 Linux 依赖：
 
@@ -89,120 +85,132 @@ sudo apt install libayatana-appindicator3-dev
 
 ## 路由
 
-### Health
-
-- `GET /health`
-
 ### HTTP Proxy
 
-- `POST /api/proxy/request`
+- `POST /api`
+- `GET /api`
+- `PUT /api`
+- `PATCH /api`
+- `DELETE /api`
+
+必须带：
+
+- `x-ason-proxy: devx`
+- `x-ason-url: <真实目标地址>`
+
+服务端行为：
+
+- 不解析请求体
+- 不解析业务字段
+- 直接使用当前请求的 `method + body + headers` 转发到 `x-ason-url`
+- 收到上游响应后，按原始 `status + headers + body` 直接回给前端
 
 示例：
 
+```http
+POST /api HTTP/1.1
+Host: 127.0.0.1:8787
+X-Ason-Proxy: devx
+X-Ason-Url: https://httpbin.org/post
+Content-Type: application/json
+
+{"hello":"world"}
+```
+
+### Unified WebSocket
+
+- `GET /ws`
+
+必须带：
+
+- `x-ason-proxy: devx`
+
+如果同时带：
+
+- `x-ason-url: <真实 websocket 地址>`
+
+那 `/ws` 会直接做纯 WebSocket 透明转发，不读取任何前置命令消息。
+
+#### 普通 WebSocket 代理
+
+握手头示例：
+
+```http
+GET /ws HTTP/1.1
+Host: 127.0.0.1:8787
+Upgrade: websocket
+Connection: Upgrade
+X-Ason-Proxy: devx
+X-Ason-Url: wss://echo.websocket.events
+```
+
+后续消息会原样在前端和上游 WebSocket 之间双向转发。
+
+#### 内部命令通道
+
+如果没有 `x-ason-url`，`/ws` 会进入内部命令通道。
+
+连接建立后：
+
+- 服务端每 `30s` 发送一次 ping
+- 如果超过 `120s` 没有心跳/消息，会自动断开
+
+前端发送的数据结构：
+
 ```json
 {
-  "method": "POST",
-  "url": "https://httpbin.org/post",
-  "headers": {
-    "Content-Type": "application/json"
-  },
-  "body": "{\"hello\":\"world\"}",
-  "followRedirects": true
+  "redis": [
+    {
+      "url": "redis://127.0.0.1:6379",
+      "id": 0,
+      "cmd": "GET my-key"
+    }
+  ],
+  "postgres": [
+    {
+      "url": "postgresql://postgres:password@localhost:5432/devx",
+      "id": 1,
+      "cmd": "SELECT * FROM users WHERE id = 1"
+    }
+  ],
+  "mongodb": [
+    {
+      "url": "mongodb://localhost:27017",
+      "id": 2,
+      "cmd": "db.users.find({ _id: ObjectId('60c72b2f9b1d4c3d8f0e4b5') })"
+    }
+  ],
+  "mysql": [
+    {
+      "url": "mysql://root:password@localhost:3306/devx",
+      "id": 3,
+      "cmd": "SELECT * FROM users WHERE id = 1"
+    }
+  ],
+  "ssh": [
+    {
+      "url": "ssh://user:password@localhost:22",
+      "id": 4,
+      "cmd": "ls -la"
+    }
+  ]
 }
 ```
 
-### SQL
-
-- `POST /api/db/sql/query`
-
-支持：
-
-- `mysql`
-- `postgres`
-
-示例：
+返回结果会按同样的顶层 key 分组，例如：
 
 ```json
 {
-  "driver": "postgres",
-  "dsn": "postgres://user:pass@localhost:5432/app?sslmode=disable",
-  "query": "select now() as current_time"
-}
-```
-
-### Redis
-
-- `POST /api/db/redis/command`
-
-示例：
-
-```json
-{
-  "url": "redis://localhost:6379/0",
-  "command": "GET",
-  "arguments": ["my-key"]
-}
-```
-
-### MongoDB
-
-- `POST /api/db/mongo/query`
-
-支持：
-
-- `findOne`
-- `findMany`
-- `aggregate`
-- `insertOne`
-- `insertMany`
-- `updateOne`
-- `updateMany`
-- `deleteOne`
-- `deleteMany`
-
-示例：
-
-```json
-{
-  "uri": "mongodb://localhost:27017",
-  "database": "devx",
-  "collection": "users",
-  "action": "findMany",
-  "filter": {
-    "active": true
-  },
-  "limit": 20
-}
-```
-
-### SSH
-
-- `GET /api/ssh/ws`
-
-WebSocket 第一条消息必须是：
-
-```json
-{
-  "type": "connect",
-  "host": "127.0.0.1",
-  "port": 22,
-  "username": "root",
-  "password": "secret",
-  "cols": 120,
-  "rows": 32
-}
-```
-
-后续：
-
-- 文本/二进制消息：直接写入 SSH stdin
-- resize：
-
-```json
-{
-  "type": "resize",
-  "cols": 160,
-  "rows": 42
+  "redis": [
+    {
+      "id": 0,
+      "ok": true,
+      "data": {
+        "result": "value",
+        "durationMs": 3
+      }
+    }
+  ]
 }
 ```
 

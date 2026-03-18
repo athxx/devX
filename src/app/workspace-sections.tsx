@@ -2,6 +2,7 @@ import type { JSX } from "solid-js";
 import { For, Show, createSignal } from "solid-js";
 import { SectionCard } from "../components/section-card";
 import { WorkspaceSidebarLayout } from "../components/workspace-sidebar-layout";
+import { ProxyPanel } from "../features/proxy/components/proxy-panel";
 import { SyncPanel } from "../features/sync/components/sync-panel";
 
 type SidebarWorkspaceProps = {
@@ -23,13 +24,14 @@ const toolGroups = [
   { name: "Encode", summary: "Base64、URL、JWT、Hash、Timestamp 等常用转换。" }
 ];
 
-type SettingsSectionId = "sync" | "account" | "team" | "billing" | "about";
+type SettingsSectionId = "proxy" | "sync" | "account" | "team" | "billing" | "about";
 
 const settingsSections: Array<{
   id: SettingsSectionId;
   title: string;
   summary: string;
 }> = [
+  { id: "proxy", title: "Proxy", summary: "API / DB / SSH 的代理入口与连通性测试。" },
   { id: "sync", title: "Sync", summary: "云同步、备份和导入导出。" },
   { id: "account", title: "Account", summary: "个人身份、偏好和访问控制。" },
   { id: "team", title: "Team", summary: "团队版、统一管理和工作区分发。" },
@@ -137,10 +139,36 @@ export function HomeWorkspace() {
 }
 
 export function SettingsWorkspace(props: SidebarWorkspaceProps) {
-  const [activeSection, setActiveSection] = createSignal<SettingsSectionId>("sync");
+  const [activeSection, setActiveSection] = createSignal<SettingsSectionId>("proxy");
 
   const renderSettingsContent = () => {
     switch (activeSection()) {
+      case "proxy":
+        return (
+          <div class="grid gap-4">
+            <SectionCard eyebrow="Settings / Proxy" title="Routing & Gateway">
+              <div class="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_320px]">
+                <div class="theme-control rounded-3xl p-4">
+                  <p class="theme-text text-sm font-semibold">Execution Path</p>
+                  <p class="theme-text-muted mt-2 text-sm leading-6">
+                    分别控制 API、DB、SSH 是否走代理地址。API 在 proxy 模式下会自动把真实目标放进
+                    `x-ason-url`，并附加 `x-ason-proxy: devx`。
+                  </p>
+                </div>
+
+                <div class="theme-control rounded-3xl p-4">
+                  <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">Mode</p>
+                  <p class="theme-text mt-2 text-lg font-semibold">Proxy Settings</p>
+                  <p class="theme-text-muted mt-3 text-sm leading-6">
+                    这里先管路由和连通性，后面 DB / SSH 工作区接入时会直接复用。
+                  </p>
+                </div>
+              </div>
+            </SectionCard>
+
+            <ProxyPanel />
+          </div>
+        );
       case "account":
         return (
           <SettingsPlaceholder

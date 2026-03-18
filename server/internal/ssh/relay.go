@@ -36,7 +36,15 @@ type EventMessage struct {
 }
 
 func Handle(conn *websocket.Conn, timeout time.Duration) error {
-	connectMessage, err := readConnectMessage(conn)
+	_, payload, err := conn.ReadMessage()
+	if err != nil {
+		return err
+	}
+	return HandleWithPayload(conn, payload, timeout)
+}
+
+func HandleWithPayload(conn *websocket.Conn, payload []byte, timeout time.Duration) error {
+	connectMessage, err := parseConnectMessage(payload)
 	if err != nil {
 		return err
 	}
@@ -162,12 +170,7 @@ func Handle(conn *websocket.Conn, timeout time.Duration) error {
 	}
 }
 
-func readConnectMessage(conn *websocket.Conn) (ConnectMessage, error) {
-	_, payload, err := conn.ReadMessage()
-	if err != nil {
-		return ConnectMessage{}, err
-	}
-
+func parseConnectMessage(payload []byte) (ConnectMessage, error) {
 	var message ConnectMessage
 	if err := json.Unmarshal(payload, &message); err != nil {
 		return ConnectMessage{}, fmt.Errorf("expected initial json config message")

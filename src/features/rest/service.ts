@@ -1,4 +1,5 @@
 import { getStoredValue, setStoredValue } from "../../lib/platform-storage";
+import { loadSettings } from "../../lib/storage";
 import { loadRestWorkspaceFromDb, saveRestWorkspaceToDb } from "./local-db";
 import type {
   Collection,
@@ -440,6 +441,7 @@ export async function executeRestRequestDirect(
   request: RequestDraft,
   environment?: Environment
 ): Promise<ResponseSummary> {
+  const settings = await loadSettings();
   const resolvedUrl = resolveTemplate(request.url, environment);
   const url = new URL(resolvedUrl);
 
@@ -466,8 +468,16 @@ export async function executeRestRequestDirect(
     init.body = buildRequestBody(request.body, headers, environment);
   }
 
+  let requestUrl = url.toString();
+
+  if (settings.proxy.api.mode === "proxy" && settings.proxy.api.address.trim()) {
+    requestUrl = `${settings.proxy.api.address.trim().replace(/\/+$/, "")}/api`;
+    headers.set("x-ason-proxy", "devx");
+    headers.set("x-ason-url", url.toString());
+  }
+
   const startedAt = performance.now();
-  const response = await fetch(url.toString(), init);
+  const response = await fetch(requestUrl, init);
   const finishedAt = performance.now();
   const text = await response.text();
   const contentType = response.headers.get("content-type") ?? "unknown";

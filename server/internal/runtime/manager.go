@@ -143,5 +143,5 @@ func (m *ServerManager) LockedPortLabel() string {
 	if !m.baseConfig.PortLocked {
 		return ""
 	}
-	return fmt.Sprintf("Locked by DEVX_SERVER_PORT=%s", m.baseConfig.Port)
+	return fmt.Sprintf("Locked by DEVX_PORT=%s", m.baseConfig.Port)
 }

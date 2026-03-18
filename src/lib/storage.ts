@@ -6,6 +6,20 @@ export type AppSettings = {
   requestTimeoutMs: number;
   persistHistory: boolean;
   defaultToolId: string;
+  proxy: {
+    api: {
+      mode: "none" | "proxy";
+      address: string;
+    };
+    db: {
+      mode: "none" | "proxy";
+      address: string;
+    };
+    ssh: {
+      mode: "none" | "proxy";
+      address: string;
+    };
+  };
 };
 
 export const defaultSettings: AppSettings = {
@@ -13,7 +27,21 @@ export const defaultSettings: AppSettings = {
   apiBaseUrl: "",
   requestTimeoutMs: 15000,
   persistHistory: true,
-  defaultToolId: "api-client"
+  defaultToolId: "api-client",
+  proxy: {
+    api: {
+      mode: "none",
+      address: ""
+    },
+    db: {
+      mode: "none",
+      address: ""
+    },
+    ssh: {
+      mode: "none",
+      address: ""
+    }
+  }
 };
 
 const SETTINGS_KEY = "app-settings";
@@ -23,7 +51,21 @@ export async function loadSettings(): Promise<AppSettings> {
 
   return {
     ...defaultSettings,
-    ...stored
+    ...stored,
+    proxy: {
+      api: {
+        ...defaultSettings.proxy.api,
+        ...stored?.proxy?.api
+      },
+      db: {
+        ...defaultSettings.proxy.db,
+        ...stored?.proxy?.db
+      },
+      ssh: {
+        ...defaultSettings.proxy.ssh,
+        ...stored?.proxy?.ssh
+      }
+    }
   };
 }
 

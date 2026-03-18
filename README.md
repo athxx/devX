@@ -73,8 +73,8 @@ The repository also includes a Go middle layer in `server/` for API proxying, DB
 
 ```bash
 cd server
-mise exec go@1.26 -- go mod tidy
-mise exec go@1.26 -- go run ./cmd/devx-server
+go mod tidy
+go run ./cmd/devx-server
 ```
 
 See [server/README.md](./server/README.md) for the available routes and payload formats.
