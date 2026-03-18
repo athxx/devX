@@ -71,8 +71,8 @@ const responseTabs: Array<{ id: ResponseTabId; label: string }> = [
 
 const sidebarTabs: Array<{ id: SidebarPanelId; label: string }> = [
   { id: "collections", label: "Collections" },
-  { id: "environments", label: "Environments" },
-  { id: "history", label: "History" }
+  { id: "environments", label: "ENV" },
+  { id: "history", label: "HIS" }
 ];
 
 const preRequestScriptHeightStorageKey = "devx-script-height-pre-request";
