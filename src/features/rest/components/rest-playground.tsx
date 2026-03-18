@@ -4017,11 +4017,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
           </div>
         }
       >
-        <div class="border-b px-3 py-1.5" style={{ "border-color": "var(--app-border)" }}>
+        <div class="border-b" style={{ "border-color": "var(--app-border)" }}>
           <div class="grid gap-1.5">
-            <div class="flex items-center justify-between gap-2 overflow-visible">
+            <div class="overflow-visible">
               <div
-                class="relative z-10 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+                class="relative z-10 grid min-w-0 w-full auto-cols-fr grid-flow-col items-stretch overflow-hidden border"
+                style={{ "border-color": "var(--app-border)" }}
                 onDragOver={(event) => {
                   event.preventDefault();
                   setTabDropTargetId(null);
@@ -4044,10 +4045,10 @@ export function RestPlayground(props: RestPlaygroundProps) {
                     return (
                       <Show when={request()}>
                         <div
-                          class={`group inline-flex max-w-[320px] shrink-0 items-center gap-1 rounded-md border px-2 py-1 transition ${
+                          class={`group relative min-w-0 transition ${
                             workspace.activeRequestId === requestId
-                              ? "border-transparent bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
-                              : "theme-control"
+                              ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
+                              : ""
                           } ${
                             tabDropTargetId() === requestId && draggedTabId() !== requestId
                               ? "ring-1 ring-[var(--app-accent)]"
@@ -4055,6 +4056,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
                           } ${
                             draggedTabId() === requestId ? "opacity-60" : ""
                           }`}
+                          style={{
+                            "border-left":
+                              orderedOpenRequestIds()[0] === requestId
+                                ? "0"
+                                : "1px solid var(--app-border)"
+                          }}
                           draggable={!isPinned()}
                           onDragStart={(event) => {
                             if (isPinned()) {
@@ -4094,20 +4101,25 @@ export function RestPlayground(props: RestPlaygroundProps) {
                             });
                           }}
                         >
-                          <button class="inline-flex items-center gap-1" onClick={() => openRequestTab(requestId, request()!.collectionId)}>
-                            <span class={getRequestBadgeClass(request()!)}>{getRequestKindLabel(request()!)}</span>
-                            <span class="truncate text-sm font-medium">{request()!.name}</span>
+                          <button
+                            class="flex h-full w-full min-w-0 items-center justify-center gap-1.5 px-8 py-2 text-center"
+                            onClick={() => openRequestTab(requestId, request()!.collectionId)}
+                          >
+                            <span class={`${getRequestBadgeClass(request()!)} shrink-0`}>
+                              {getRequestKindLabel(request()!)}
+                            </span>
+                            <span class="truncate text-center text-sm font-medium">{request()!.name}</span>
                           </button>
 
                           <Show when={isPinned()}>
-                            <span class="inline-flex h-5 w-5 items-center justify-center text-[var(--app-accent)]">
+                            <span class="pointer-events-none absolute right-1.5 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center text-[var(--app-accent)]">
                               <PinIcon />
                             </span>
                           </Show>
 
                           <Show when={!isPinned()}>
                             <button
-                              class="inline-flex h-5 w-5 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
+                              class="absolute right-1.5 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 closeRequestTab(requestId);
@@ -4121,27 +4133,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
                     );
                   }}
                 </For>
-
               </div>
-
-              <button
-                class="theme-control shrink-0 rounded-md px-3 py-1.5 text-sm font-medium transition"
-                onClick={() => {
-                  const collectionId = activeCollection()?.id ?? workspace.collections[0]?.id;
-                  if (!collectionId) {
-                    return;
-                  }
-                  const request = createRequestForKind(collectionId, "http");
-                  addRequestToWorkspace(collectionId, request, null);
-                }}
-              >
-                + Request
-              </button>
             </div>
 
             <Show when={activeRequest()}>
               {(request) => (
-                <div class="flex flex-wrap items-center gap-2">
+                <div class="flex flex-wrap items-center gap-2 px-3 pb-1.5">
                   <input
                     class="theme-input h-8 min-w-[180px] rounded-md px-2.5 py-1 text-sm"
                     value={request().name}

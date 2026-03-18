@@ -281,6 +281,8 @@ a {
 .theme-donate-button::after {
   filter: blur(10px);
   opacity: 0.75;
+  mask: none;
+  -webkit-mask: none;
 }
 
 :root[data-theme="dark"] .theme-donate-button {
