@@ -41,7 +41,7 @@ import {
 
 type SidebarPanelId = "collections" | "environments" | "history";
 type EditorTabId = "params" | "headers" | "body" | "auth";
-type ResponseTabId = "body" | "headers" | "timeline";
+type ResponseTabId = "body" | "headers";
 type SaveState = "idle" | "saving" | "saved" | "error";
 type BottomEditorTabId = "body" | "script";
 
@@ -63,12 +63,6 @@ const editorTabs: Array<{ id: EditorTabId; label: string }> = [
   { id: "headers", label: "Headers" },
   { id: "body", label: "Body" },
   { id: "auth", label: "Auth" }
-];
-
-const responseTabs: Array<{ id: ResponseTabId; label: string }> = [
-  { id: "body", label: "Body" },
-  { id: "headers", label: "Headers" },
-  { id: "timeline", label: "Timeline" }
 ];
 
 const sidebarTabs: Array<{ id: SidebarPanelId; label: string }> = [

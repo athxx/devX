@@ -448,7 +448,7 @@ Waiting for transport adapter...
           </div>
         </WorkspaceSection>
 
-        <LinearWorkspaceSection eyebrow="Status" title="Connection Notes" class="border-b">
+        <WorkspaceSection eyebrow="Status" title="Connection Notes" class="border-b">
           <div
             class="grid gap-px overflow-hidden border"
             style={{ "border-color": "var(--app-border)", background: "var(--app-border)" }}
@@ -466,7 +466,7 @@ Waiting for transport adapter...
               <p class="theme-text-soft mt-1 text-xs">确认 SSH 的平台策略后再接真实连接层</p>
             </div>
           </div>
-        </LinearWorkspaceSection>
+        </WorkspaceSection>
     </WorkspaceSidebarLayout>
   );
 }

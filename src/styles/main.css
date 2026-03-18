@@ -337,10 +337,6 @@ a {
   background: #0a84ff;
 }
 
-.traffic-dot-warn {
-  background: #fdbb2b;
-}
-
 .traffic-dot-button {
   border: 0;
   background: transparent;
@@ -361,15 +357,6 @@ a {
   width: 0px;
   overflow: visible;
 }
-
-/* .api-main-pane-resizer::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -4px;
-  right: -4px;
-} */
 
 .workspace-sidebar-layout {
   display: grid;
