@@ -1,6 +1,7 @@
 import type { JSX } from "solid-js";
 import {
   For,
+  Index,
   Match,
   Show,
   Switch,
@@ -80,6 +81,51 @@ const requestCreateOptions: Array<{ id: RequestKind; label: string }> = [
   { id: "graphql", label: "GraphQL" },
   { id: "socketio", label: "Socket.IO" }
 ];
+
+const commonHeaderKeys = [
+  "Accept",
+  "Accept-Encoding",
+  "Accept-Language",
+  "Authorization",
+  "Cache-Control",
+  "Connection",
+  "Content-Type",
+  "Cookie",
+  "If-Modified-Since",
+  "If-None-Match",
+  "Origin",
+  "Pragma",
+  "Referer",
+  "User-Agent",
+  "X-API-Key",
+  "X-Requested-With"
+];
+
+const commonHeaderValueMap: Record<string, string[]> = {
+  accept: [
+    "application/json",
+    "application/json; charset=utf-8",
+    "text/plain",
+    "text/html",
+    "*/*"
+  ],
+  "accept-encoding": ["gzip, deflate, br", "gzip, deflate", "identity"],
+  "accept-language": ["en-US,en;q=0.9", "zh-CN,zh;q=0.9", "en;q=0.8"],
+  authorization: ["Bearer ", "Basic "],
+  "cache-control": ["no-cache", "no-store", "max-age=0"],
+  connection: ["keep-alive", "close"],
+  "content-type": [
+    "application/json",
+    "application/json; charset=utf-8",
+    "application/x-www-form-urlencoded",
+    "multipart/form-data",
+    "text/plain",
+    "application/octet-stream"
+  ],
+  pragma: ["no-cache"],
+  "x-requested-with": ["XMLHttpRequest"],
+  "x-api-key": ["{{apiKey}}"]
+};
 
 const requestMethods: RequestMethod[] = [
   "GET",
@@ -371,6 +417,18 @@ function buildCurlCommand(request: RequestDraft, environment?: Environment) {
       parts.push("-H", "'Content-Type: application/json'");
       parts.push("--data-raw", `'${resolveTemplate(request.body.value, environment)}'`);
       break;
+    case "form-data":
+      request.body.entries
+        .filter((entry) => entry.enabled && entry.key.trim())
+        .forEach((entry) => {
+          parts.push(
+            "-F",
+            entry.valueType === "file"
+              ? `'${resolveTemplate(entry.key, environment)}=@${entry.fileName || "upload.bin"}'`
+              : `'${resolveTemplate(entry.key, environment)}=${resolveTemplate(entry.value, environment)}'`
+          );
+        });
+      break;
     case "raw":
       parts.push(
         "-H",
@@ -387,6 +445,10 @@ function buildCurlCommand(request: RequestDraft, environment?: Environment) {
             `'${resolveTemplate(entry.key, environment)}=${resolveTemplate(entry.value, environment)}'`
           );
         });
+      break;
+    case "binary":
+      parts.push("-H", "'Content-Type: application/octet-stream'");
+      parts.push("--data-binary", `'${resolveTemplate(request.body.value, environment)}'`);
       break;
     default:
       break;
@@ -414,6 +476,7 @@ function parseCurlCommand(
   let basicPassword = "";
   const queryEntries: KeyValueEntry[] = [];
   const headers: KeyValueEntry[] = [];
+  const formDataEntries: KeyValueEntry[] = [];
   const urlEncodedEntries: KeyValueEntry[] = [];
 
   for (let index = 1; index < tokens.length; index += 1) {
@@ -474,6 +537,24 @@ function parseCurlCommand(
         index += 1;
         break;
       }
+      case "-F":
+      case "--form": {
+        const value = tokens[index + 1] ?? "";
+        const separatorIndex = value.indexOf("=");
+        if (separatorIndex >= 0) {
+          formDataEntries.push(
+            createKeyValueEntry({
+              key: value.slice(0, separatorIndex),
+              value: value.slice(separatorIndex + 1)
+            })
+          );
+        }
+        if (method === "GET") {
+          method = "POST";
+        }
+        index += 1;
+        break;
+      }
       case "-u":
       case "--user": {
         const value = tokens[index + 1] ?? "";
@@ -513,7 +594,12 @@ function parseCurlCommand(
   contentType = contentTypeHeader?.value ?? "";
 
   let body: RequestBody = { type: "none" };
-  if (urlEncodedEntries.length > 0) {
+  if (formDataEntries.length > 0) {
+    body = {
+      type: "form-data",
+      entries: formDataEntries
+    };
+  } else if (urlEncodedEntries.length > 0) {
     body = {
       type: "form-urlencoded",
       entries: urlEncodedEntries
@@ -524,6 +610,11 @@ function parseCurlCommand(
           type: "json",
           value: rawBody
         }
+      : contentType.includes("application/octet-stream")
+        ? {
+            type: "binary",
+            value: rawBody
+          }
       : {
           type: "raw",
           value: rawBody,
@@ -591,47 +682,27 @@ function getResponseStatusClass(status: number) {
 
 function MacCloseIcon() {
   return (
-    <svg
-      aria-hidden="true"
-      class="h-4.5 w-4.5"
-      fill="none"
-      viewBox="0 0 20 20"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path d="M9.55 18.55a9 9 0 1 0 0-18 9 9 0 0 0 0 18z" fill="#FF5F57" />
-      <path
-        d="M9.55 18.1a8.55 8.55 0 1 0 0-17.1 8.55 8.55 0 0 0 0 17.1z"
-        stroke="#000"
-        stroke-opacity=".2"
-        stroke-width="2"
-      />
-      <path
-        d="M13.369 12.733l-7-7a.45.45 0 1 0-.637.636l7 7a.45.45 0 1 0 .637-.636z"
-        fill="#000"
-        fill-opacity=".5"
-      />
-      <path
-        d="M12.733 5.732l-7 7a.45.45 0 1 0 .636.636l7-7a.45.45 0 1 0-.636-.636z"
-        fill="#000"
-        fill-opacity=".5"
-      />
-    </svg>
+    <svg class="block h-4.5 w-4.5" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 20c5.523 0 10-4.477 10-10S15.523 0 10 0 0 4.477 0 10s4.477 10 10 10z" fill="#EA4F49"/><path d="M10 19.5a9.5 9.5 0 1 0 0-19 9.5 9.5 0 0 0 0 19z" stroke="#000" stroke-opacity=".2"/><path d="M13.536 5.757a.5.5 0 0 1 .707.707L10.706 10l3.537 3.535a.5.5 0 0 1-.707.707l-3.537-3.535-3.535 3.535a.5.5 0 0 1-.707-.707L9.292 10 5.757 6.464a.5.5 0 0 1 .707-.707L10 9.293l3.537-3.536z" fill="#000" fill-opacity=".5"/></svg>
   );
 }
 
 function MacAddIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <g clip-path="url(#clip0_mac_add)">
-        <path d="M20 40c11.046 0 20-8.954 20-20S31.046 0 20 0 0 8.954 0 20s8.954 20 20 20z" fill="#28C840"/>
-        <path d="M20 39c10.493 0 19-8.507 19-19S30.493 1 20 1 1 9.507 1 20s8.507 19 19 19z" stroke="#000" stroke-opacity=".2" stroke-width="2"/>
-        <path d="M20 8a1 1 0 0 1 1 1v10h10a1 1 0 1 1 0 2H21v10a1 1 0 1 1-2 0V21H9a1 1 0 1 1 0-2h10V9a1 1 0 0 1 1-1z" fill="#000" fill-opacity=".5"/>
-      </g>
-      <defs>
-        <clipPath id="clip0_mac_add">
-          <rect width="40" height="40" fill="white"/>
-        </clipPath>
-      </defs>
+    <svg class="block h-4.5 w-4.5" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M10 20c5.523 0 10-4.477 10-10S15.523 0 10 0 0 4.477 0 10s4.477 10 10 10z" fill="#28C840"/><path d="M10 19.5a9.5 9.5 0 1 0 0-19 9.5 9.5 0 0 0 0 19z" stroke="#000" stroke-opacity=".2"/><path d="M10 5c.23 0 .416.187.416.417v4.167h4.167a.417.417 0 1 1 0 .833h-4.167v4.166a.417.417 0 1 1-.833 0v-4.166H5.417a.417.417 0 0 1 0-.833h4.166V5.417c0-.23.187-.417.417-.417z" fill="#000" fill-opacity=".5"/></svg>
+  );
+}
+
+function MacMenuIcon() {
+  return (
+    <svg class="block h-4.5 w-4.5" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 20c5.523 0 10-4.477 10-10S15.523 0 10 0 0 4.477 0 10s4.477 10 10 10z" fill="#0A84FF"/><path d="M10 19.5a9.5 9.5 0 1 0 0-19 9.5 9.5 0 0 0 0 19z" stroke="#000" stroke-opacity=".2"/><path d="M5.09 9a1.09 1.09 0 1 1 0 2.182A1.09 1.09 0 0 1 5.09 9zM10 9a1.09 1.09 0 1 1 0 2.182A1.09 1.09 0 0 1 10 9zm4.91 0a1.09 1.09 0 1 1 0 2.182 1.09 1.09 0 0 1 0-2.182z" fill="#000" fill-opacity=".5"/></svg>
+  );
+}
+
+function FormatJsonIcon() {
+  return (
+    <svg class="block h-4 w-4" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M6.75 4.5 4.5 10l2.25 5.5M13.25 4.5 15.5 10l-2.25 5.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"/>
+      <path d="M9.25 6.25h3.5M8.75 10h2.5M7.75 13.75h4.5" stroke="currentColor" stroke-linecap="round" stroke-width="1.4"/>
     </svg>
   );
 }
@@ -700,97 +771,345 @@ function LinearSection(props: {
   );
 }
 
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Unable to read file."));
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const [, base64 = ""] = result.split(",", 2);
+      resolve(base64);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function KeyValueTableEditor(props: {
   rows: KeyValueEntry[];
   valuePlaceholder?: string;
   readOnly?: boolean;
+  keySuggestions?: string[];
+  getValueSuggestions?: (row: KeyValueEntry) => string[];
   onUpdate?: (id: string, key: "key" | "value", value: string) => void;
   onToggle?: (id: string) => void;
   onRemove?: (id: string) => void;
   onAdd?: () => void;
 }) {
+  const [suggestionField, setSuggestionField] = createSignal<{ rowId: string; field: "key" | "value" } | null>(null);
+  const [suggestionRect, setSuggestionRect] = createSignal<{ left: number; top: number; width: number } | null>(null);
+  const isReadOnly = () => props.readOnly ?? false;
+
+  function getSuggestions(row: KeyValueEntry, field: "key" | "value") {
+    const source = field === "key"
+      ? props.keySuggestions ?? []
+      : props.getValueSuggestions?.(row) ?? [];
+    const currentValue = (field === "key" ? row.key : row.value).trim().toLowerCase();
+
+    return source
+      .filter((item, index, list) => list.indexOf(item) === index)
+      .filter((item) => currentValue.length === 0 || item.toLowerCase().includes(currentValue))
+      .slice(0, 8);
+  }
+
+  function openSuggestions(
+    rowId: string,
+    field: "key" | "value",
+    element: HTMLInputElement
+  ) {
+    const rect = element.getBoundingClientRect();
+    setSuggestionField({ rowId, field });
+    setSuggestionRect({
+      left: rect.left,
+      top: rect.bottom + 4,
+      width: rect.width
+    });
+  }
+
+  function closeSuggestions(rowId: string, field: "key" | "value") {
+    window.setTimeout(() => {
+      const active = suggestionField();
+      if (active?.rowId === rowId && active.field === field) {
+        setSuggestionField(null);
+        setSuggestionRect(null);
+      }
+    }, 120);
+  }
+
+  const activeSuggestionRow = createMemo(() => {
+    const active = suggestionField();
+    if (!active) {
+      return null;
+    }
+
+    return props.rows.find((row) => row.id === active.rowId) ?? null;
+  });
+
+  onMount(() => {
+    const clearSuggestions = () => {
+      setSuggestionField(null);
+      setSuggestionRect(null);
+    };
+
+    window.addEventListener("resize", clearSuggestions);
+    window.addEventListener("scroll", clearSuggestions, true);
+    onCleanup(() => {
+      window.removeEventListener("resize", clearSuggestions);
+      window.removeEventListener("scroll", clearSuggestions, true);
+    });
+  });
+
   return (
-    <div class="overflow-hidden border" style={{ "border-color": "var(--app-border)" }}>
-      <div class="theme-kv-grid grid grid-cols-[68px_1fr_1fr_44px] gap-px">
-        <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">State</div>
+    <div class="relative overflow-visible rounded-[18px] border" style={{ "border-color": "var(--app-border)" }}>
+      <div
+        class="theme-kv-grid overflow-hidden rounded-[18px] grid gap-px"
+        style={{
+          "grid-template-columns": isReadOnly()
+            ? "minmax(180px,0.95fr) minmax(0,1.05fr)"
+            : "68px 1fr 1fr 44px"
+        }}
+      >
+        <Show when={!isReadOnly()}>
+          <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">State</div>
+        </Show>
         <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">Key</div>
         <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">Value</div>
-        <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">Del</div>
+        <Show when={!isReadOnly()}>
+          <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">Del</div>
+        </Show>
 
-        <For each={props.rows}>
+        <Index each={props.rows}>
           {(row) => (
             <>
-              <div class="theme-kv-cell-muted flex items-center justify-center px-2 py-1.5 text-sm">
-                <Show
-                  when={!props.readOnly}
-                  fallback={
-                    <span
-                      class={`inline-flex items-center justify-center rounded-full px-2 py-0.75 text-[10px] font-semibold uppercase tracking-[0.16em] ${
-                        row.enabled
-                          ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
-                          : "theme-chip"
-                      }`}
-                    >
-                      {row.enabled ? "On" : "Off"}
-                    </span>
-                  }
-                >
+              <Show when={!isReadOnly()}>
+                <div class="theme-kv-cell-muted flex items-center justify-center px-2 py-1.5 text-sm">
                   <button
                     class={`inline-flex min-w-[38px] items-center justify-center rounded-full px-2 py-0.75 text-[10px] font-semibold uppercase tracking-[0.16em] ${
-                      row.enabled
+                      row().enabled
                         ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
                         : "theme-chip"
                     }`}
-                    onClick={() => props.onToggle?.(row.id)}
+                    onClick={() => props.onToggle?.(row().id)}
                   >
-                    {row.enabled ? "On" : "Off"}
+                    {row().enabled ? "On" : "Off"}
                   </button>
-                </Show>
-              </div>
+                </div>
+              </Show>
 
               <div class="theme-kv-cell px-2 py-2">
                 <Show
                   when={!props.readOnly}
-                  fallback={<div class="px-3 py-2 text-sm">{row.key}</div>}
+                  fallback={<div class="px-3 py-2 text-sm">{row().key}</div>}
                 >
-                  <input
-                    class="theme-input h-8 w-full rounded-md px-2.5 py-1 text-sm"
-                    placeholder="key"
-                    value={row.key}
-                    onInput={(event) => props.onUpdate?.(row.id, "key", event.currentTarget.value)}
-                  />
+                  <div class="relative">
+                    <input
+                      class="theme-input h-8 w-full rounded-md px-2.5 py-1 text-sm"
+                      placeholder="key"
+                      value={row().key}
+                      onFocus={(event) => openSuggestions(row().id, "key", event.currentTarget)}
+                      onClick={(event) => openSuggestions(row().id, "key", event.currentTarget)}
+                      onBlur={() => closeSuggestions(row().id, "key")}
+                      onInput={(event) => {
+                        openSuggestions(row().id, "key", event.currentTarget);
+                        props.onUpdate?.(row().id, "key", event.currentTarget.value);
+                      }}
+                    />
+                  </div>
                 </Show>
               </div>
 
               <div class="theme-kv-cell-muted px-1.5 py-1.5">
                 <Show
                   when={!props.readOnly}
-                  fallback={<div class="px-3 py-2 font-mono text-sm">{row.value}</div>}
+                  fallback={<div class="px-3 py-2 font-mono text-sm">{row().value}</div>}
                 >
-                  <input
-                    class="theme-input h-8 w-full rounded-md px-2.5 py-1 font-mono text-sm"
-                    placeholder={props.valuePlaceholder ?? "value"}
-                    value={row.value}
-                    onInput={(event) => props.onUpdate?.(row.id, "value", event.currentTarget.value)}
-                  />
+                  <div class="relative">
+                    <input
+                      class="theme-input h-8 w-full rounded-md px-2.5 py-1 font-mono text-sm"
+                      placeholder={props.valuePlaceholder ?? "value"}
+                      value={row().value}
+                      onFocus={(event) => openSuggestions(row().id, "value", event.currentTarget)}
+                      onClick={(event) => openSuggestions(row().id, "value", event.currentTarget)}
+                      onBlur={() => closeSuggestions(row().id, "value")}
+                      onInput={(event) => {
+                        openSuggestions(row().id, "value", event.currentTarget);
+                        props.onUpdate?.(row().id, "value", event.currentTarget.value);
+                      }}
+                    />
+                  </div>
+                </Show>
+              </div>
+
+              <Show when={!isReadOnly()}>
+                <div class="theme-kv-cell-muted flex items-center justify-center px-1 py-1.5">
+                  <button
+                    class="inline-flex h-6 w-6 items-center justify-center"
+                    onClick={() => props.onRemove?.(row().id)}
+                  >
+                    <MacCloseIcon />
+                  </button>
+                </div>
+              </Show>
+            </>
+          )}
+        </Index>
+      </div>
+
+      <Show
+        when={
+          suggestionField() &&
+          suggestionRect() &&
+          activeSuggestionRow() &&
+          getSuggestions(activeSuggestionRow()!, suggestionField()!.field).length > 0
+        }
+      >
+        <div
+          class="theme-panel-soft fixed z-[120] overflow-hidden rounded-xl border p-1"
+          style={{
+            "border-color": "var(--app-border)",
+            left: `${suggestionRect()!.left}px`,
+            top: `${suggestionRect()!.top}px`,
+            width: `${suggestionRect()!.width}px`
+          }}
+        >
+          <For each={getSuggestions(activeSuggestionRow()!, suggestionField()!.field)}>
+            {(item) => (
+              <button
+                class="theme-sidebar-item block w-full rounded-lg px-2.5 py-1.5 text-left text-sm"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  const active = suggestionField();
+                  if (active) {
+                    props.onUpdate?.(active.rowId, active.field, item);
+                  }
+                  setSuggestionField(null);
+                  setSuggestionRect(null);
+                }}
+              >
+                {item}
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+function FormDataTableEditor(props: {
+  rows: KeyValueEntry[];
+  onUpdate: (id: string, patch: Partial<KeyValueEntry>) => void;
+  onToggle: (id: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <div class="w-full overflow-hidden rounded-[18px] border" style={{ "border-color": "var(--app-border)" }}>
+      <div
+        class="theme-kv-grid grid gap-px"
+        style={{ "grid-template-columns": "68px 92px minmax(0,1fr) minmax(0,1.15fr) 44px" }}
+      >
+        <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">State</div>
+        <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">Type</div>
+        <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">Key</div>
+        <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">Value</div>
+        <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">Del</div>
+
+        <Index each={props.rows}>
+          {(row) => (
+            <>
+              <div class="theme-kv-cell-muted flex items-center justify-center px-2 py-1.5 text-sm">
+                <button
+                  class={`inline-flex min-w-[38px] items-center justify-center rounded-full px-2 py-0.75 text-[10px] font-semibold uppercase tracking-[0.16em] ${
+                    row().enabled
+                      ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
+                      : "theme-chip"
+                  }`}
+                  onClick={() => props.onToggle(row().id)}
+                >
+                  {row().enabled ? "On" : "Off"}
+                </button>
+              </div>
+
+              <div class="theme-kv-cell-muted px-1.5 py-1.5">
+                <select
+                  class="theme-input h-8 w-full rounded-md px-2.5 py-1 text-sm"
+                  value={row().valueType ?? "text"}
+                  onInput={(event) => {
+                    const nextType = event.currentTarget.value as "text" | "file";
+                    props.onUpdate(row().id, nextType === "file"
+                      ? { valueType: "file", value: "", fileName: "", fileContent: "", fileContentType: "" }
+                      : { valueType: "text", fileName: "", fileContent: "", fileContentType: "" });
+                  }}
+                >
+                  <option value="text">Text</option>
+                  <option value="file">File</option>
+                </select>
+              </div>
+
+              <div class="theme-kv-cell px-2 py-2">
+                <input
+                  class="theme-input h-8 w-full rounded-md px-2.5 py-1 text-sm"
+                  placeholder="key"
+                  value={row().key}
+                  onInput={(event) => props.onUpdate(row().id, { key: event.currentTarget.value })}
+                />
+              </div>
+
+              <div class="theme-kv-cell-muted px-1.5 py-1.5">
+                <Show
+                  when={(row().valueType ?? "text") === "file"}
+                  fallback={
+                    <input
+                      class="theme-input h-8 w-full rounded-md px-2.5 py-1 font-mono text-sm"
+                      placeholder="value"
+                      value={row().value}
+                      onInput={(event) => props.onUpdate(row().id, { value: event.currentTarget.value })}
+                    />
+                  }
+                >
+                  <div class="flex min-w-0 items-center gap-2">
+                    <label class="theme-control inline-flex h-8 shrink-0 cursor-pointer items-center justify-center rounded-md px-3 text-sm">
+                      Choose File
+                      <input
+                        class="hidden"
+                        type="file"
+                        onChange={async (event) => {
+                          const file = event.currentTarget.files?.[0];
+                          if (!file) {
+                            return;
+                          }
+
+                          const fileContent = await readFileAsBase64(file);
+                          props.onUpdate(row().id, {
+                            fileName: file.name,
+                            fileContent,
+                            fileContentType: file.type,
+                            value: file.name
+                          });
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                    <div class="theme-input flex h-8 min-w-0 flex-1 items-center rounded-md px-2.5 text-sm">
+                      <span class="truncate">
+                        {row().fileName || "No file selected"}
+                      </span>
+                    </div>
+                  </div>
                 </Show>
               </div>
 
               <div class="theme-kv-cell-muted flex items-center justify-center px-1 py-1.5">
-                <Show when={!props.readOnly}>
-                  <button
-                    class="inline-flex h-6 w-6 items-center justify-center"
-                    onClick={() => props.onRemove?.(row.id)}
-                  >
-                    <MacCloseIcon />
-                  </button>
-                </Show>
+                <button
+                  class="inline-flex h-6 w-6 items-center justify-center"
+                  onClick={() => props.onRemove(row().id)}
+                >
+                  <MacCloseIcon />
+                </button>
               </div>
             </>
           )}
-        </For>
+        </Index>
       </div>
-
     </div>
   );
 }
@@ -2219,7 +2538,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                           setCollectionAddMenuId(null);
                         }}
                       >
-                        +
+                        <MacAddIcon />
                       </button>
                       {renderCollectionCreateMenu()}
                     </div>
@@ -2541,41 +2860,41 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                           {folderEntry.folder.name}
                                         </p>
                                         <span class="theme-chip rounded-full px-2 py-0.5 text-[11px] font-medium">
-                                          {folderEntry.requests.length}
-                                        </span>
+                                            {folderEntry.requests.length}
+                                          </span>
                                         <div class="relative shrink-0" data-rest-menu-root>
-                                          <button
+                                            <button
                                             class="inline-flex h-5 w-5 items-center justify-center rounded-md text-xs"
-                                            title="Add request"
-                                            onMouseDown={(event) => event.stopPropagation()}
-                                            onPointerDown={(event) => event.stopPropagation()}
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              openRequestCreationMenu(entry.collection.id, folderEntry.folder.id);
-                                            }}
-                                          >
+                                              title="Add request"
+                                              onMouseDown={(event) => event.stopPropagation()}
+                                              onPointerDown={(event) => event.stopPropagation()}
+                                              onClick={(event) => {
+                                                event.stopPropagation();
+                                                openRequestCreationMenu(entry.collection.id, folderEntry.folder.id);
+                                              }}
+                                            >
                                             +
-                                          </button>
-                                          <Show when={folderAddMenuId() === folderEntry.folder.id}>
-                                            {renderRequestCreateMenu(entry.collection.id, folderEntry.folder.id)}
-                                          </Show>
-                                        </div>
+                                            </button>
+                                            <Show when={folderAddMenuId() === folderEntry.folder.id}>
+                                              {renderRequestCreateMenu(entry.collection.id, folderEntry.folder.id)}
+                                            </Show>
+                                          </div>
                                         <div class="relative shrink-0" data-rest-menu-root>
-                                          <button
+                                            <button
                                             class="theme-control inline-flex h-5 w-5 items-center justify-center rounded-md text-[11px]"
-                                            title="Folder options"
-                                            onMouseDown={(event) => event.stopPropagation()}
-                                            onPointerDown={(event) => event.stopPropagation()}
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              setFolderMenuId((current) => current === folderEntry.folder.id ? null : folderEntry.folder.id);
-                                              setFolderOrderMenuId(null);
-                                              setFolderMoveMenuId(null);
-                                            }}
-                                          >
+                                              title="Folder options"
+                                              onMouseDown={(event) => event.stopPropagation()}
+                                              onPointerDown={(event) => event.stopPropagation()}
+                                              onClick={(event) => {
+                                                event.stopPropagation();
+                                                setFolderMenuId((current) => current === folderEntry.folder.id ? null : folderEntry.folder.id);
+                                                setFolderOrderMenuId(null);
+                                                setFolderMoveMenuId(null);
+                                              }}
+                                            >
                                             ⋯
-                                          </button>
-                                          <Show when={folderMenuId() === folderEntry.folder.id}>
+                                            </button>
+                                            <Show when={folderMenuId() === folderEntry.folder.id}>
                                             <div
                                               class="theme-panel-soft absolute right-0 top-7 z-10 min-w-[176px] border p-1"
                                               data-rest-menu-root
@@ -2682,7 +3001,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                 Delete
                                               </button>
                                             </div>
-                                          </Show>
+                                            </Show>
                                         </div>
                                       </div>
 
@@ -3096,39 +3415,6 @@ export function RestPlayground(props: RestPlaygroundProps) {
                   }}
                 </For>
 
-                <Show when={requestTabMenuState() && currentTabMenuRequest()}>
-                  <div
-                    class="theme-panel-soft fixed z-[90] w-max border p-1"
-                    data-rest-menu-root
-                    style={{
-                      "border-color": "var(--app-border)",
-                      left: `${requestTabMenuState()!.x}px`,
-                      top: `${requestTabMenuState()!.y}px`
-                    }}
-                  >
-                    <button
-                      class="theme-sidebar-item w-full rounded-lg px-3 py-2 text-left text-sm"
-                      onClick={() => {
-                        togglePinnedRequestTab(currentTabMenuRequest()!.id);
-                        setRequestTabMenuState(null);
-                      }}
-                    >
-                      {workspace.pinnedRequestIds.includes(currentTabMenuRequest()!.id) ? "UnPin" : "Pin"}
-                    </button>
-                    <button class="theme-sidebar-item w-full rounded-lg px-3 py-2 text-left text-sm" onClick={() => closeOtherTabs(currentTabMenuRequest()!.id)}>
-                      Close Others
-                    </button>
-                    <button class="theme-sidebar-item w-full rounded-lg px-3 py-2 text-left text-sm" onClick={closeAllTabs}>
-                      Close All
-                    </button>
-                    <button class="theme-sidebar-item w-full rounded-lg px-3 py-2 text-left text-sm" onClick={() => closeTabsToDirection(currentTabMenuRequest()!.id, "right")}>
-                      Close Right
-                    </button>
-                    <button class="theme-sidebar-item w-full rounded-lg px-3 py-2 text-left text-sm" onClick={() => closeTabsToDirection(currentTabMenuRequest()!.id, "left")}>
-                      Close Left
-                    </button>
-                  </div>
-                </Show>
               </div>
 
               <button
@@ -3227,7 +3513,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
           }}
         >
           <div class="flex min-h-0 flex-col border-r" style={{ "border-color": "var(--app-border)" }}>
-            <div class="shrink-0 border-b px-3 py-2" style={{ "border-color": "var(--app-border)" }}>
+            <div class="relative z-30 shrink-0 border-b px-3 py-2" style={{ "border-color": "var(--app-border)" }}>
               <Show when={!canSendActiveRequest() && activeRequest()}>
                 {(request) => (
                   <div class="mb-3 rounded-lg border px-3 py-2.5 text-sm" style={{ "border-color": "var(--app-border)", background: "var(--app-panel-soft)" }}>
@@ -3256,14 +3542,24 @@ export function RestPlayground(props: RestPlaygroundProps) {
                 </Show>
               </div>
 
-              <div class="max-h-[34dvh] overflow-auto">
+              <div
+                class={topEditorTab() === "headers"
+                  ? "relative z-30 max-h-[34dvh] overflow-visible"
+                  : "max-h-[34dvh] overflow-auto"}
+              >
                 <Show when={activeRequest()}>
                   {(request) => (
                     <Switch>
                       <Match when={topEditorTab() === "headers"}>
                         <KeyValueTableEditor
                           rows={request().headers}
-                          valuePlaceholder="application/json"
+                          valuePlaceholder=""
+                          keySuggestions={commonHeaderKeys}
+                          getValueSuggestions={(row) => commonHeaderValueMap[row.key.trim().toLowerCase()] ?? [
+                            "application/json",
+                            "application/json; charset=utf-8",
+                            "text/plain"
+                          ]}
                           onUpdate={(id, key, value) => updateActiveRequest((current) => {
                             current.headers = current.headers.map((entry) =>
                               entry.id === id ? { ...entry, [key]: value } : entry
@@ -3415,7 +3711,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
               </div>
             </div>
 
-            <div class="min-h-0 flex-1 overflow-auto px-3 py-2">
+            <div class="relative z-0 min-h-0 flex-1 overflow-auto px-3 py-2">
               <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div class="flex flex-wrap items-center gap-1.5">
                   <EditorToggle active={bottomEditorTab() === "body"} label="Body" onClick={() => setBottomEditorTab("body")} />
@@ -3462,7 +3758,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                       </Match>
 
                       <Match when={bottomEditorTab() === "body"}>
-                        <div class="flex flex-col items-start gap-3">
+                        <div class="flex w-full flex-col gap-3">
                           <div class="flex flex-wrap items-center justify-between gap-3">
                             <div class="flex flex-wrap items-center gap-2">
                               <select
@@ -3475,11 +3771,17 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                       case "json":
                                         current.body = { type: "json", value: "{\n  \n}" };
                                         break;
-                                      case "raw":
-                                        current.body = { type: "raw", value: "", contentType: "text/plain" };
+                                      case "form-data":
+                                        current.body = { type: "form-data", entries: [createKeyValueEntry()] };
                                         break;
                                       case "form-urlencoded":
                                         current.body = { type: "form-urlencoded", entries: [createKeyValueEntry()] };
+                                        break;
+                                      case "raw":
+                                        current.body = { type: "raw", value: "", contentType: "text/plain" };
+                                        break;
+                                      case "binary":
+                                        current.body = { type: "binary", value: "" };
                                         break;
                                       default:
                                         current.body = { type: "none" };
@@ -3489,13 +3791,16 @@ export function RestPlayground(props: RestPlaygroundProps) {
                               >
                                 <option value="none">None</option>
                                 <option value="json">JSON</option>
+                                <option value="form-data">Form Data</option>
+                                <option value="form-urlencoded">x-www-form-urlencoded</option>
                                 <option value="raw">Raw</option>
-                                <option value="form-urlencoded">Form Urlencoded</option>
+                                <option value="binary">Binary</option>
                               </select>
 
                               <Show when={request().body.type === "json"}>
                                 <button
-                                  class="theme-control h-8 rounded-md px-3 py-1 text-sm font-medium"
+                                  class="theme-control inline-flex h-8 w-8 items-center justify-center rounded-md"
+                                  title="Format JSON"
                                   onClick={() => updateActiveRequest((current) => {
                                     if (current.body.type === "json") {
                                       current.body = {
@@ -3505,16 +3810,16 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                     }
                                   })}
                                 >
-                                  Format JSON
+                                  <FormatJsonIcon />
                                 </button>
                               </Show>
                             </div>
-                            <Show when={request().body.type === "form-urlencoded"}>
+                            <Show when={request().body.type === "form-data" || request().body.type === "form-urlencoded"}>
                               <button
                                 class="inline-flex h-6 w-6 items-center justify-center rounded-full transition"
                                 title="Add body row"
                                 onClick={() => updateActiveRequest((current) => {
-                                  if (current.body.type === "form-urlencoded") {
+                                  if (current.body.type === "form-data" || current.body.type === "form-urlencoded") {
                                     current.body = {
                                       ...current.body,
                                       entries: [...current.body.entries, createKeyValueEntry()]
@@ -3527,31 +3832,62 @@ export function RestPlayground(props: RestPlaygroundProps) {
                             </Show>
                           </div>
 
-                          <Show when={request().body.type === "raw"}>
-                            <label class="theme-text-muted grid w-full max-w-[260px] gap-1.5 text-sm">
-                              <span class="theme-text font-medium">Content-Type</span>
-                              <input
-                                class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
-                                value={request().body.type === "raw" ? request().body.contentType : ""}
-                                onInput={(event) => updateActiveRequest((current) => {
-                                  if (current.body.type === "raw") {
-                                    current.body = {
-                                      ...current.body,
-                                      contentType: event.currentTarget.value
-                                    };
-                                  }
-                                })}
-                              />
-                            </label>
-                          </Show>
-
                           <Show when={request().body.type === "json" || request().body.type === "raw"}>
                             <textarea
-                              class="theme-input min-h-[220px] w-full rounded-lg px-2.5 py-2 font-mono text-sm leading-6 transition"
+                              class="theme-input w-full rounded-[18px] px-3 py-2.5 font-mono text-sm leading-6 transition"
+                              style={{ "min-height": "calc(100dvh - 320px)" }}
                               value={request().body.type === "json" || request().body.type === "raw" ? request().body.value : ""}
                               onInput={(event) => updateActiveRequest((current) => {
                                 if (current.body.type === "json" || current.body.type === "raw") {
                                   current.body = { ...current.body, value: event.currentTarget.value };
+                                }
+                              })}
+                            />
+                          </Show>
+
+                          <Show when={request().body.type === "binary"}>
+                            <textarea
+                              class="theme-input w-full rounded-[18px] px-3 py-2.5 font-mono text-sm leading-6 transition"
+                              style={{ "min-height": "calc(100dvh - 320px)" }}
+                              placeholder="Paste base64 payload"
+                              value={request().body.type === "binary" ? request().body.value : ""}
+                              onInput={(event) => updateActiveRequest((current) => {
+                                if (current.body.type === "binary") {
+                                  current.body = { ...current.body, value: event.currentTarget.value };
+                                }
+                              })}
+                            />
+                          </Show>
+
+                          <Show when={request().body.type === "form-data"}>
+                            <FormDataTableEditor
+                              rows={request().body.type === "form-data" ? request().body.entries : []}
+                              onUpdate={(id, patch) => updateActiveRequest((current) => {
+                                if (current.body.type === "form-data") {
+                                  current.body = {
+                                    ...current.body,
+                                    entries: current.body.entries.map((entry) =>
+                                      entry.id === id ? { ...entry, ...patch } : entry
+                                    )
+                                  };
+                                }
+                              })}
+                              onToggle={(id) => updateActiveRequest((current) => {
+                                if (current.body.type === "form-data") {
+                                  current.body = {
+                                    ...current.body,
+                                    entries: current.body.entries.map((entry) =>
+                                      entry.id === id ? { ...entry, enabled: !entry.enabled } : entry
+                                    )
+                                  };
+                                }
+                              })}
+                              onRemove={(id) => updateActiveRequest((current) => {
+                                if (current.body.type === "form-data") {
+                                  current.body = {
+                                    ...current.body,
+                                    entries: current.body.entries.filter((entry) => entry.id !== id)
+                                  };
                                 }
                               })}
                             />
@@ -3649,7 +3985,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
             <div class="min-h-0 flex-1">
             <Switch>
               <Match when={responseTab() === "body"}>
-                <div class="theme-code flex h-full min-h-[240px] flex-col border" style={{ "border-color": "var(--app-border)" }}>
+                <div class="theme-code flex h-full min-h-[240px] flex-col overflow-hidden rounded-[20px] border" style={{ "border-color": "var(--app-border)" }}>
                   <pre class="theme-text-muted h-full flex-1 overflow-x-auto px-3 py-3 font-mono text-sm leading-7">
                     <code>{responseSummary()?.body ?? "Send a request to inspect the response body."}</code>
                   </pre>
@@ -3665,6 +4001,40 @@ export function RestPlayground(props: RestPlaygroundProps) {
           </div>
         </div>
       </WorkspaceSidebarLayout>
+
+      <Show when={requestTabMenuState() && currentTabMenuRequest()}>
+        <div
+          class="theme-panel-soft fixed z-[400] inline-grid auto-cols-max overflow-hidden rounded-[18px] border p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.18)]"
+          data-rest-menu-root
+          style={{
+            "border-color": "var(--app-border)",
+            left: `${requestTabMenuState()!.x}px`,
+            top: `${requestTabMenuState()!.y}px`
+          }}
+        >
+          <button
+            class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+            onClick={() => {
+              togglePinnedRequestTab(currentTabMenuRequest()!.id);
+              setRequestTabMenuState(null);
+            }}
+          >
+            {workspace.pinnedRequestIds.includes(currentTabMenuRequest()!.id) ? "UnPin" : "Pin"}
+          </button>
+          <button class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm" onClick={() => closeOtherTabs(currentTabMenuRequest()!.id)}>
+            Close Others
+          </button>
+          <button class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm" onClick={closeAllTabs}>
+            Close All
+          </button>
+          <button class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm" onClick={() => closeTabsToDirection(currentTabMenuRequest()!.id, "right")}>
+            Close Right
+          </button>
+          <button class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm" onClick={() => closeTabsToDirection(currentTabMenuRequest()!.id, "left")}>
+            Close Left
+          </button>
+        </div>
+      </Show>
 
       <Show when={curlImportCollectionId()}>
         <div class="fixed inset-0 z-40 flex items-center justify-center bg-[rgba(15,23,42,0.28)] px-4">

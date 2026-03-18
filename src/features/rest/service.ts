@@ -30,7 +30,11 @@ export function createKeyValueEntry(
     id: partial.id ?? makeId("kv"),
     key: partial.key ?? "",
     value: partial.value ?? "",
-    enabled: partial.enabled ?? true
+    enabled: partial.enabled ?? true,
+    valueType: partial.valueType ?? "text",
+    fileName: partial.fileName ?? "",
+    fileContent: partial.fileContent ?? "",
+    fileContentType: partial.fileContentType ?? ""
   };
 }
 
@@ -174,6 +178,17 @@ function normalizeCollectionFolders(
   }));
 }
 
+function normalizeKeyValueEntry(entry: KeyValueEntry): KeyValueEntry {
+  return {
+    ...entry,
+    enabled: entry.enabled ?? true,
+    valueType: entry.valueType ?? "text",
+    fileName: entry.fileName ?? "",
+    fileContent: entry.fileContent ?? "",
+    fileContentType: entry.fileContentType ?? ""
+  };
+}
+
 export function normalizeRestWorkspace(state: RestWorkspaceState): RestWorkspaceState {
   const collections = state.collections.map((collection) => {
     const collectionRequests = state.requests
@@ -206,7 +221,10 @@ export function normalizeRestWorkspace(state: RestWorkspaceState): RestWorkspace
         ...request,
         createdAt: request.createdAt ?? new Date().toISOString(),
         kind: request.kind ?? "http",
-        folderId: request.folderId && folderIds.has(request.folderId) ? request.folderId : null
+        folderId: request.folderId && folderIds.has(request.folderId) ? request.folderId : null,
+        query: request.query.map(normalizeKeyValueEntry),
+        headers: request.headers.map(normalizeKeyValueEntry),
+        body: normalizeRequestBody(request.body)
       };
     });
   const activeCollectionId =
@@ -231,6 +249,34 @@ export function normalizeRestWorkspace(state: RestWorkspaceState): RestWorkspace
     activeRequestId,
     activeEnvironmentId
   };
+}
+
+function normalizeRequestBody(body: RequestBody): RequestBody {
+  switch (body?.type) {
+    case "json":
+      return { type: "json", value: body.value ?? "" };
+    case "form-data":
+      return {
+        type: "form-data",
+        entries: Array.isArray(body.entries) ? body.entries.map(normalizeKeyValueEntry) : [createKeyValueEntry()]
+      };
+    case "form-urlencoded":
+      return {
+        type: "form-urlencoded",
+        entries: Array.isArray(body.entries) ? body.entries.map(normalizeKeyValueEntry) : [createKeyValueEntry()]
+      };
+    case "raw":
+      return {
+        type: "raw",
+        value: body.value ?? "",
+        contentType: body.contentType || "text/plain"
+      };
+    case "binary":
+      return { type: "binary", value: body.value ?? "" };
+    case "none":
+    default:
+      return { type: "none" };
+  }
 }
 
 export function resolveTemplate(value: string, environment?: Environment): string {
@@ -310,6 +356,34 @@ function buildRequestBody(
       headers.set("Content-Type", body.contentType || "text/plain");
       return resolveTemplate(body.value, environment);
     }
+    case "form-data": {
+      const formData = new FormData();
+
+      body.entries
+        .filter((entry) => entry.enabled && entry.key.trim())
+        .forEach((entry) => {
+          const key = resolveTemplate(entry.key, environment);
+
+          if (entry.valueType === "file" && entry.fileContent) {
+            try {
+              const binary = atob(entry.fileContent);
+              const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+              const blob = new Blob([bytes], {
+                type: entry.fileContentType || "application/octet-stream"
+              });
+              formData.append(key, blob, entry.fileName || "upload.bin");
+              return;
+            } catch {
+              formData.append(key, resolveTemplate(entry.value, environment));
+              return;
+            }
+          }
+
+          formData.append(key, resolveTemplate(entry.value, environment));
+        });
+
+      return formData;
+    }
     case "form-urlencoded": {
       headers.set("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8");
       const params = new URLSearchParams();
@@ -319,6 +393,23 @@ function buildRequestBody(
       });
 
       return params.toString();
+    }
+    case "binary": {
+      headers.set("Content-Type", "application/octet-stream");
+      const encoded = resolveTemplate(body.value, environment).trim();
+
+      if (!encoded) {
+        return undefined;
+      }
+
+      try {
+        const normalized = encoded.replace(/\s+/g, "");
+        const binary = atob(normalized);
+        const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+        return bytes;
+      } catch {
+        throw new Error("Binary body expects a valid base64 payload.");
+      }
     }
   }
 }

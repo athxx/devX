@@ -15,10 +15,20 @@ export type KeyValueEntry = {
   key: string;
   value: string;
   enabled: boolean;
+  valueType?: "text" | "file";
+  fileName?: string;
+  fileContent?: string;
+  fileContentType?: string;
 };
 
 export type AuthType = "none" | "bearer" | "basic" | "api-key";
-export type BodyType = "none" | "json" | "raw" | "form-urlencoded";
+export type BodyType =
+  | "none"
+  | "json"
+  | "form-data"
+  | "form-urlencoded"
+  | "raw"
+  | "binary";
 
 export type RequestAuth =
   | { type: "none" }
@@ -29,8 +39,10 @@ export type RequestAuth =
 export type RequestBody =
   | { type: "none" }
   | { type: "json"; value: string }
+  | { type: "form-data"; entries: KeyValueEntry[] }
   | { type: "raw"; value: string; contentType: string }
-  | { type: "form-urlencoded"; entries: KeyValueEntry[] };
+  | { type: "form-urlencoded"; entries: KeyValueEntry[] }
+  | { type: "binary"; value: string };
 
 export type RequestDraft = {
   id: string;
