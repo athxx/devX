@@ -5,11 +5,11 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 func ProxyRequest(deps Dependencies) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		if c.Method() == fiber.MethodOptions {
 			return c.SendStatus(fiber.StatusNoContent)
 		}
@@ -27,7 +27,7 @@ func ProxyRequest(deps Dependencies) fiber.Handler {
 			Timeout: deps.Config.ProxyTimeout,
 		}
 
-		req, err := http.NewRequestWithContext(c.UserContext(), c.Method(), targetURL, bytes.NewReader(c.BodyRaw()))
+		req, err := http.NewRequestWithContext(c.Context(), c.Method(), targetURL, bytes.NewReader(c.BodyRaw()))
 		if err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
@@ -55,7 +55,7 @@ func ProxyRequest(deps Dependencies) fiber.Handler {
 	}
 }
 
-func copyForwardHeaders(c *fiber.Ctx, req *http.Request) {
+func copyForwardHeaders(c fiber.Ctx, req *http.Request) {
 	c.Request().Header.VisitAll(func(key, value []byte) {
 		headerKey := string(key)
 		switch http.CanonicalHeaderKey(headerKey) {

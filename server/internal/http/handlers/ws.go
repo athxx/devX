@@ -12,7 +12,7 @@ import (
 	"time"
 
 	fws "github.com/fasthttp/websocket"
-	ws "github.com/gofiber/contrib/websocket"
+	ws "github.com/gofiber/contrib/v3/websocket"
 	"go.mongodb.org/mongo-driver/bson"
 
 	dbrunner "devx/server/internal/db"

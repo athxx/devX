@@ -3,12 +3,13 @@
 `server/` 是 DevX 的执行层，网页端和 Chrome 插件把所有数据都传给它，它负责执行和转发：
 
 - API 代理：转发 HTTP 请求，绕过浏览器端 CORS 限制
-- 统一 WebSocket 总线：承载普通 WebSocket 代理、DB 执行和 SSH relay
+- DB WebSocket：执行数据库命令
+- SSH WebSocket：执行和中转 SSH 会话
 
 ## 技术栈
 
 - Go
-- Fiber
+- Fiber v3
 - GORM
 - Redis
 - MongoDB Driver
@@ -117,38 +118,13 @@ Content-Type: application/json
 {"hello":"world"}
 ```
 
-### Unified WebSocket
+### DB WebSocket
 
-- `GET /ws`
+- `GET /db`
 
 必须带：
 
 - `x-ason-proxy: devx`
-
-如果同时带：
-
-- `x-ason-url: <真实 websocket 地址>`
-
-那 `/ws` 会直接做纯 WebSocket 透明转发，不读取任何前置命令消息。
-
-#### 普通 WebSocket 代理
-
-握手头示例：
-
-```http
-GET /ws HTTP/1.1
-Host: 127.0.0.1:8787
-Upgrade: websocket
-Connection: Upgrade
-X-Ason-Proxy: devx
-X-Ason-Url: wss://echo.websocket.events
-```
-
-后续消息会原样在前端和上游 WebSocket 之间双向转发。
-
-#### 内部命令通道
-
-如果没有 `x-ason-url`，`/ws` 会进入内部命令通道。
 
 连接建立后：
 
@@ -187,13 +163,7 @@ X-Ason-Url: wss://echo.websocket.events
       "cmd": "SELECT * FROM users WHERE id = 1"
     }
   ],
-  "ssh": [
-    {
-      "url": "ssh://user:password@localhost:22",
-      "id": 4,
-      "cmd": "ls -la"
-    }
-  ]
+    "ssh": []
 }
 ```
 
@@ -212,6 +182,26 @@ X-Ason-Url: wss://echo.websocket.events
     }
   ]
 }
+```
+
+### SSH WebSocket
+
+- `GET /ssh`
+
+必须带：
+
+- `x-ason-proxy: devx`
+
+连接建立后，前端和服务端通过 WebSocket 实时收发 SSH 数据流。
+
+示例握手：
+
+```http
+GET /ssh HTTP/1.1
+Host: 127.0.0.1:8787
+Upgrade: websocket
+Connection: Upgrade
+X-Ason-Proxy: devx
 ```
 
 ## 当前边界

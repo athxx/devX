@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebTerminal</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.3.0/xterm.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.3.0/xterm.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.3.0/addon-fit.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@300;500;700&display=swap');
+
+  :root {
+    --bg: #0d0e14;
+    --surface: #13141c;
+    --border: #1e2030;
+    --accent: #7aa2f7;
+    --accent2: #9ece6a;
+    --accent3: #f7768e;
+    --accent4: #e0af68;
+    --text: #c0caf5;
+    --muted: #565f89;
+    --header-h: 38px;
+    --tab-h: 36px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── TOP BAR ── */
+  .topbar {
+    height: var(--header-h);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 12px;
+    flex-shrink: 0;
+    user-select: none;
+  }
+
+  .traffic-lights { display: flex; gap: 6px; }
+  .tl {
+    width: 12px; height: 12px; border-radius: 50%; cursor: pointer;
+    transition: filter 0.15s;
+  }
+  .tl:hover { filter: brightness(1.3); }
+  .tl-red   { background: var(--accent3); }
+  .tl-yellow{ background: var(--accent4); }
+  .tl-green { background: var(--accent2); }
+
+  .topbar-title {
+    flex: 1;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+
+  .conn-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .conn-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent2);
+    box-shadow: 0 0 6px var(--accent2);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ── TABS ── */
+  .tabbar {
+    height: var(--tab-h);
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-end;
+    padding: 0 12px;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .tab {
+    height: 28px;
+    padding: 0 14px;
+    border-radius: 6px 6px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    color: var(--muted);
+    border: 1px solid transparent;
+    border-bottom: none;
+    position: relative;
+  }
+  .tab.active {
+    background: var(--surface);
+    color: var(--text);
+    border-color: var(--border);
+  }
+  .tab:not(.active):hover { color: var(--text); background: rgba(255,255,255,0.03); }
+
+  .tab-icon { font-size: 10px; }
+  .tab-close {
+    width: 14px; height: 14px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 3px;
+    color: var(--muted);
+    font-size: 10px;
+    transition: background 0.1s, color 0.1s;
+  }
+  .tab-close:hover { background: rgba(247,118,142,0.2); color: var(--accent3); }
+
+  .tab-add {
+    height: 24px; width: 24px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 5px;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    margin-left: 4px;
+    transition: color 0.15s, background 0.15s;
+    align-self: center;
+  }
+  .tab-add:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+
+  /* ── MAIN AREA ── */
+  .main {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    width: 200px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    font-size: 12px;
+  }
+
+  .sidebar-section {
+    padding: 10px 12px 4px;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .sidebar-item {
+    padding: 5px 12px 5px 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    color: var(--muted);
+    border-radius: 4px;
+    margin: 0 4px;
+    transition: background 0.1s, color 0.1s;
+  }
+  .sidebar-item:hover { background: rgba(122,162,247,0.08); color: var(--text); }
+  .sidebar-item.active { background: rgba(122,162,247,0.12); color: var(--accent); }
+  .sidebar-item-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+  .sidebar-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 8px 12px;
+  }
+
+  /* ── TERMINAL PANE ── */
+  .term-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #1a1b26;
+    overflow: hidden;
+  }
+
+  #terminal {
+    flex: 1;
+    padding: 10px 14px 6px;
+    overflow: hidden;
+  }
+
+  .xterm { height: 100%; }
+  .xterm-viewport { overflow-y: auto !important; }
+
+  /* ── STATUS BAR ── */
+  .statusbar {
+    height: 22px;
+    background: var(--accent);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--bg);
+    flex-shrink: 0;
+  }
+  .statusbar-item { display: flex; align-items: center; gap: 4px; font-weight: 500; }
+  .statusbar-sep { opacity: 0.4; }
+  .statusbar-right { margin-left: auto; display: flex; gap: 14px; }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="traffic-lights">
+    <div class="tl tl-red"></div>
+    <div class="tl tl-yellow"></div>
+    <div class="tl tl-green"></div>
+  </div>
+  <div class="topbar-title">WebTerminal — root@server-01</div>
+  <div class="conn-status">
+    <div class="conn-dot"></div>
+    <span>已连接</span>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabbar">
+  <div class="tab active">
+    <span class="tab-icon">⚡</span>
+    <span>bash — root</span>
+    <span class="tab-close">✕</span>
+  </div>
+  <div class="tab">
+    <span class="tab-icon">📦</span>
+    <span>npm run dev</span>
+    <span class="tab-close">✕</span>
+  </div>
+  <div class="tab">
+    <span class="tab-icon">🔍</span>
+    <span>htop</span>
+    <span class="tab-close">✕</span>
+  </div>
+  <div class="tab-add">+</div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-section">快速命令</div>
+    <div class="sidebar-item active" onclick="runCmd('ls -la')">
+      <div class="sidebar-item-dot" style="background:#7aa2f7"></div>
+      ls -la
+    </div>
+    <div class="sidebar-item" onclick="runCmd('ps aux | head -20')">
+      <div class="sidebar-item-dot" style="background:#9ece6a"></div>
+      ps aux
+    </div>
+    <div class="sidebar-item" onclick="runCmd('df -h')">
+      <div class="sidebar-item-dot" style="background:#e0af68"></div>
+      df -h
+    </div>
+    <div class="sidebar-item" onclick="runCmd('free -m')">
+      <div class="sidebar-item-dot" style="background:#bb9af7"></div>
+      free -m
+    </div>
+    <div class="sidebar-item" onclick="runCmd('uptime')">
+      <div class="sidebar-item-dot" style="background:#73daca"></div>
+      uptime
+    </div>
+
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section">系统信息</div>
+    <div class="sidebar-item" onclick="runCmd('uname -a')">
+      <div class="sidebar-item-dot" style="background:#f7768e"></div>
+      uname -a
+    </div>
+    <div class="sidebar-item" onclick="runCmd('whoami')">
+      <div class="sidebar-item-dot" style="background:#ff9e64"></div>
+      whoami
+    </div>
+    <div class="sidebar-item" onclick="runCmd('env | grep PATH')">
+      <div class="sidebar-item-dot" style="background:#7aa2f7"></div>
+      $PATH
+    </div>
+
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-section">网络</div>
+    <div class="sidebar-item" onclick="runCmd('netstat -tlnp')">
+      <div class="sidebar-item-dot" style="background:#9ece6a"></div>
+      netstat
+    </div>
+    <div class="sidebar-item" onclick="runCmd('curl ifconfig.me')">
+      <div class="sidebar-item-dot" style="background:#73daca"></div>
+      公网IP
+    </div>
+  </div>
+
+  <!-- TERMINAL -->
+  <div class="term-pane">
+    <div id="terminal"></div>
+  </div>
+
+</div>
+
+<!-- STATUS BAR -->
+<div class="statusbar">
+  <div class="statusbar-item">⚡ WebSocket</div>
+  <div class="statusbar-sep">|</div>
+  <div class="statusbar-item">bash 5.1.16</div>
+  <div class="statusbar-sep">|</div>
+  <div class="statusbar-item">UTF-8</div>
+  <div class="statusbar-right">
+    <div class="statusbar-item">80×24</div>
+    <div class="statusbar-sep">|</div>
+    <div class="statusbar-item" id="clock">--:--:--</div>
+  </div>
+</div>
+
+<script>
+// ── XTERM INIT ──
+const term = new Terminal({
+  theme: {
+    background: '#1a1b26',
+    foreground: '#c0caf5',
+    cursor: '#c0caf5',
+    cursorAccent: '#1a1b26',
+    black:   '#15161e', brightBlack:   '#414868',
+    red:     '#f7768e', brightRed:     '#f7768e',
+    green:   '#9ece6a', brightGreen:   '#9ece6a',
+    yellow:  '#e0af68', brightYellow:  '#e0af68',
+    blue:    '#7aa2f7', brightBlue:    '#7dcfff',
+    magenta: '#bb9af7', brightMagenta: '#bb9af7',
+    cyan:    '#73daca', brightCyan:    '#73daca',
+    white:   '#a9b1d6', brightWhite:   '#c0caf5',
+  },
+  fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+  fontSize: 13,
+  lineHeight: 1.5,
+  cursorBlink: true,
+  cursorStyle: 'bar',
+  scrollback: 3000,
+  allowTransparency: false,
+});
+
+const fitAddon = new FitAddon.FitAddon();
+term.loadAddon(fitAddon);
+term.open(document.getElementById('terminal'));
+fitAddon.fit();
+window.addEventListener('resize', () => fitAddon.fit());
+
+// ── SIMULATED SHELL ──
+const PROMPT = '\r\n\x1b[1;32mroot\x1b[0m\x1b[1;34m@server-01\x1b[0m:\x1b[1;36m~\x1b[0m\x1b[1;37m$\x1b[0m ';
+let inputBuf = '';
+let cmdHistory = [];
+let histIdx = -1;
+let cwd = '/root';
+
+// ── FAKE FILE SYSTEM ──
+const FS = {
+  '/root': { type: 'dir', children: ['app', 'logs', '.bashrc', '.bash_history', 'deploy.sh', 'README.md'] },
+  '/root/app': { type: 'dir', children: ['src', 'package.json', 'node_modules', 'dist'] },
+  '/root/logs': { type: 'dir', children: ['access.log', 'error.log', 'app.log'] },
+};
+
+function colorize(s, code) { return `\x1b[${code}m${s}\x1b[0m`; }
+
+// ── COMMAND HANDLER ──
+function execCmd(raw) {
+  const cmd = raw.trim();
+  if (!cmd) return '';
+  cmdHistory.unshift(cmd);
+  histIdx = -1;
+
+  const [prog, ...args] = cmd.split(/\s+/);
+
+  const handlers = {
+    'help': () => [
+      colorize('可用命令 (模拟演示):', '1;33'),
+      '  \x1b[1;36mls\x1b[0m [-la]          列出目录',
+      '  \x1b[1;36mcd\x1b[0m <dir>          切换目录',
+      '  \x1b[1;36mpwd\x1b[0m               显示路径',
+      '  \x1b[1;36mecho\x1b[0m <text>        输出文本',
+      '  \x1b[1;36mcat\x1b[0m <file>         查看文件',
+      '  \x1b[1;36mwhoami\x1b[0m             当前用户',
+      '  \x1b[1;36mdate\x1b[0m               系统时间',
+      '  \x1b[1;36muname\x1b[0m [-a]         系统信息',
+      '  \x1b[1;36muptime\x1b[0m             运行时间',
+      '  \x1b[1;36mps\x1b[0m [aux]           进程列表',
+      '  \x1b[1;36mdf\x1b[0m [-h]            磁盘使用',
+      '  \x1b[1;36mfree\x1b[0m [-m]          内存使用',
+      '  \x1b[1;36menv\x1b[0m                环境变量',
+      '  \x1b[1;36mhistory\x1b[0m            历史命令',
+      '  \x1b[1;36mclear\x1b[0m              清屏',
+    ].join('\r\n'),
+
+    'clear': () => { term.clear(); return null; },
+
+    'pwd': () => cwd,
+
+    'whoami': () => colorize('root', '1;31'),
+
+    'date': () => colorize(new Date().toLocaleString('zh-CN', {
+      weekday:'long',year:'numeric',month:'long',day:'numeric',
+      hour:'2-digit',minute:'2-digit',second:'2-digit'
+    }), '1;33'),
+
+    'uptime': () => {
+      const s = Math.floor(Math.random()*86400*30 + 3600);
+      const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
+      const load = (Math.random()*0.5+0.1).toFixed(2);
+      return ` ${new Date().toLocaleTimeString('en')}  up ${d} days, ${h}:${String(m).padStart(2,'0')},  \x1b[1;33m1 user\x1b[0m,  load average: \x1b[1;32m${load}\x1b[0m, ${(+load+0.05).toFixed(2)}, ${(+load+0.1).toFixed(2)}`;
+    },
+
+    'uname': () => {
+      const full = args.includes('-a');
+      if (full) return 'Linux server-01 \x1b[1;33m5.15.0-91-generic\x1b[0m #101-Ubuntu SMP Tue Nov 14 13:30:08 UTC 2023 \x1b[1;36mx86_64\x1b[0m x86_64 x86_64 GNU/Linux';
+      return 'Linux';
+    },
+
+    'echo': () => args.join(' ').replace(/\$USER/g, 'root').replace(/\$HOME/g, '/root').replace(/\$SHELL/g, '/bin/bash'),
+
+    'ls': () => {
+      const long = args.includes('-la') || args.includes('-l') || args.includes('-a');
+      const dir = FS[cwd] || { children: [] };
+      const items = dir.children || [];
+      if (!long) {
+        return items.map(n => {
+          const path = cwd + '/' + n;
+          const isDir = FS[path]?.type === 'dir';
+          return isDir ? colorize(n, '1;34') : n;
+        }).join('  ');
+      }
+      const lines = ['total ' + (items.length * 4)];
+      if (args.includes('-a') || args.includes('-la')) {
+        lines.push(colorize('drwxr-xr-x', '32') + `  2 root root 4096 Mar 19 10:00 \x1b[1;34m.\x1b[0m`);
+        lines.push(colorize('drwxr-xr-x', '32') + `  8 root root 4096 Mar 10 08:00 \x1b[1;34m..\x1b[0m`);
+      }
+      items.forEach(n => {
+        const path = cwd + '/' + n;
+        const isDir = FS[path]?.type === 'dir';
+        const perm = isDir ? 'drwxr-xr-x' : '-rw-r--r--';
+        const size = Math.floor(Math.random()*8000+100);
+        const col = isDir ? colorize(n, '1;34') : (n.endsWith('.sh') ? colorize(n,'1;32') : n);
+        lines.push(`\x1b[${isDir?'32':'37'}m${perm}\x1b[0m  1 root root ${String(size).padStart(5)} Mar 19 10:00 ${col}`);
+      });
+      return lines.join('\r\n');
+    },
+
+    'cd': () => {
+      const target = args[0] || '/root';
+      const next = target.startsWith('/') ? target : (cwd + '/' + target).replace(/\/\.$/, '').replace(/\/[^/]+\/\.\./,'');
+      if (FS[next]) { cwd = next; return ''; }
+      return colorize(`bash: cd: ${target}: No such file or directory`, '1;31');
+    },
+
+    'cat': () => {
+      const f = args[0];
+      if (!f) return colorize('cat: missing operand', '1;31');
+      const fakes = {
+        '.bashrc': '# ~/.bashrc\nexport EDITOR=vim\nexport LANG=en_US.UTF-8\nalias ll=\'ls -la\'\nalias la=\'ls -A\'',
+        'README.md': '# My Server\n\nThis is a production server.\nDo not run rm -rf /',
+        'deploy.sh': '#!/bin/bash\nset -e\necho "Deploying..."\ngit pull origin main\nnpm install\npm run build\necho "Done!"',
+        'package.json': '{\n  "name": "app",\n  "version": "1.0.0",\n  "scripts": {\n    "dev": "node server.js",\n    "build": "webpack"\n  }\n}',
+        'access.log': '127.0.0.1 - - [19/Mar/2026:10:01:23 +0800] "GET / HTTP/1.1" 200 1024\n127.0.0.1 - - [19/Mar/2026:10:01:45 +0800] "POST /api/login HTTP/1.1" 200 256',
+        'error.log': '[2026-03-19 09:58:12] WARN: High memory usage detected\n[2026-03-19 10:00:01] INFO: Cron job completed',
+      };
+      const content = fakes[f];
+      if (content) return colorize(content, '37');
+      return colorize(`cat: ${f}: No such file or directory`, '1;31');
+    },
+
+    'history': () => cmdHistory.slice(0,20).map((c,i) => `  ${String(cmdHistory.length-i).padStart(4)}  ${c}`).join('\r\n'),
+
+    'env': () => {
+      const vars = [
+        'USER=root', 'HOME=/root', 'SHELL=/bin/bash',
+        'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        'LANG=en_US.UTF-8', 'TERM=xterm-256color', 'LOGNAME=root',
+        'PWD=' + cwd, 'OLDPWD=/root',
+      ];
+      const filter = args.includes('grep') ? args[args.indexOf('grep')+1] || '' : '';
+      return vars.filter(v => !filter || v.includes(filter))
+        .map(v => {
+          const [k,val] = v.split('=');
+          return `\x1b[1;33m${k}\x1b[0m=\x1b[32m${val}\x1b[0m`;
+        }).join('\r\n');
+    },
+
+    'ps': () => [
+      colorize('  PID TTY          TIME CMD', '1;37'),
+      '    1 ?        00:00:02 systemd',
+      '  412 ?        00:00:00 sshd',
+      '  891 pts/0    00:00:00 bash',
+      ' 1024 ?        00:01:34 ' + colorize('node', '1;32'),
+      ' 1025 ?        00:00:12 ' + colorize('nginx', '1;36'),
+      ' 1234 ?        00:00:01 ' + colorize('mongod', '1;33'),
+      ' 2048 pts/0    00:00:00 ps',
+    ].join('\r\n'),
+
+    'df': () => [
+      colorize('Filesystem      Size  Used Avail Use% Mounted on', '1;37'),
+      '/dev/vda1        40G   \x1b[1;33m18G\x1b[0m   20G  47% /',
+      'tmpfs           1.9G     0  1.9G   0% /dev/shm',
+      '/dev/vda2       100G   \x1b[1;32m45G\x1b[0m   55G  45% /data',
+    ].join('\r\n'),
+
+    'free': () => [
+      colorize('              total        used        free      shared  buff/cache   available', '1;37'),
+      'Mem:        \x1b[1;37m3906464\x1b[0m     \x1b[1;31m2341028\x1b[0m      \x1b[1;32m182044\x1b[0m       \x1b[33m14132\x1b[0m    \x1b[36m1383392\x1b[0m    \x1b[32m1292400\x1b[0m',
+      'Swap:       \x1b[1;37m2097148\x1b[0m      \x1b[33m131072\x1b[0m    \x1b[32m1966076\x1b[0m',
+    ].join('\r\n'),
+
+    'netstat': () => [
+      colorize('Proto Recv-Q Send-Q Local Address           Foreign Address         State', '1;37'),
+      'tcp        0      0 0.0.0.0:22              0.0.0.0:*               \x1b[1;32mLISTEN\x1b[0m',
+      'tcp        0      0 0.0.0.0:80              0.0.0.0:*               \x1b[1;32mLISTEN\x1b[0m',
+      'tcp        0      0 0.0.0.0:443             0.0.0.0:*               \x1b[1;32mLISTEN\x1b[0m',
+      'tcp        0      0 0.0.0.0:3000            0.0.0.0:*               \x1b[1;32mLISTEN\x1b[0m',
+      'tcp        0      0 127.0.0.1:27017         0.0.0.0:*               \x1b[1;32mLISTEN\x1b[0m',
+    ].join('\r\n'),
+
+    'curl': () => args.includes('ifconfig.me') ? colorize('43.156.88.' + Math.floor(Math.random()*255), '1;33') : colorize(`curl: (6) Could not resolve host: ${args[0]}`, '1;31'),
+
+    'ping': () => args[0] ? [
+      `PING ${args[0]} (93.184.216.34): 56 data bytes`,
+      `64 bytes from 93.184.216.34: icmp_seq=0 ttl=55 time=\x1b[1;32m${(Math.random()*10+5).toFixed(3)}\x1b[0m ms`,
+    ].join('\r\n') : colorize('ping: missing host operand', '1;31'),
+  };
+
+  // pipe support stub
+  const pipeIdx = cmd.indexOf('|');
+  if (pipeIdx > -1) {
+    const left = cmd.slice(0, pipeIdx).trim().split(/\s+/)[0];
+    return handlers[left] ? handlers[left]() + colorize('\r\n(管道输出已截断 — 模拟模式)', '2;37') : colorize(`${left}: command not found`, '1;31');
+  }
+
+  return handlers[prog] ? handlers[prog]() : colorize(`bash: ${prog}: command not found`, '1;31');
+}
+
+// ── BOOT SEQUENCE ──
+function writeLines(lines, delay=0) {
+  return new Promise(res => {
+    let i = 0;
+    function next() {
+      if (i >= lines.length) { res(); return; }
+      term.writeln(lines[i++]);
+      setTimeout(next, delay);
+    }
+    next();
+  });
+}
+
+async function boot() {
+  const banner = [
+    '',
+    '\x1b[1;34m ██╗    ██╗███████╗██████╗ ████████╗███████╗██████╗ ███╗   ███╗\x1b[0m',
+    '\x1b[1;34m ██║    ██║██╔════╝██╔══██╗╚══██╔══╝██╔════╝██╔══██╗████╗ ████║\x1b[0m',
+    '\x1b[1;36m ██║ █╗ ██║█████╗  ██████╔╝   ██║   █████╗  ██████╔╝██╔████╔██║\x1b[0m',
+    '\x1b[1;36m ██║███╗██║██╔══╝  ██╔══██╗   ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║\x1b[0m',
+    '\x1b[1;32m ╚███╔███╔╝███████╗██████╔╝   ██║   ███████╗██║  ██║██║ ╚═╝ ██║\x1b[0m',
+    '\x1b[1;32m  ╚══╝╚══╝ ╚══════╝╚═════╝    ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝\x1b[0m',
+    '',
+    `\x1b[2;37m  WebTerminal v1.0 — 基于 xterm.js + WebSocket + node-pty 架构演示\x1b[0m`,
+    `\x1b[2;37m  输入 \x1b[0m\x1b[1;33mhelp\x1b[0m\x1b[2;37m 查看可用命令，点击左侧快速命令快速执行\x1b[0m`,
+    '',
+    '\x1b[1;37mLast login:\x1b[0m \x1b[33mThu Mar 19 09:58:04 2026\x1b[0m from 192.168.1.100',
+    '',
+  ];
+  await writeLines(banner, 18);
+  term.write(PROMPT);
+}
+
+// ── INPUT HANDLING ──
+term.onKey(({ key, domEvent }) => {
+  const code = domEvent.keyCode;
+
+  if (code === 13) { // Enter
+    term.write('\r\n');
+    const out = execCmd(inputBuf);
+    if (out !== null && out !== '') term.writeln(out);
+    inputBuf = '';
+    term.write(PROMPT);
+  } else if (code === 8) { // Backspace
+    if (inputBuf.length > 0) {
+      inputBuf = inputBuf.slice(0,-1);
+      term.write('\b \b');
+    }
+  } else if (code === 38) { // Up arrow
+    if (histIdx < cmdHistory.length-1) {
+      histIdx++;
+      clearInput();
+      inputBuf = cmdHistory[histIdx];
+      term.write(inputBuf);
+    }
+  } else if (code === 40) { // Down arrow
+    if (histIdx > 0) {
+      histIdx--;
+      clearInput();
+      inputBuf = cmdHistory[histIdx];
+      term.write(inputBuf);
+    } else if (histIdx === 0) {
+      histIdx = -1;
+      clearInput();
+    }
+  } else if (code === 76 && domEvent.ctrlKey) { // Ctrl+L
+    term.clear();
+    term.write(PROMPT);
+  } else if (code === 67 && domEvent.ctrlKey) { // Ctrl+C
+    term.write('^C');
+    inputBuf = '';
+    term.write(PROMPT);
+  } else if (key.length === 1) {
+    inputBuf += key;
+    term.write(key);
+  }
+});
+
+function clearInput() {
+  term.write('\r' + PROMPT + ' '.repeat(inputBuf.length + 2) + '\r' + PROMPT);
+}
+
+// ── SIDEBAR CMD ──
+window.runCmd = function(cmd) {
+  clearInput();
+  inputBuf = cmd;
+  term.write(cmd);
+  term.write('\r\n');
+  const out = execCmd(cmd);
+  if (out !== null && out !== '') term.writeln(out);
+  inputBuf = '';
+  term.write(PROMPT);
+  term.focus();
+};
+
+// ── CLOCK ──
+function updateClock() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString('zh-CN');
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── START ──
+boot();
+</script>
+</body>
+</html>

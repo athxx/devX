@@ -46,7 +46,7 @@ function normalizeAddress(value: string) {
 export function getDefaultProxyAddress(target: ProxyTarget) {
   switch (target) {
     case "relay":
-      return "ws://127.0.0.1:8787/ws";
+      return "ws://127.0.0.1:8787";
     case "api":
     default:
       return "http://127.0.0.1:8787/api";
@@ -126,26 +126,29 @@ export async function testProxyConnection(
   }
 
   if (proxyTarget !== "api") {
-    const wsHttpProbe = normalizedAddress.replace(/^ws:/i, "http:").replace(/^wss:/i, "https:");
-    const response = await fetch(wsHttpProbe, {
-      method: "GET",
-      mode: "cors",
-      cache: "no-store",
-      headers: {
-        "x-ason-proxy": "devx"
+    const base = new URL(normalizedAddress.replace(/^ws:/i, "http:").replace(/^wss:/i, "https:"));
+    const relayTargets = ["/db", "/ssh"];
+
+    for (const path of relayTargets) {
+      const probe = new URL(path, `${base.origin}/`).toString();
+      const response = await fetch(probe, {
+        method: "GET",
+        mode: "cors",
+        cache: "no-store",
+        headers: {
+          "x-ason-proxy": "devx"
+        }
+      });
+
+      if (!response.ok && response.status !== 426) {
+        throw new Error(`Proxy test failed with status ${response.status}.`);
       }
-    });
-
-    if (response.ok || response.status === 426) {
-      return {
-        ok: true,
-        status: response.status
-      };
     }
 
-    if (!response.ok) {
-      throw new Error(`Proxy test failed with status ${response.status}.`);
-    }
+    return {
+      ok: true,
+      status: 426
+    };
   }
 
   const proxyEndpoint = normalizedAddress;

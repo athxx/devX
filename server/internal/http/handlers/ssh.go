@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	ws "github.com/gofiber/contrib/websocket"
-	"github.com/gofiber/fiber/v2"
+	ws "github.com/gofiber/contrib/v3/websocket"
+	"github.com/gofiber/fiber/v3"
 
 	sshrelay "devx/server/internal/ssh"
 )

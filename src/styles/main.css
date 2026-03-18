@@ -159,21 +159,6 @@ body::before {
   inset: -4%;
   z-index: -1;
   background: url("/backgrounds/bg.avif") center / cover no-repeat;
-  transform-origin: center;
-  animation: app-bg-breathe 16s ease-in-out infinite;
-  will-change: transform;
-}
-
-@keyframes app-bg-breathe {
-  0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.045);
-  }
-  100% {
-    transform: scale(1);
-  }
 }
 
 button,
@@ -603,12 +588,6 @@ a {
 .theme-kv-cell-muted {
   background: var(--app-code);
   color: var(--app-text-muted);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  body::before {
-    animation: none;
-  }
 }
 
 .theme-success {

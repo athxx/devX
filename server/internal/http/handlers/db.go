@@ -4,20 +4,20 @@ import (
 	"context"
 	"encoding/json"
 
-	ws "github.com/gofiber/contrib/websocket"
-	"github.com/gofiber/fiber/v2"
+	ws "github.com/gofiber/contrib/v3/websocket"
+	"github.com/gofiber/fiber/v3"
 
 	dbrunner "devx/server/internal/db"
 )
 
 func SQLQuery(deps Dependencies) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		var payload dbrunner.SQLQueryRequest
-		if err := c.BodyParser(&payload); err != nil {
+		if err := c.Bind().Body(&payload); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "invalid sql payload")
 		}
 
-		result, err := dbrunner.QuerySQL(c.UserContext(), payload, deps.Config.DatabaseTimeout)
+		result, err := dbrunner.QuerySQL(c.Context(), payload, deps.Config.DatabaseTimeout)
 		if err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
@@ -27,13 +27,13 @@ func SQLQuery(deps Dependencies) fiber.Handler {
 }
 
 func RedisCommand(deps Dependencies) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		var payload dbrunner.RedisCommandRequest
-		if err := c.BodyParser(&payload); err != nil {
+		if err := c.Bind().Body(&payload); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "invalid redis payload")
 		}
 
-		result, err := dbrunner.RunRedisCommand(c.UserContext(), payload, deps.Config.RedisTimeout)
+		result, err := dbrunner.RunRedisCommand(c.Context(), payload, deps.Config.RedisTimeout)
 		if err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
@@ -43,13 +43,13 @@ func RedisCommand(deps Dependencies) fiber.Handler {
 }
 
 func MongoQuery(deps Dependencies) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		var payload dbrunner.MongoQueryRequest
-		if err := c.BodyParser(&payload); err != nil {
+		if err := c.Bind().Body(&payload); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "invalid mongo payload")
 		}
 
-		result, err := dbrunner.RunMongoQuery(c.UserContext(), payload, deps.Config.MongoTimeout)
+		result, err := dbrunner.RunMongoQuery(c.Context(), payload, deps.Config.MongoTimeout)
 		if err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}

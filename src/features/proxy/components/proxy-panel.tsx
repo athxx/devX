@@ -26,8 +26,8 @@ const proxyItems: Array<{
   {
     key: "relay",
     title: "DB / SSH Proxy",
-    summary: "DB 和 SSH 共用同一个 WebSocket 中转地址，例如 ws://127.0.0.1:8787/ws。",
-    placeholder: "ws://127.0.0.1:8787/ws"
+    summary: "DB 和 SSH 共用同一个中转服务基地址，系统会分别连接 /db 和 /ssh，例如 ws://127.0.0.1:8787。",
+    placeholder: "ws://127.0.0.1:8787"
   }
 ];
 

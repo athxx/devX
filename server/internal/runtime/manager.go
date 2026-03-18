@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 
 	"devx/server/internal/app"
 	"devx/server/internal/config"
