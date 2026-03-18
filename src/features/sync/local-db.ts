@@ -1,6 +1,6 @@
 import type { WorkspaceSnapshot } from "./types";
 
-const DB_NAME = "devox-sync-db";
+const DB_NAME = "devx-sync-db";
 const STORE_NAME = "snapshots";
 const SNAPSHOT_KEY = "workspace-snapshot";
 

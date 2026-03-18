@@ -514,7 +514,7 @@ export async function executeRestRequest(
   if (canUseExtensionRuntime) {
     try {
       const runtimeResponse = await chrome.runtime.sendMessage({
-        type: "devox:rest-execute",
+        type: "devx:rest-execute",
         payload: {
           request,
           environment

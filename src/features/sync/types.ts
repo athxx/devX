@@ -55,21 +55,21 @@ export const defaultSyncSettings: SyncSettings = {
   status: "idle",
   dropbox: {
     accessToken: "",
-    remotePath: "/Apps/DevOX/workspace.json"
+    remotePath: "/Apps/DevX/workspace.json"
   },
   onedrive: {
     accessToken: "",
-    remotePath: "/Apps/DevOX/workspace.json"
+    remotePath: "/Apps/DevX/workspace.json"
   },
   gdrive: {
     accessToken: "",
-    fileName: "devox-workspace.json"
+    fileName: "devx-workspace.json"
   },
   webdav: {
     endpoint: "",
     username: "",
     password: "",
-    remotePath: "/devox/workspace.json"
+    remotePath: "/devx/workspace.json"
   }
 };
 

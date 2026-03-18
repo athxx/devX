@@ -75,8 +75,8 @@ const sidebarTabs: Array<{ id: SidebarPanelId; label: string }> = [
   { id: "history", label: "History" }
 ];
 
-const preRequestScriptHeightStorageKey = "devox-script-height-pre-request";
-const postResponseScriptHeightStorageKey = "devox-script-height-post-response";
+const preRequestScriptHeightStorageKey = "devx-script-height-pre-request";
+const postResponseScriptHeightStorageKey = "devx-script-height-post-response";
 
 const preRequestScriptExample = `// Runs before sending the request.
 // You can prepare headers, query params, or request metadata here.
@@ -1738,9 +1738,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
   let persistTimer: number | undefined;
   let saveFeedbackTimer: number | undefined;
 
-  const mainPaneSplitStorageKey = "devox-api-main-pane-split";
-  const preRequestScriptHeightStorageKey = "devox-script-height-pre-request";
-  const postResponseScriptHeightStorageKey = "devox-script-height-post-response";
+  const mainPaneSplitStorageKey = "devx-api-main-pane-split";
+  const preRequestScriptHeightStorageKey = "devx-script-height-pre-request";
+  const postResponseScriptHeightStorageKey = "devx-script-height-post-response";
 
   const requestMap = createMemo(() => new Map(workspace.requests.map((request) => [request.id, request])));
   const activeRequest = createMemo(
@@ -2323,7 +2323,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
     const requestMapById = new Map(workspace.requests.map((request) => [request.id, request]));
     const exportPayload = {
-      format: "devox-collection",
+      format: "devx-collection",
       version: 1,
       collection: {
         id: collection.id,
@@ -3958,7 +3958,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
                         <KeyValueTableEditor
                           rows={environment().variables}
-                          resizeStorageKey="devox-kv-environment-variables"
+                          resizeStorageKey="devx-kv-environment-variables"
                           valuePlaceholder="https://api.example.com"
                           onUpdate={(id, key, value) =>
                             commitWorkspace((next) => {
@@ -4261,7 +4261,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                       <Match when={topEditorTab() === "headers"}>
                         <KeyValueTableEditor
                           rows={request().headers}
-                          resizeStorageKey="devox-kv-request-headers"
+                          resizeStorageKey="devx-kv-request-headers"
                           valuePlaceholder=""
                           keySuggestions={commonHeaderKeys}
                           getValueSuggestions={(row) => commonHeaderValueMap[row.key.trim().toLowerCase()] ?? [
@@ -4548,7 +4548,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                           <Show when={request().body.type === "form-data"}>
                             <FormDataTableEditor
                               rows={request().body.type === "form-data" ? request().body.entries : []}
-                              resizeStorageKey="devox-kv-body-form-data"
+                              resizeStorageKey="devx-kv-body-form-data"
                               onUpdate={(id, patch) => updateActiveRequest((current) => {
                                 if (current.body.type === "form-data") {
                                   current.body = {
@@ -4583,7 +4583,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                           <Show when={request().body.type === "form-urlencoded"}>
                             <KeyValueTableEditor
                               rows={request().body.type === "form-urlencoded" ? request().body.entries : []}
-                              resizeStorageKey="devox-kv-body-form-urlencoded"
+                              resizeStorageKey="devx-kv-body-form-urlencoded"
                               onUpdate={(id, key, value) => updateActiveRequest((current) => {
                                 if (current.body.type === "form-urlencoded") {
                                   current.body = {
@@ -4806,7 +4806,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
               </Match>
               <Match when={responseTab() === "headers"}>
                 <div class="min-h-[240px]">
-                  <KeyValueTableEditor rows={responseSummary()?.headers ?? []} resizeStorageKey="devox-kv-response-headers" readOnly />
+                  <KeyValueTableEditor rows={responseSummary()?.headers ?? []} resizeStorageKey="devx-kv-response-headers" readOnly />
                 </div>
               </Match>
             </Switch>

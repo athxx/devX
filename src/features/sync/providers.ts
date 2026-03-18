@@ -8,21 +8,21 @@ type GoogleDriveFileListResponse = {
 };
 
 function getDropboxPath(settings: SyncSettings) {
-  return settings.dropbox.remotePath || "/Apps/DevOX/workspace.json";
+  return settings.dropbox.remotePath || "/Apps/DevX/workspace.json";
 }
 
 function getOneDrivePath(settings: SyncSettings) {
-  const path = settings.onedrive.remotePath || "/Apps/DevOX/workspace.json";
+  const path = settings.onedrive.remotePath || "/Apps/DevX/workspace.json";
   return path.startsWith("/") ? path : `/${path}`;
 }
 
 function getGoogleDriveFileName(settings: SyncSettings) {
-  return settings.gdrive.fileName.trim() || "devox-workspace.json";
+  return settings.gdrive.fileName.trim() || "devx-workspace.json";
 }
 
 function getWebDavUrl(settings: SyncSettings) {
   const endpoint = settings.webdav.endpoint.trim().replace(/\/$/, "");
-  const remotePath = settings.webdav.remotePath.trim() || "/devox/workspace.json";
+  const remotePath = settings.webdav.remotePath.trim() || "/devx/workspace.json";
   const normalizedPath = remotePath.startsWith("/") ? remotePath : `/${remotePath}`;
   return `${endpoint}${normalizedPath}`;
 }
@@ -295,7 +295,7 @@ export async function uploadRemoteSnapshot(
         return;
       }
 
-      const boundary = `devox-sync-${Date.now()}`;
+      const boundary = `devx-sync-${Date.now()}`;
       const multipartBody = [
         `--${boundary}`,
         "Content-Type: application/json; charset=UTF-8",

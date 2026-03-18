@@ -1,6 +1,6 @@
 import type { RestWorkspaceState } from "./models";
 
-const DB_NAME = "devox-workspace-db";
+const DB_NAME = "devx-workspace-db";
 const STORE_NAME = "workspace";
 const REST_WORKSPACE_KEY = "rest-workspace";
 

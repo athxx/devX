@@ -17,7 +17,7 @@ chrome.action.onClicked.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== "devox:rest-execute") {
+  if (message?.type !== "devx:rest-execute") {
     return undefined;
   }
 

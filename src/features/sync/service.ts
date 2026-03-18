@@ -263,7 +263,7 @@ export async function exportLocalSnapshot(): Promise<WorkspaceSnapshot> {
 
 export async function importLocalSnapshot(payload: unknown): Promise<WorkspaceSnapshot> {
   if (!isWorkspaceSnapshot(payload)) {
-    throw new Error("Imported file is not a valid DevOX workspace snapshot.");
+    throw new Error("Imported file is not a valid DevX workspace snapshot.");
   }
 
   const snapshot: WorkspaceSnapshot = {

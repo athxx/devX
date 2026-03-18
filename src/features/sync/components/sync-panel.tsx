@@ -132,7 +132,7 @@ export function SyncPanel() {
       const dateStamp = new Date().toISOString().slice(0, 10);
 
       anchor.href = url;
-      anchor.download = `devox-workspace-${dateStamp}.json`;
+      anchor.download = `devx-workspace-${dateStamp}.json`;
       anchor.click();
       window.URL.revokeObjectURL(url);
 

@@ -172,7 +172,7 @@ export function SettingsWorkspace(props: SidebarWorkspaceProps) {
         return (
           <SettingsPlaceholder
             eyebrow="Settings / About"
-            title="About DevOX"
+            title="About DevX"
             summary="适合放版本、路线图、开源说明、社区入口和支持联系方式。"
             bullets={["Version", "Roadmap", "Support"]}
           />

@@ -9,7 +9,7 @@ export type AppSettings = {
 };
 
 export const defaultSettings: AppSettings = {
-  workspaceName: "DevOX Workspace",
+  workspaceName: "DevX Workspace",
   apiBaseUrl: "",
   requestTimeoutMs: 15000,
   persistHistory: true,

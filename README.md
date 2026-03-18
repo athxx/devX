@@ -1,4 +1,4 @@
-# DevOX
+# DevX
 
 Developer-facing toolbox starter built with SolidJS, UnoCSS, Vite, and Chrome Extension Manifest V3. The main workspace now supports both a normal web entry and a Chrome extension entry.
 
@@ -12,6 +12,7 @@ Developer-facing toolbox starter built with SolidJS, UnoCSS, Vite, and Chrome Ex
 - `app.html`: primary full-page workspace for the extension
 - `popup.html`: optional quick launcher page
 - `options.html`: persisted settings
+- `server/`: Go/Fiber middle layer for HTTP proxying, DB access, and SSH relay
 - `src/entries/background.ts`: background service worker
 - `src/app/workspace-page.tsx`: shared workspace page used by both web and extension
 - `src/app/tool-registry.ts`: central feature registry for current and planned tools
@@ -65,6 +66,18 @@ npm run dev
 That runs `vite build --watch`, which is a better fit for extension development than a regular dev server because Chrome loads unpacked files from disk.
 
 The extension opens `app.html`, while the web app uses `index.html`. Both entries render the same shared workspace UI.
+
+## Run the Go server
+
+The repository also includes a Go middle layer in `server/` for API proxying, DB relay, and SSH relay.
+
+```bash
+cd server
+mise exec go@1.26 -- go mod tidy
+mise exec go@1.26 -- go run ./cmd/devx-server
+```
+
+See [server/README.md](./server/README.md) for the available routes and payload formats.
 
 ## Suggested next features
 

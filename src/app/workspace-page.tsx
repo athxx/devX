@@ -75,7 +75,7 @@ function SettingsIcon() {
 }
 
 export function WorkspacePage(_props: WorkspacePageProps) {
-  const sidebarWidthStorageKey = "devox-sidebar-width";
+  const sidebarWidthStorageKey = "devx-sidebar-width";
   const topTabHoverDelayMs = 300;
   const clampSidebarWidth = (value: number) => Math.min(520, Math.max(180, Math.round(value)));
   const [darkMode, setDarkMode] = createSignal(true);
@@ -89,8 +89,8 @@ export function WorkspacePage(_props: WorkspacePageProps) {
 
   onMount(() => {
     const stopSyncScheduler = startSyncScheduler();
-    const savedTheme = window.localStorage.getItem("devox-theme");
-    const savedLocale = window.localStorage.getItem("devox-locale");
+    const savedTheme = window.localStorage.getItem("devx-theme");
+    const savedLocale = window.localStorage.getItem("devx-locale");
     const savedSidebarWidth = window.localStorage.getItem(sidebarWidthStorageKey);
 
     if (savedTheme === "dark" || savedTheme === "light") {
@@ -123,12 +123,12 @@ export function WorkspacePage(_props: WorkspacePageProps) {
   createEffect(() => {
     const theme = darkMode() ? "dark" : "light";
     document.documentElement.dataset.theme = theme;
-    window.localStorage.setItem("devox-theme", theme);
+    window.localStorage.setItem("devx-theme", theme);
   });
 
   createEffect(() => {
     document.documentElement.lang = locale();
-    window.localStorage.setItem("devox-locale", locale());
+    window.localStorage.setItem("devx-locale", locale());
   });
 
   createEffect(() => {
@@ -231,7 +231,7 @@ export function WorkspacePage(_props: WorkspacePageProps) {
   return (
     <AppShell
       workspace
-      title="DevOX Workspace"
+      title="DevX Workspace"
       nav={
         <nav class="flex h-9 items-center gap-1" aria-label="Primary">
           <button

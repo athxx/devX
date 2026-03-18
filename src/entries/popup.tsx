@@ -21,7 +21,7 @@ function PopupApp() {
   return (
     <AppShell
       compact
-      title="DevOX"
+      title="DevX"
       subtitle="开发者工具箱现在以完整页面为主工作区，点击后会打开独立标签页。"
     >
       <section class="rounded-3xl border border-white/10 bg-ink-900/72 p-4 shadow-panel">
