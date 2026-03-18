@@ -11,11 +11,7 @@ export type AppSettings = {
       mode: "none" | "proxy";
       address: string;
     };
-    db: {
-      mode: "none" | "proxy";
-      address: string;
-    };
-    ssh: {
+    relay: {
       mode: "none" | "proxy";
       address: string;
     };
@@ -33,11 +29,7 @@ export const defaultSettings: AppSettings = {
       mode: "none",
       address: ""
     },
-    db: {
-      mode: "none",
-      address: ""
-    },
-    ssh: {
+    relay: {
       mode: "none",
       address: ""
     }
@@ -48,6 +40,17 @@ const SETTINGS_KEY = "app-settings";
 
 export async function loadSettings(): Promise<AppSettings> {
   const stored = await getStoredValue<Partial<AppSettings>>(SETTINGS_KEY, "sync");
+  const legacyProxy = (stored?.proxy ?? {}) as Partial<AppSettings["proxy"]> & {
+    db?: {
+      mode?: "none" | "proxy";
+      address?: string;
+    };
+    ssh?: {
+      mode?: "none" | "proxy";
+      address?: string;
+    };
+  };
+  const migratedRelay = legacyProxy.relay ?? legacyProxy.db ?? legacyProxy.ssh;
 
   return {
     ...defaultSettings,
@@ -55,15 +58,11 @@ export async function loadSettings(): Promise<AppSettings> {
     proxy: {
       api: {
         ...defaultSettings.proxy.api,
-        ...stored?.proxy?.api
+        ...legacyProxy.api
       },
-      db: {
-        ...defaultSettings.proxy.db,
-        ...stored?.proxy?.db
-      },
-      ssh: {
-        ...defaultSettings.proxy.ssh,
-        ...stored?.proxy?.ssh
+      relay: {
+        ...defaultSettings.proxy.relay,
+        ...migratedRelay
       }
     }
   };

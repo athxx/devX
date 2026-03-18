@@ -103,7 +103,7 @@ function LinearWorkspaceSection(props: {
 
 export function HomeWorkspace() {
   return (
-    <div class="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+    <div class="mt-4 grid gap-4 px-4 pb-4 xl:grid-cols-[1.2fr_0.8fr]">
       <SectionCard eyebrow="Overview" title="Workspace Home">
         <div class="grid gap-4 md:grid-cols-3">
           <For each={homeCards}>
@@ -263,7 +263,7 @@ export function SettingsWorkspace(props: SidebarWorkspaceProps) {
       sidebarWidth={props.sidebarWidth}
       sidebarResizing={props.sidebarResizing}
       onResizeStart={props.onSidebarResizeStart}
-      contentClass="grid gap-4"
+      contentClass="mt-4 grid gap-4"
       sidebar={
         <>
         <div class="mb-5 border-b pb-4" style={{ "border-color": "var(--app-border)" }}>

@@ -80,7 +80,7 @@ export function WorkspacePage(_props: WorkspacePageProps) {
   const clampSidebarWidth = (value: number) => Math.min(520, Math.max(180, Math.round(value)));
   const [darkMode, setDarkMode] = createSignal(true);
   const [locale, setLocale] = createSignal<WorkspaceLocale>("zh-CN");
-  const [activeTab, setActiveTab] = createSignal<WorkspaceTab>("api");
+  const [activeTab, setActiveTab] = createSignal<WorkspaceTab>("home");
   const [sidebarOpen, setSidebarOpen] = createSignal(true);
   const [sidebarWidth, setSidebarWidth] = createSignal(220);
   const [sidebarResizing, setSidebarResizing] = createSignal(false);

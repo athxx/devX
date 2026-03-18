@@ -1,8 +1,9 @@
+import { loadIndexedDbValue, saveIndexedDbValue } from "../../lib/indexed-db";
 import type { RestWorkspaceState } from "./models";
 
-const DB_NAME = "devx-workspace-db";
-const STORE_NAME = "workspace";
 const REST_WORKSPACE_KEY = "rest-workspace";
+const LEGACY_DB_NAME = "devx-workspace-db";
+const LEGACY_STORE_NAME = "workspace";
 
 function getIndexedDb() {
   if (typeof indexedDB === "undefined") {
@@ -12,7 +13,7 @@ function getIndexedDb() {
   return indexedDB;
 }
 
-function openDatabase(): Promise<IDBDatabase> {
+function openLegacyDatabase(): Promise<IDBDatabase> {
   const idb = getIndexedDb();
 
   if (!idb) {
@@ -20,13 +21,13 @@ function openDatabase(): Promise<IDBDatabase> {
   }
 
   return new Promise((resolve, reject) => {
-    const request = idb.open(DB_NAME, 1);
+    const request = idb.open(LEGACY_DB_NAME, 1);
 
     request.onupgradeneeded = () => {
       const database = request.result;
 
-      if (!database.objectStoreNames.contains(STORE_NAME)) {
-        database.createObjectStore(STORE_NAME);
+      if (!database.objectStoreNames.contains(LEGACY_STORE_NAME)) {
+        database.createObjectStore(LEGACY_STORE_NAME);
       }
     };
 
@@ -35,15 +36,15 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-async function withStore<T>(
+async function withLegacyStore<T>(
   mode: IDBTransactionMode,
   operation: (store: IDBObjectStore) => IDBRequest<T>
 ): Promise<T> {
-  const database = await openDatabase();
+  const database = await openLegacyDatabase();
 
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORE_NAME, mode);
-    const store = transaction.objectStore(STORE_NAME);
+    const transaction = database.transaction(LEGACY_STORE_NAME, mode);
+    const store = transaction.objectStore(LEGACY_STORE_NAME);
     const request = operation(store);
 
     request.onsuccess = () => resolve(request.result);
@@ -57,9 +58,27 @@ async function withStore<T>(
 }
 
 export async function loadRestWorkspaceFromDb(): Promise<RestWorkspaceState | undefined> {
-  return withStore<RestWorkspaceState | undefined>("readonly", (store) => store.get(REST_WORKSPACE_KEY));
+  const current = await loadIndexedDbValue<RestWorkspaceState>(REST_WORKSPACE_KEY);
+
+  if (current) {
+    return current;
+  }
+
+  try {
+    const legacy = await withLegacyStore<RestWorkspaceState | undefined>("readonly", (store) =>
+      store.get(REST_WORKSPACE_KEY)
+    );
+
+    if (legacy) {
+      await saveIndexedDbValue(REST_WORKSPACE_KEY, legacy);
+    }
+
+    return legacy;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function saveRestWorkspaceToDb(state: RestWorkspaceState): Promise<void> {
-  await withStore<IDBValidKey>("readwrite", (store) => store.put(state, REST_WORKSPACE_KEY));
+  await saveIndexedDbValue(REST_WORKSPACE_KEY, state);
 }

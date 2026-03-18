@@ -10,6 +10,10 @@ import (
 
 func ProxyRequest(deps Dependencies) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		if c.Method() == fiber.MethodOptions {
+			return c.SendStatus(fiber.StatusNoContent)
+		}
+
 		if c.Get("x-ason-proxy") != "devx" {
 			return fiber.NewError(fiber.StatusForbidden, "missing x-ason-proxy=devx")
 		}

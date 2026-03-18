@@ -1,7 +1,13 @@
-import { For, Show, createSignal, onMount } from "solid-js";
+import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
 import { SectionCard } from "../../../components/section-card";
 import { defaultSettings, type AppSettings } from "../../../lib/storage";
-import { loadProxySettings, saveProxySettings, testProxyConnection, type ProxyTarget } from "../service";
+import {
+  getDefaultProxyAddress,
+  loadProxySettings,
+  saveProxySettings,
+  testProxyConnection,
+  type ProxyTarget
+} from "../service";
 
 type ProxySettings = AppSettings["proxy"];
 
@@ -9,10 +15,20 @@ const proxyItems: Array<{
   key: ProxyTarget;
   title: string;
   summary: string;
+  placeholder: string;
 }> = [
-  { key: "api", title: "API Proxy", summary: "REST 请求转发。开启后会统一走 /api 并自动附加 ason 头。" },
-  { key: "db", title: "DB Proxy", summary: "数据库请求入口。后面 DB 工作区会通过这个地址连接 /ws。" },
-  { key: "ssh", title: "SSH Proxy", summary: "SSH relay 入口。后面 SSH 工作区会通过这个地址连接 /ws。" }
+  {
+    key: "api",
+    title: "API Proxy",
+    summary: "填写完整代理接口地址，例如 http://127.0.0.1:8787/api。",
+    placeholder: "http://127.0.0.1:8787/api"
+  },
+  {
+    key: "relay",
+    title: "DB / SSH Proxy",
+    summary: "DB 和 SSH 共用同一个 WebSocket 中转地址，例如 ws://127.0.0.1:8787/ws。",
+    placeholder: "ws://127.0.0.1:8787/ws"
+  }
 ];
 
 function FieldLabel(props: { label: string; hint?: string; children: any }) {
@@ -35,20 +51,52 @@ export function ProxyPanel() {
   const [testingState, setTestingState] = createSignal<
     Partial<Record<ProxyTarget, { ok: boolean; message: string }>>
   >({});
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let testingMessageTimers: Partial<Record<ProxyTarget, ReturnType<typeof setTimeout>>> = {};
 
   onMount(() => {
     void loadProxySettings().then(setSettings);
   });
+
+  onCleanup(() => {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+    }
+
+    Object.values(testingMessageTimers).forEach((timer) => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    });
+  });
+
+  const queuePersist = (nextSettings: ProxySettings) => {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+    }
+
+    saveTimer = setTimeout(() => {
+      void saveProxySettings(nextSettings).catch(() => {
+        // The panel still keeps the latest local state; explicit save can retry.
+      });
+    }, 250);
+  };
 
   const updateItem = (
     target: ProxyTarget,
     updater: (current: ProxySettings[ProxyTarget]) => ProxySettings[ProxyTarget]
   ) => {
     setNotice(undefined);
-    setSettings((current) => ({
-      ...current,
-      [target]: updater(current[target])
-    }));
+    setSettings((current) => {
+      const nextSettings = {
+        ...current,
+        [target]: updater(current[target])
+      };
+
+      queuePersist(nextSettings);
+
+      return nextSettings;
+    });
   };
 
   const handleSave = async () => {
@@ -72,7 +120,7 @@ export function ProxyPanel() {
     setNotice(undefined);
 
     try {
-      const result = await testProxyConnection(address);
+      const result = await testProxyConnection(address, target);
       setTestingState((current) => ({
         ...current,
         [target]: {
@@ -80,7 +128,24 @@ export function ProxyPanel() {
           message: `Connected (${result.status})`
         }
       }));
+
+      if (testingMessageTimers[target]) {
+        clearTimeout(testingMessageTimers[target]);
+      }
+
+      testingMessageTimers[target] = setTimeout(() => {
+        setTestingState((current) => ({
+          ...current,
+          [target]: undefined
+        }));
+        testingMessageTimers[target] = undefined;
+      }, 3000);
     } catch (error) {
+      if (testingMessageTimers[target]) {
+        clearTimeout(testingMessageTimers[target]);
+        testingMessageTimers[target] = undefined;
+      }
+
       setTestingState((current) => ({
         ...current,
         [target]: {
@@ -109,10 +174,18 @@ export function ProxyPanel() {
                       class="theme-input rounded-2xl px-3 py-3"
                       value={current().mode}
                       onChange={(event) =>
-                        updateItem(item.key, (value) => ({
-                          ...value,
-                          mode: event.currentTarget.value as "none" | "proxy"
-                        }))
+                        updateItem(item.key, (value) => {
+                          const nextMode = event.currentTarget.value as "none" | "proxy";
+
+                          return {
+                            ...value,
+                            mode: nextMode,
+                            address:
+                              nextMode === "proxy" && !value.address.trim()
+                                ? getDefaultProxyAddress(item.key)
+                                : value.address
+                          };
+                        })
                       }
                     >
                       <option value="none">None</option>
@@ -120,10 +193,10 @@ export function ProxyPanel() {
                     </select>
                   </FieldLabel>
 
-                  <FieldLabel label="Address" hint="例如 http://127.0.0.1:8787">
+                  <FieldLabel label="Address" hint={item.placeholder}>
                     <input
                       class="theme-input rounded-2xl px-3 py-3"
-                      placeholder="http://127.0.0.1:8787"
+                      placeholder={item.placeholder}
                       value={current().address}
                       disabled={current().mode === "none"}
                       onInput={(event) =>

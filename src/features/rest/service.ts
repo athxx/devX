@@ -1,5 +1,5 @@
 import { getStoredValue, setStoredValue } from "../../lib/platform-storage";
-import { loadSettings } from "../../lib/storage";
+import { loadProxySettings } from "../proxy/service";
 import { loadRestWorkspaceFromDb, saveRestWorkspaceToDb } from "./local-db";
 import type {
   Collection,
@@ -441,7 +441,7 @@ export async function executeRestRequestDirect(
   request: RequestDraft,
   environment?: Environment
 ): Promise<ResponseSummary> {
-  const settings = await loadSettings();
+  const proxySettings = await loadProxySettings();
   const resolvedUrl = resolveTemplate(request.url, environment);
   const url = new URL(resolvedUrl);
 
@@ -470,8 +470,8 @@ export async function executeRestRequestDirect(
 
   let requestUrl = url.toString();
 
-  if (settings.proxy.api.mode === "proxy" && settings.proxy.api.address.trim()) {
-    requestUrl = `${settings.proxy.api.address.trim().replace(/\/+$/, "")}/api`;
+  if (proxySettings.api.mode === "proxy" && proxySettings.api.address.trim()) {
+    requestUrl = proxySettings.api.address.trim();
     headers.set("x-ason-proxy", "devx");
     headers.set("x-ason-url", url.toString());
   }

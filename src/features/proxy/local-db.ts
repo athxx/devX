@@ -1,13 +1,27 @@
 import { loadIndexedDbValue, saveIndexedDbValue } from "../../lib/indexed-db";
-import type { WorkspaceSnapshot } from "./types";
+import type { AppSettings } from "../../lib/storage";
 
-const SNAPSHOT_KEY = "workspace-snapshot";
-const LEGACY_DB_NAME = "devx-sync-db";
-const LEGACY_STORE_NAME = "snapshots";
+const PROXY_SETTINGS_KEY = "proxy-settings";
+const LEGACY_DB_NAME = "devx-settings-db";
+const LEGACY_STORE_NAME = "settings";
+
+function getIndexedDb() {
+  if (typeof indexedDB === "undefined") {
+    return null;
+  }
+
+  return indexedDB;
+}
 
 function openLegacyDatabase(): Promise<IDBDatabase> {
+  const idb = getIndexedDb();
+
+  if (!idb) {
+    return Promise.reject(new Error("IndexedDB is not available in this environment."));
+  }
+
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(LEGACY_DB_NAME, 1);
+    const request = idb.open(LEGACY_DB_NAME, 1);
 
     request.onupgradeneeded = () => {
       const database = request.result;
@@ -43,20 +57,20 @@ async function withLegacyStore<T>(
   });
 }
 
-export async function loadWorkspaceSnapshot(): Promise<WorkspaceSnapshot | undefined> {
-  const current = await loadIndexedDbValue<WorkspaceSnapshot>(SNAPSHOT_KEY);
+export async function loadProxySettingsFromDb(): Promise<AppSettings["proxy"] | undefined> {
+  const current = await loadIndexedDbValue<AppSettings["proxy"]>(PROXY_SETTINGS_KEY);
 
   if (current) {
     return current;
   }
 
   try {
-    const legacy = await withLegacyStore<WorkspaceSnapshot | undefined>("readonly", (store) =>
-      store.get(SNAPSHOT_KEY)
+    const legacy = await withLegacyStore<AppSettings["proxy"] | undefined>("readonly", (store) =>
+      store.get(PROXY_SETTINGS_KEY)
     );
 
     if (legacy) {
-      await saveIndexedDbValue(SNAPSHOT_KEY, legacy);
+      await saveIndexedDbValue(PROXY_SETTINGS_KEY, legacy);
     }
 
     return legacy;
@@ -65,17 +79,6 @@ export async function loadWorkspaceSnapshot(): Promise<WorkspaceSnapshot | undef
   }
 }
 
-export async function saveWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Promise<void> {
-  await saveIndexedDbValue(SNAPSHOT_KEY, snapshot);
-}
-
-export async function ensureWorkspaceSnapshot(seed: WorkspaceSnapshot): Promise<WorkspaceSnapshot> {
-  const existing = await loadWorkspaceSnapshot();
-
-  if (existing) {
-    return existing;
-  }
-
-  await saveWorkspaceSnapshot(seed);
-  return seed;
+export async function saveProxySettingsToDb(settings: AppSettings["proxy"]): Promise<void> {
+  await saveIndexedDbValue(PROXY_SETTINGS_KEY, settings);
 }
