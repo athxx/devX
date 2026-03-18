@@ -924,22 +924,8 @@ function getResponseStatusClass(status: number) {
   return "text-[#ff3b30]";
 }
 
-function MacCloseIcon() {
-  return (
-    <svg class="block h-4.5 w-4.5" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 20c5.523 0 10-4.477 10-10S15.523 0 10 0 0 4.477 0 10s4.477 10 10 10z" fill="#EA4F49"/><path d="M10 19.5a9.5 9.5 0 1 0 0-19 9.5 9.5 0 0 0 0 19z" stroke="#000" stroke-opacity=".2"/><path d="M13.536 5.757a.5.5 0 0 1 .707.707L10.706 10l3.537 3.535a.5.5 0 0 1-.707.707l-3.537-3.535-3.535 3.535a.5.5 0 0 1-.707-.707L9.292 10 5.757 6.464a.5.5 0 0 1 .707-.707L10 9.293l3.537-3.536z" fill="#000" fill-opacity=".5"/></svg>
-  );
-}
-
-function MacAddIcon() {
-  return (
-    <svg class="block h-4.5 w-4.5" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M10 20c5.523 0 10-4.477 10-10S15.523 0 10 0 0 4.477 0 10s4.477 10 10 10z" fill="#28C840"/><path d="M10 19.5a9.5 9.5 0 1 0 0-19 9.5 9.5 0 0 0 0 19z" stroke="#000" stroke-opacity=".2"/><path d="M10 5c.23 0 .416.187.416.417v4.167h4.167a.417.417 0 1 1 0 .833h-4.167v4.166a.417.417 0 1 1-.833 0v-4.166H5.417a.417.417 0 0 1 0-.833h4.166V5.417c0-.23.187-.417.417-.417z" fill="#000" fill-opacity=".5"/></svg>
-  );
-}
-
-function MacMenuIcon() {
-  return (
-    <svg class="block h-4.5 w-4.5" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 20c5.523 0 10-4.477 10-10S15.523 0 10 0 0 4.477 0 10s4.477 10 10 10z" fill="#0A84FF"/><path d="M10 19.5a9.5 9.5 0 1 0 0-19 9.5 9.5 0 0 0 0 19z" stroke="#000" stroke-opacity=".2"/><path d="M5.09 9a1.09 1.09 0 1 1 0 2.182A1.09 1.09 0 0 1 5.09 9zM10 9a1.09 1.09 0 1 1 0 2.182A1.09 1.09 0 0 1 10 9zm4.91 0a1.09 1.09 0 1 1 0 2.182 1.09 1.09 0 0 1 0-2.182z" fill="#000" fill-opacity=".5"/></svg>
-  );
+function ControlDot(props: { variant: "add" | "delete" | "menu" | "warn" }) {
+  return <span class={`traffic-dot traffic-dot-${props.variant}`} aria-hidden="true" />;
 }
 
 function FormatJsonIcon() {
@@ -1436,7 +1422,7 @@ function KeyValueTableEditor(props: {
                     class="inline-flex h-6 w-6 items-center justify-center"
                     onClick={() => props.onRemove?.(row().id)}
                   >
-                    <MacCloseIcon />
+                    <ControlDot variant="delete" />
                   </button>
                 </div>
               </Show>
@@ -1647,7 +1633,7 @@ function FormDataTableEditor(props: {
                             });
                           }}
                         >
-                          <MacCloseIcon />
+                          <ControlDot variant="delete" />
                         </button>
                       </Show>
                       <input
@@ -1679,7 +1665,7 @@ function FormDataTableEditor(props: {
                   class="inline-flex h-6 w-6 items-center justify-center"
                   onClick={() => props.onRemove(row().id)}
                 >
-                  <MacCloseIcon />
+                  <ControlDot variant="delete" />
                 </button>
               </div>
             </>
@@ -2753,6 +2739,15 @@ export function RestPlayground(props: RestPlaygroundProps) {
     closeAllMenus();
   }
 
+  function getRequestMoveTargetLabel(collection: RestCollection, folderId: string | null) {
+    if (!folderId) {
+      return `${collection.name} / Root`;
+    }
+
+    const folder = collection.folders.find((item) => item.id === folderId);
+    return folder ? `${collection.name} / ${folder.name}` : `${collection.name} / Root`;
+  }
+
   function deleteRequest(requestId: string) {
     const request = requestMap().get(requestId);
     if (!request) {
@@ -3221,7 +3216,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                     <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">Collections</p>
                     <div class="relative" data-rest-menu-root>
                       <button
-                        class="inline-flex h-6 w-6 items-center justify-center rounded-full p-0 leading-none transition hover:bg-[var(--app-accent-soft)]"
+                        class="traffic-dot-button inline-flex h-6 w-6 items-center justify-center rounded-full p-0 leading-none transition"
                         title="Collection actions"
                         onClick={() => {
                           setShowCollectionCreateMenu((current) => !current);
@@ -3229,7 +3224,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                           setCollectionAddMenuId(null);
                         }}
                       >
-                        <MacAddIcon />
+                        <ControlDot variant="add" />
                       </button>
                       {renderCollectionCreateMenu()}
                     </div>
@@ -3300,7 +3295,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
                                 <div class="relative shrink-0" data-rest-menu-root>
                                   <button
-                                    class="theme-control inline-flex h-5 w-5 items-center justify-center rounded-md text-[11px]"
+                                    class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-[11px]"
                                     title="Collection options"
                                     onMouseDown={(event) => event.stopPropagation()}
                                     onPointerDown={(event) => event.stopPropagation()}
@@ -3314,7 +3309,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                       setShowCollectionCreateMenu(false);
                                     }}
                                   >
-                                    ⋯
+                                    <ControlDot variant="menu" />
                                   </button>
 
                                   <Show when={collectionMenuId() === entry.collection.id}>
@@ -3395,7 +3390,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
                                 <div class="relative shrink-0" data-rest-menu-root>
                                   <button
-                                    class="inline-flex h-5 w-5 items-center justify-center rounded-md text-xs"
+                                    class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-xs"
                                     title="Add request"
                                     onMouseDown={(event) => event.stopPropagation()}
                                     onPointerDown={(event) => event.stopPropagation()}
@@ -3404,7 +3399,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                       openRequestCreationMenu(entry.collection.id, null);
                                     }}
                                   >
-                                    +
+                                    <ControlDot variant="add" />
                                   </button>
                                   <Show when={collectionAddMenuId() === entry.collection.id}>
                                     {renderRequestCreateMenu(entry.collection.id, null)}
@@ -3430,9 +3425,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                       <button class="min-w-0 flex-1 text-left" onClick={() => openRequestTab(request.id, request.collectionId)}>
                                         <p class="truncate text-[13px] font-medium" title={request.name}>{request.name}</p>
                                       </button>
-                                      <div class="relative shrink-0" data-rest-menu-root>
+                                    <div class="relative shrink-0" data-rest-menu-root>
                                         <button
-                                          class="theme-control inline-flex h-5 w-5 items-center justify-center rounded-md text-[11px]"
+                                          class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-[11px]"
                                           title="Request options"
                                           onMouseDown={(event) => event.stopPropagation()}
                                           onPointerDown={(event) => event.stopPropagation()}
@@ -3443,7 +3438,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                             setRequestMoveMenuId(null);
                                           }}
                                         >
-                                          ⋯
+                                          <ControlDot variant="menu" />
                                         </button>
                                         <Show when={requestMenuId() === request.id}>
                                           <div
@@ -3485,7 +3480,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                           class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
                                                           onClick={() => moveRequest(request.id, { collectionId: collection.id, folderId: null })}
                                                         >
-                                                          {collection.name}
+                                                          {getRequestMoveTargetLabel(collection, null)}
                                                         </button>
                                                         <For each={collection.folders}>
                                                           {(folder) => (
@@ -3493,7 +3488,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                               class="theme-sidebar-item w-full rounded-xl px-3 py-2 pl-7 text-left text-sm"
                                                               onClick={() => moveRequest(request.id, { collectionId: collection.id, folderId: folder.id })}
                                                             >
-                                                              {collection.name} / {folder.name}
+                                                              {getRequestMoveTargetLabel(collection, folder.id)}
                                                             </button>
                                                           )}
                                                         </For>
@@ -3573,41 +3568,24 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                           <p class="truncate text-[13px] font-medium">{folderEntry.folder.name}</p>
                                         </button>
                                         <span class="theme-chip rounded-full px-2 py-0.5 text-[11px] font-medium">
-                                            {folderEntry.requests.length}
-                                          </span>
+                                          {folderEntry.requests.length}
+                                        </span>
                                         <div class="relative shrink-0" data-rest-menu-root>
-                                            <button
-                                            class="inline-flex h-5 w-5 items-center justify-center rounded-md text-xs"
-                                              title="Add request"
-                                              onMouseDown={(event) => event.stopPropagation()}
-                                              onPointerDown={(event) => event.stopPropagation()}
-                                              onClick={(event) => {
-                                                event.stopPropagation();
-                                                openRequestCreationMenu(entry.collection.id, folderEntry.folder.id);
-                                              }}
-                                            >
-                                            +
-                                            </button>
-                                            <Show when={folderAddMenuId() === folderEntry.folder.id}>
-                                              {renderRequestCreateMenu(entry.collection.id, folderEntry.folder.id)}
-                                            </Show>
-                                          </div>
-                                        <div class="relative shrink-0" data-rest-menu-root>
-                                            <button
-                                            class="theme-control inline-flex h-5 w-5 items-center justify-center rounded-md text-[11px]"
-                                              title="Folder options"
-                                              onMouseDown={(event) => event.stopPropagation()}
-                                              onPointerDown={(event) => event.stopPropagation()}
-                                              onClick={(event) => {
-                                                event.stopPropagation();
-                                                setFolderMenuId((current) => current === folderEntry.folder.id ? null : folderEntry.folder.id);
-                                                setFolderOrderMenuId(null);
-                                                setFolderMoveMenuId(null);
-                                              }}
-                                            >
-                                            ⋯
-                                            </button>
-                                            <Show when={folderMenuId() === folderEntry.folder.id}>
+                                          <button
+                                            class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-[11px]"
+                                            title="Folder options"
+                                            onMouseDown={(event) => event.stopPropagation()}
+                                            onPointerDown={(event) => event.stopPropagation()}
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              setFolderMenuId((current) => current === folderEntry.folder.id ? null : folderEntry.folder.id);
+                                              setFolderOrderMenuId(null);
+                                              setFolderMoveMenuId(null);
+                                            }}
+                                          >
+                                            <ControlDot variant="menu" />
+                                          </button>
+                                          <Show when={folderMenuId() === folderEntry.folder.id}>
                                             <div
                                               class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-10 min-w-[176px] border p-1"
                                               data-rest-menu-root
@@ -3714,7 +3692,24 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                 Delete
                                               </button>
                                             </div>
-                                            </Show>
+                                          </Show>
+                                        </div>
+                                        <div class="relative shrink-0" data-rest-menu-root>
+                                          <button
+                                            class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-xs"
+                                            title="Add request"
+                                            onMouseDown={(event) => event.stopPropagation()}
+                                            onPointerDown={(event) => event.stopPropagation()}
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              openRequestCreationMenu(entry.collection.id, folderEntry.folder.id);
+                                            }}
+                                          >
+                                            <ControlDot variant="add" />
+                                          </button>
+                                          <Show when={folderAddMenuId() === folderEntry.folder.id}>
+                                            {renderRequestCreateMenu(entry.collection.id, folderEntry.folder.id)}
+                                          </Show>
                                         </div>
                                       </div>
 
@@ -3737,7 +3732,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                 </button>
                                                 <div class="relative shrink-0" data-rest-menu-root>
                                                   <button
-                                                    class="theme-control inline-flex h-5 w-5 items-center justify-center rounded-md text-[11px]"
+                                                    class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-[11px]"
                                                     title="Request options"
                                                     onMouseDown={(event) => event.stopPropagation()}
                                                     onPointerDown={(event) => event.stopPropagation()}
@@ -3748,7 +3743,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                       setRequestMoveMenuId(null);
                                                     }}
                                                   >
-                                                    ⋯
+                                                    <ControlDot variant="menu" />
                                                   </button>
                                                   <Show when={requestMenuId() === request.id}>
                                                     <div
@@ -3790,7 +3785,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                                     class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
                                                                     onClick={() => moveRequest(request.id, { collectionId: collection.id, folderId: null })}
                                                                   >
-                                                                    {collection.name}
+                                                                    {getRequestMoveTargetLabel(collection, null)}
                                                                   </button>
                                                                   <For each={collection.folders}>
                                                                     {(folder) => (
@@ -3798,7 +3793,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                                         class="theme-sidebar-item w-full rounded-xl px-3 py-2 pl-7 text-left text-sm"
                                                                         onClick={() => moveRequest(request.id, { collectionId: collection.id, folderId: folder.id })}
                                                                       >
-                                                                        {collection.name} / {folder.name}
+                                                                        {getRequestMoveTargetLabel(collection, folder.id)}
                                                                       </button>
                                                                     )}
                                                                   </For>
@@ -3875,11 +3870,11 @@ export function RestPlayground(props: RestPlaygroundProps) {
                   <div class="flex items-center justify-between gap-3">
                     <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">Environments</p>
                     <button
-                      class="inline-flex h-6 w-6 items-center justify-center rounded-full p-0 leading-none transition hover:bg-[var(--app-accent-soft)]"
+                      class="traffic-dot-button inline-flex h-6 w-6 items-center justify-center rounded-full p-0 leading-none transition"
                       title="New environment"
                       onClick={createEnvironment}
                     >
-                      <MacAddIcon />
+                      <ControlDot variant="add" />
                     </button>
                   </div>
                   <div class="grid gap-1">
@@ -3932,7 +3927,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                             title="Delete environment"
                             onClick={() => deleteEnvironment(environment().id)}
                           >
-                            <MacCloseIcon />
+                            <ControlDot variant="delete" />
                           </button>
                         </div>
 
@@ -3952,7 +3947,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                               })
                             }
                           >
-                            <MacAddIcon />
+                            <ControlDot variant="add" />
                           </button>
                         </div>
 
@@ -4118,7 +4113,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                 closeRequestTab(requestId);
                               }}
                             >
-                              <MacCloseIcon />
+                              <ControlDot variant="delete" />
                             </button>
                           </Show>
                         </div>
@@ -4249,7 +4244,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                       current.headers = [...current.headers, createKeyValueEntry()];
                     })}
                   >
-                    <MacAddIcon />
+                    <ControlDot variant="add" />
                   </button>
                 </Show>
               </div>
@@ -4434,7 +4429,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                       current.scripts.preRequest = preRequestScriptExample;
                     })}
                   >
-                    <MacAddIcon />
+                    <ControlDot variant="add" />
                   </button>
                 </Show>
               </div>
@@ -4513,7 +4508,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                   }
                                 })}
                               >
-                                <MacAddIcon />
+                                <ControlDot variant="add" />
                               </button>
                             </Show>
                           </div>
@@ -4704,12 +4699,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
           </div>
 
           <div
-            class="relative cursor-col-resize select-none"
+            class="api-main-pane-resizer relative cursor-col-resize select-none"
             aria-hidden="true"
             onMouseDown={startMainPaneResize}
           >
             <div
-              class={`absolute bottom-0 left-1/2 top-0 w-px -translate-x-1/2 transition ${
+              class={`absolute inset-y-0 left-0 w-px transition ${
                 mainPaneResizing() ? "bg-[var(--app-accent)]" : ""
               }`}
               style={{

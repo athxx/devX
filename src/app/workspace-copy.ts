@@ -18,6 +18,7 @@ export const workspaceCopy: Record<
       tools: string;
     };
     actions: {
+      donate: string;
       language: string;
       expandSidebar: string;
       collapseSidebar: string;
@@ -35,6 +36,7 @@ export const workspaceCopy: Record<
       tools: "工具"
     },
     actions: {
+      donate: "赞助",
       language: "语言",
       expandSidebar: "展开侧栏",
       collapseSidebar: "收起侧栏",
@@ -52,6 +54,7 @@ export const workspaceCopy: Record<
       tools: "Tools"
     },
     actions: {
+      donate: "Donate",
       language: "Language",
       expandSidebar: "Expand sidebar",
       collapseSidebar: "Collapse sidebar",

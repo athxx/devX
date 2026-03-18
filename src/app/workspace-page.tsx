@@ -281,6 +281,12 @@ export function WorkspacePage(_props: WorkspacePageProps) {
       }
       actions={
         <div class="flex h-9 items-center gap-2">
+          <button
+            class="theme-donate-button inline-flex h-7 items-center justify-center rounded-full px-3.5 text-sm font-semibold transition hover:brightness-105"
+            onClick={() => setActiveTab("home")}
+          >
+            {copy().actions.donate}
+          </button>
           <select
             id="workspace-locale-select"
             aria-label={copy().actions.language}

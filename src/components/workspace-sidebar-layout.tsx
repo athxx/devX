@@ -27,14 +27,14 @@ export function WorkspaceSidebarLayout(props: WorkspaceSidebarLayoutProps) {
       style={layoutStyle()}
     >
       <Show when={props.sidebarOpen}>
-        <aside class="workspace-sidebar theme-sidebar py-2">{props.sidebar}</aside>
+        <aside class="workspace-sidebar theme-sidebar relative z-30 py-2">{props.sidebar}</aside>
         <div
           class="workspace-sidebar-resizer"
           aria-hidden="true"
           onMouseDown={(event) => props.onResizeStart(event)}
         />
       </Show>
-      <div class={props.contentClass} style={props.contentStyle}>
+      <div class={`relative z-0 ${props.contentClass ?? ""}`} style={props.contentStyle}>
         {props.children}
       </div>
     </div>
