@@ -135,12 +135,37 @@ body,
 }
 
 body {
+  position: relative;
   min-width: 360px;
   background:
     var(--app-bg-overlay),
-    url("/backgrounds/bg.avif") center / cover no-repeat fixed,
     var(--app-bg);
   color: var(--app-text);
+  overflow-x: hidden;
+  isolation: isolate;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: -4%;
+  z-index: -1;
+  background: url("/backgrounds/bg.avif") center / cover no-repeat;
+  transform-origin: center;
+  animation: app-bg-breathe 16s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes app-bg-breathe {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.045);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 button,
@@ -414,6 +439,30 @@ a {
   background: var(--app-code);
   backdrop-filter: blur(12px) saturate(1.02);
   -webkit-backdrop-filter: blur(12px) saturate(1.02);
+}
+
+.theme-json-key {
+  color: #e06c75;
+}
+
+.theme-json-string {
+  color: #98c379;
+}
+
+.theme-json-number {
+  color: #d19a66;
+}
+
+.theme-json-boolean {
+  color: #56b6c2;
+}
+
+.theme-json-null {
+  color: #c678dd;
+}
+
+.theme-json-punctuation {
+  color: #abb2bf;
 }
 
 .theme-kv-grid {

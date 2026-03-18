@@ -41,6 +41,7 @@ type SidebarPanelId = "collections" | "environments" | "history";
 type EditorTabId = "params" | "headers" | "body" | "auth";
 type ResponseTabId = "body" | "headers" | "timeline";
 type SaveState = "idle" | "saving" | "saved" | "error";
+type BottomEditorTabId = "body" | "script";
 
 type RestPlaygroundProps = {
   sidebarOpen: boolean;
@@ -73,6 +74,35 @@ const sidebarTabs: Array<{ id: SidebarPanelId; label: string }> = [
   { id: "environments", label: "Environments" },
   { id: "history", label: "History" }
 ];
+
+const preRequestScriptHeightStorageKey = "devox-script-height-pre-request";
+const postResponseScriptHeightStorageKey = "devox-script-height-post-response";
+
+const preRequestScriptExample = `// Runs before sending the request.
+// You can prepare headers, query params, or request metadata here.
+
+const traceId = crypto.randomUUID();
+request.setHeader("X-Trace-Id", traceId);
+request.setHeader("X-Sent-At", new Date().toISOString());
+request.setQuery("debug", "true");
+
+// You can also read environment variables.
+const baseUrl = env.get("baseUrl");
+console.log("Sending request to:", baseUrl);`;
+
+const postResponseScriptExample = `// Runs after the response is received.
+// Use it to extract values and save them back into the active environment.
+
+const data = response.json();
+
+if (data?.token) {
+  env.set("accessToken", data.token);
+}
+
+env.set("lastStatus", String(response.status));
+env.set("lastRequestAt", new Date().toISOString());
+
+console.log("Stored response data into the active environment.");`;
 
 const requestCreateOptions: Array<{ id: RequestKind; label: string }> = [
   { id: "http", label: "HTTP Request" },
@@ -301,52 +331,197 @@ function createRequestForKind(
 }
 
 function decodeShellToken(token: string) {
-  if (
-    (token.startsWith('"') && token.endsWith('"')) ||
-    (token.startsWith("'") && token.endsWith("'"))
-  ) {
-    return token.slice(1, -1).replace(/\\(["'])/g, "$1");
-  }
-
   return token.replace(/\\ /g, " ");
 }
 
+function decodeAnsiCString(input: string) {
+  let output = "";
+
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index];
+
+    if (char !== "\\") {
+      output += char;
+      continue;
+    }
+
+    const next = input[index + 1] ?? "";
+    switch (next) {
+      case "n":
+        output += "\n";
+        index += 1;
+        break;
+      case "r":
+        output += "\r";
+        index += 1;
+        break;
+      case "t":
+        output += "\t";
+        index += 1;
+        break;
+      case "b":
+        output += "\b";
+        index += 1;
+        break;
+      case "f":
+        output += "\f";
+        index += 1;
+        break;
+      case "v":
+        output += "\v";
+        index += 1;
+        break;
+      case "\\":
+      case "'":
+      case '"':
+        output += next;
+        index += 1;
+        break;
+      case "u": {
+        const hex = input.slice(index + 2, index + 6);
+        if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+          output += String.fromCharCode(Number.parseInt(hex, 16));
+          index += 5;
+        } else {
+          output += "u";
+          index += 1;
+        }
+        break;
+      }
+      case "x": {
+        const hex = input.slice(index + 2, index + 4);
+        if (/^[0-9a-fA-F]{2}$/.test(hex)) {
+          output += String.fromCharCode(Number.parseInt(hex, 16));
+          index += 3;
+        } else {
+          output += "x";
+          index += 1;
+        }
+        break;
+      }
+      default:
+        output += next || "\\";
+        if (next) {
+          index += 1;
+        }
+        break;
+    }
+  }
+
+  return output;
+}
+
 function splitShellArgs(input: string) {
+  const normalizedInput = input.trim().replace(/\\\r?\n/g, " ");
   const tokens: string[] = [];
   let buffer = "";
-  let quote: '"' | "'" | null = null;
-  let escaping = false;
+  let mode: "normal" | "single" | "double" | "ansi" = "normal";
 
-  for (const char of input.trim()) {
-    if (escaping) {
-      buffer += char;
-      escaping = false;
-      continue;
+  const pushBuffer = () => {
+    if (!buffer) {
+      return;
     }
+    tokens.push(buffer);
+    buffer = "";
+  };
 
-    if (char === "\\") {
-      escaping = true;
-      continue;
-    }
+  for (let index = 0; index < normalizedInput.length; index += 1) {
+    const char = normalizedInput[index];
+    const next = normalizedInput[index + 1] ?? "";
 
-    if (quote) {
-      if (char === quote) {
-        quote = null;
+    if (mode === "single") {
+      if (char === "'") {
+        mode = "normal";
       } else {
         buffer += char;
       }
       continue;
     }
 
-    if (char === '"' || char === "'") {
-      quote = char;
+    if (mode === "double") {
+      if (char === '"') {
+        mode = "normal";
+        continue;
+      }
+
+      if (char === "\\") {
+        if (next === '"' || next === "\\" || next === "$" || next === "`") {
+          buffer += next;
+          index += 1;
+        } else if (next === "\n" || next === "\r") {
+          // Ignore escaped newlines inside copied multi-line commands.
+        } else {
+          buffer += next || "\\";
+          if (next) {
+            index += 1;
+          }
+        }
+        continue;
+      }
+
+      buffer += char;
+      continue;
+    }
+
+    if (mode === "ansi") {
+      if (char === "'") {
+        mode = "normal";
+      } else if (char === "\\") {
+        const escapeStart = index;
+        index += 1;
+        while (index < normalizedInput.length) {
+          const escapeProbe = normalizedInput[index];
+          if (escapeProbe === "u") {
+            const escaped = normalizedInput.slice(escapeStart, index + 5);
+            buffer += decodeAnsiCString(escaped);
+            index += 4;
+            break;
+          }
+          if (escapeProbe === "x") {
+            const escaped = normalizedInput.slice(escapeStart, index + 3);
+            buffer += decodeAnsiCString(escaped);
+            index += 2;
+            break;
+          }
+
+          const escaped = normalizedInput.slice(escapeStart, index + 1);
+          buffer += decodeAnsiCString(escaped);
+          break;
+        }
+      } else {
+        buffer += char;
+      }
       continue;
     }
 
     if (/\s/.test(char)) {
-      if (buffer) {
-        tokens.push(buffer);
-        buffer = "";
+      pushBuffer();
+      continue;
+    }
+
+    if (char === "$" && next === "'") {
+      mode = "ansi";
+      index += 1;
+      continue;
+    }
+
+    if (char === "'") {
+      mode = "single";
+      continue;
+    }
+
+    if (char === '"') {
+      mode = "double";
+      continue;
+    }
+
+    if (char === "\\") {
+      if (next === "\n" || next === "\r") {
+        continue;
+      }
+      buffer += next || "\\";
+      if (next) {
+        index += 1;
       }
       continue;
     }
@@ -354,10 +529,7 @@ function splitShellArgs(input: string) {
     buffer += char;
   }
 
-  if (buffer) {
-    tokens.push(buffer);
-  }
-
+  pushBuffer();
   return tokens.map(decodeShellToken);
 }
 
@@ -464,7 +636,7 @@ function parseCurlCommand(
 ) {
   const tokens = splitShellArgs(input);
 
-  if (tokens.length === 0 || tokens[0] !== "curl") {
+  if (tokens.length === 0 || !/(^|[\\/])curl(?:\.exe)?$/i.test(tokens[0])) {
     throw new Error("Please paste a valid cURL command.");
   }
 
@@ -474,6 +646,7 @@ function parseCurlCommand(
   let contentType = "";
   let basicUsername = "";
   let basicPassword = "";
+  let useGetForData = false;
   const queryEntries: KeyValueEntry[] = [];
   const headers: KeyValueEntry[] = [];
   const formDataEntries: KeyValueEntry[] = [];
@@ -492,6 +665,33 @@ function parseCurlCommand(
         }
         break;
       }
+      case "--url": {
+        const next = tokens[index + 1];
+        if (next) {
+          url = next;
+          index += 1;
+        }
+        break;
+      }
+      case "-G":
+      case "--get":
+        useGetForData = true;
+        method = "GET";
+        break;
+      case "-L":
+      case "--location":
+      case "--location-trusted":
+      case "--compressed":
+      case "--globoff":
+      case "-s":
+      case "--silent":
+      case "--insecure":
+      case "-k":
+      case "--verbose":
+      case "-v":
+      case "-i":
+      case "--include":
+        break;
       case "-H":
       case "--header": {
         const value = tokens[index + 1];
@@ -542,10 +742,17 @@ function parseCurlCommand(
         const value = tokens[index + 1] ?? "";
         const separatorIndex = value.indexOf("=");
         if (separatorIndex >= 0) {
+          const nextKey = value.slice(0, separatorIndex);
+          const nextValue = value.slice(separatorIndex + 1);
+          const isFile = nextValue.startsWith("@");
           formDataEntries.push(
             createKeyValueEntry({
-              key: value.slice(0, separatorIndex),
-              value: value.slice(separatorIndex + 1)
+              key: nextKey,
+              value: isFile ? nextValue.slice(1) : nextValue,
+              valueType: isFile ? "file" : "text",
+              fileName: isFile ? nextValue.slice(1).split(/[;>]/, 1)[0] : "",
+              fileContent: "",
+              fileContentType: ""
             })
           );
         }
@@ -593,13 +800,24 @@ function parseCurlCommand(
   const contentTypeHeader = headers.find((header) => header.key.toLowerCase() === "content-type");
   contentType = contentTypeHeader?.value ?? "";
 
+  if (useGetForData && urlEncodedEntries.length > 0) {
+    urlEncodedEntries.forEach((entry) => {
+      queryEntries.push(
+        createKeyValueEntry({
+          key: entry.key,
+          value: entry.value
+        })
+      );
+    });
+  }
+
   let body: RequestBody = { type: "none" };
   if (formDataEntries.length > 0) {
     body = {
       type: "form-data",
       entries: formDataEntries
     };
-  } else if (urlEncodedEntries.length > 0) {
+  } else if (urlEncodedEntries.length > 0 && !useGetForData) {
     body = {
       type: "form-urlencoded",
       entries: urlEncodedEntries
@@ -622,19 +840,45 @@ function parseCurlCommand(
         };
   }
 
+  let auth: RequestDraft["auth"] = { type: "none" };
+  const authHeaderIndex = headers.findIndex((header) => header.key.toLowerCase() === "authorization");
+
+  if (basicUsername || basicPassword) {
+    auth = { type: "basic", username: basicUsername, password: basicPassword };
+  } else if (authHeaderIndex >= 0) {
+    const authValue = headers[authHeaderIndex].value.trim();
+    const bearerMatch = authValue.match(/^Bearer\s+(.+)$/i);
+    const basicMatch = authValue.match(/^Basic\s+(.+)$/i);
+
+    if (bearerMatch) {
+      auth = { type: "bearer", token: bearerMatch[1] };
+      headers.splice(authHeaderIndex, 1);
+    } else if (basicMatch) {
+      try {
+        const decoded = atob(basicMatch[1]);
+        const separatorIndex = decoded.indexOf(":");
+        auth = {
+          type: "basic",
+          username: separatorIndex >= 0 ? decoded.slice(0, separatorIndex) : decoded,
+          password: separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : ""
+        };
+        headers.splice(authHeaderIndex, 1);
+      } catch {
+        auth = { type: "none" };
+      }
+    }
+  }
+
   return createRequestDraft(collectionId, {
     folderId,
-    kind: "curl",
+    kind: "http",
     method,
-    name: "Imported cURL",
+    name: "Imported Request",
     url,
     query: queryEntries,
     headers,
     body,
-    auth:
-      basicUsername || basicPassword
-        ? { type: "basic", username: basicUsername, password: basicPassword }
-        : { type: "none" }
+    auth
   });
 }
 
@@ -797,6 +1041,79 @@ function JsonPreviewNode(props: {
   );
 }
 
+type JsonHighlightToken = {
+  text: string;
+  className?: string;
+};
+
+function getJsonHighlightTokens(value: string): JsonHighlightToken[] | null {
+  try {
+    const normalized = JSON.stringify(JSON.parse(value), null, 2);
+    const tokens: JsonHighlightToken[] = [];
+    const tokenPattern =
+      /("(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\],:]/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = tokenPattern.exec(normalized))) {
+      if (match.index > lastIndex) {
+        tokens.push({ text: normalized.slice(lastIndex, match.index) });
+      }
+
+      const [fullMatch, stringLiteral, keySuffix] = match;
+      let className = "";
+
+      if (stringLiteral) {
+        className = keySuffix ? "theme-json-key" : "theme-json-string";
+      } else if (fullMatch === "true" || fullMatch === "false") {
+        className = "theme-json-boolean";
+      } else if (fullMatch === "null") {
+        className = "theme-json-null";
+      } else if (/^-?\d/.test(fullMatch)) {
+        className = "theme-json-number";
+      } else {
+        className = "theme-json-punctuation";
+      }
+
+      tokens.push({ text: fullMatch, className });
+      lastIndex = match.index + fullMatch.length;
+    }
+
+    if (lastIndex < normalized.length) {
+      tokens.push({ text: normalized.slice(lastIndex) });
+    }
+
+    return tokens;
+  } catch {
+    return null;
+  }
+}
+
+function JsonHighlightedCode(props: { value: string }) {
+  const tokens = createMemo(() => getJsonHighlightTokens(props.value));
+
+  return (
+    <pre class="theme-text-muted h-full flex-1 overflow-x-auto px-3 py-3 font-mono text-sm leading-7">
+      <code>
+        <Show
+          when={tokens()}
+          fallback={props.value}
+        >
+          {(highlighted) => (
+            <For each={highlighted()}>
+              {(token) => (
+                <Show when={token.className} fallback={token.text}>
+                  <span class={token.className}>{token.text}</span>
+                </Show>
+              )}
+            </For>
+          )}
+        </Show>
+      </code>
+    </pre>
+  );
+}
+
 function PinIcon() {
   return (
     <svg
@@ -861,6 +1178,29 @@ function LinearSection(props: {
   );
 }
 
+function ColumnResizeHandle(props: {
+  onMouseDown: (event: MouseEvent) => void;
+}) {
+  return (
+    <div class="relative h-full w-full">
+      <button
+        class="group absolute inset-y-0 left-1/2 w-3 -translate-x-1/2 cursor-col-resize bg-transparent p-0"
+        aria-label="Resize key and value columns"
+        onMouseDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          props.onMouseDown(event);
+        }}
+      >
+        <span
+          class="mx-auto block h-full w-px transition group-hover:bg-[var(--app-accent)]"
+          style={{ background: "var(--app-border)" }}
+        />
+      </button>
+    </div>
+  );
+}
+
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -880,6 +1220,7 @@ function KeyValueTableEditor(props: {
   readOnly?: boolean;
   keySuggestions?: string[];
   getValueSuggestions?: (row: KeyValueEntry) => string[];
+  resizeStorageKey?: string;
   onUpdate?: (id: string, key: "key" | "value", value: string) => void;
   onToggle?: (id: string) => void;
   onRemove?: (id: string) => void;
@@ -887,7 +1228,15 @@ function KeyValueTableEditor(props: {
 }) {
   const [suggestionField, setSuggestionField] = createSignal<{ rowId: string; field: "key" | "value" } | null>(null);
   const [suggestionRect, setSuggestionRect] = createSignal<{ left: number; top: number; width: number } | null>(null);
+  const [columnSplit, setColumnSplit] = createSignal(50);
   const isReadOnly = () => props.readOnly ?? false;
+  let containerRef: HTMLDivElement | undefined;
+
+  const clampColumnSplit = (value: number) => Math.min(72, Math.max(28, Math.round(value)));
+  const resolvedStorageKey = () =>
+    props.resizeStorageKey
+      ? `${props.resizeStorageKey}:${isReadOnly() ? "readonly" : "editable"}`
+      : null;
 
   function getSuggestions(row: KeyValueEntry, field: "key" | "value") {
     const source = field === "key"
@@ -935,6 +1284,15 @@ function KeyValueTableEditor(props: {
   });
 
   onMount(() => {
+    const storageKey = resolvedStorageKey();
+    if (storageKey) {
+      const saved = window.localStorage.getItem(storageKey);
+      const parsed = Number(saved);
+      if (!Number.isNaN(parsed)) {
+        setColumnSplit(clampColumnSplit(parsed));
+      }
+    }
+
     const clearSuggestions = () => {
       setSuggestionField(null);
       setSuggestionRect(null);
@@ -948,20 +1306,59 @@ function KeyValueTableEditor(props: {
     });
   });
 
+  createEffect(() => {
+    const storageKey = resolvedStorageKey();
+    if (storageKey) {
+      window.localStorage.setItem(storageKey, String(columnSplit()));
+    }
+  });
+
+  function startColumnResize(event: MouseEvent) {
+    const container = containerRef;
+    if (!container) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rect = container.getBoundingClientRect();
+
+    const handlePointerMove = (moveEvent: MouseEvent) => {
+      const ratio = ((moveEvent.clientX - rect.left) / rect.width) * 100;
+      setColumnSplit(clampColumnSplit(ratio));
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener("mousemove", handlePointerMove);
+      window.removeEventListener("mouseup", handlePointerUp);
+    };
+
+    window.addEventListener("mousemove", handlePointerMove);
+    window.addEventListener("mouseup", handlePointerUp, { once: true });
+  }
+
   return (
-    <div class="relative overflow-visible rounded-[18px] border" style={{ "border-color": "var(--app-border)" }}>
+    <div
+      ref={containerRef}
+      class="relative overflow-visible rounded-[18px] border"
+      style={{ "border-color": "var(--app-border)" }}
+    >
       <div
         class="theme-kv-grid overflow-hidden rounded-[18px] grid gap-px"
         style={{
           "grid-template-columns": isReadOnly()
-            ? "minmax(180px,0.95fr) minmax(0,1.05fr)"
-            : "68px 1fr 1fr 44px"
+            ? `minmax(180px, ${columnSplit()}fr) 1px minmax(0, ${100 - columnSplit()}fr)`
+            : `68px minmax(120px, ${columnSplit()}fr) 1px minmax(140px, ${100 - columnSplit()}fr) 44px`
         }}
       >
         <Show when={!isReadOnly()}>
           <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">State</div>
         </Show>
         <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">Key</div>
+        <div class="theme-kv-head px-0 py-0">
+          <ColumnResizeHandle onMouseDown={startColumnResize} />
+        </div>
         <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">Value</div>
         <Show when={!isReadOnly()}>
           <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">Del</div>
@@ -1005,6 +1402,10 @@ function KeyValueTableEditor(props: {
                     />
                   </div>
                 </Show>
+              </div>
+
+              <div class="theme-kv-cell px-0 py-0">
+                <ColumnResizeHandle onMouseDown={startColumnResize} />
               </div>
 
               <div class="theme-kv-cell-muted px-1.5 py-1.5">
@@ -1053,7 +1454,7 @@ function KeyValueTableEditor(props: {
         }
       >
         <div
-          class="theme-panel-soft fixed z-[120] overflow-hidden rounded-xl border p-1"
+          class="theme-panel-soft fixed z-[18] overflow-hidden rounded-xl border p-1"
           style={{
             "border-color": "var(--app-border)",
             left: `${suggestionRect()!.left}px`,
@@ -1087,19 +1488,78 @@ function KeyValueTableEditor(props: {
 
 function FormDataTableEditor(props: {
   rows: KeyValueEntry[];
+  resizeStorageKey?: string;
   onUpdate: (id: string, patch: Partial<KeyValueEntry>) => void;
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
+  const [columnSplit, setColumnSplit] = createSignal(48);
+  let containerRef: HTMLDivElement | undefined;
+  const clampColumnSplit = (value: number) => Math.min(72, Math.max(28, Math.round(value)));
+
+  onMount(() => {
+    if (!props.resizeStorageKey) {
+      return;
+    }
+    const saved = window.localStorage.getItem(props.resizeStorageKey);
+    const parsed = Number(saved);
+    if (!Number.isNaN(parsed)) {
+      setColumnSplit(clampColumnSplit(parsed));
+    }
+  });
+
+  createEffect(() => {
+    if (props.resizeStorageKey) {
+      window.localStorage.setItem(props.resizeStorageKey, String(columnSplit()));
+    }
+  });
+
+  function startColumnResize(event: MouseEvent) {
+    const container = containerRef;
+    if (!container) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rect = container.getBoundingClientRect();
+
+    const handlePointerMove = (moveEvent: MouseEvent) => {
+      const fixedWidth = 68 + 92 + 44 + 20;
+      const flexibleWidth = rect.width - fixedWidth;
+      const keyStart = rect.left + 68 + 92;
+      const ratio = ((moveEvent.clientX - keyStart) / flexibleWidth) * 100;
+      setColumnSplit(clampColumnSplit(ratio));
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener("mousemove", handlePointerMove);
+      window.removeEventListener("mouseup", handlePointerUp);
+    };
+
+    window.addEventListener("mousemove", handlePointerMove);
+    window.addEventListener("mouseup", handlePointerUp, { once: true });
+  }
+
   return (
-    <div class="w-full overflow-hidden rounded-[18px] border" style={{ "border-color": "var(--app-border)" }}>
+    <div
+      ref={containerRef}
+      class="w-full overflow-hidden rounded-[18px] border"
+      style={{ "border-color": "var(--app-border)" }}
+    >
       <div
         class="theme-kv-grid grid gap-px"
-        style={{ "grid-template-columns": "68px 92px minmax(0,1fr) minmax(0,1.15fr) 44px" }}
+        style={{
+          "grid-template-columns": `68px 92px minmax(120px, ${columnSplit()}fr) 1px minmax(160px, ${100 - columnSplit()}fr) 44px`
+        }}
       >
         <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">State</div>
         <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">Type</div>
         <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">Key</div>
+        <div class="theme-kv-head px-0 py-0">
+          <ColumnResizeHandle onMouseDown={startColumnResize} />
+        </div>
         <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">Value</div>
         <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">Del</div>
 
@@ -1142,6 +1602,10 @@ function FormDataTableEditor(props: {
                   value={row().key}
                   onInput={(event) => props.onUpdate(row().id, { key: event.currentTarget.value })}
                 />
+              </div>
+
+              <div class="theme-kv-cell px-0 py-0">
+                <ColumnResizeHandle onMouseDown={startColumnResize} />
               </div>
 
               <div class="theme-kv-cell-muted px-1.5 py-1.5">
@@ -1232,12 +1696,15 @@ export function RestPlayground(props: RestPlaygroundProps) {
   const [sidebarPanel, setSidebarPanel] = createSignal<SidebarPanelId>("collections");
   const [editorTab, setEditorTab] = createSignal<EditorTabId>("params");
   const [topEditorTab, setTopEditorTab] = createSignal<"headers" | "auth">("headers");
-  const [bottomEditorTab, setBottomEditorTab] = createSignal<"body" | "params">("body");
+  const [bottomEditorTab, setBottomEditorTab] = createSignal<BottomEditorTabId>("body");
   const [responseTab, setResponseTab] = createSignal<ResponseTabId>("body");
   const [responseBodyView, setResponseBodyView] = createSignal<"raw" | "preview">("raw");
   const [mainPaneSplit, setMainPaneSplit] = createSignal(40);
   const [mainPaneResizing, setMainPaneResizing] = createSignal(false);
+  const [preRequestScriptHeight, setPreRequestScriptHeight] = createSignal(280);
+  const [postResponseScriptHeight, setPostResponseScriptHeight] = createSignal(280);
   const [expandedCollectionIds, setExpandedCollectionIds] = createSignal<string[]>([]);
+  const [expandedFolderIds, setExpandedFolderIds] = createSignal<string[]>([]);
   const [collectionFilter, setCollectionFilter] = createSignal("");
   const [responseSummary, setResponseSummary] = createSignal<ResponseSummary | null>(null);
   const [responseError, setResponseError] = createSignal<string | null>(null);
@@ -1272,6 +1739,8 @@ export function RestPlayground(props: RestPlaygroundProps) {
   let saveFeedbackTimer: number | undefined;
 
   const mainPaneSplitStorageKey = "devox-api-main-pane-split";
+  const preRequestScriptHeightStorageKey = "devox-script-height-pre-request";
+  const postResponseScriptHeightStorageKey = "devox-script-height-post-response";
 
   const requestMap = createMemo(() => new Map(workspace.requests.map((request) => [request.id, request])));
   const activeRequest = createMemo(
@@ -1445,6 +1914,10 @@ export function RestPlayground(props: RestPlaygroundProps) {
     return Math.min(72, Math.max(28, Math.round(value)));
   }
 
+  function clampScriptEditorHeight(value: number) {
+    return Math.min(960, Math.max(280, Math.round(value)));
+  }
+
   function snapshotWorkspace() {
     return normalizeRestWorkspace(cloneRestValue(unwrap(workspace)));
   }
@@ -1496,12 +1969,34 @@ export function RestPlayground(props: RestPlaygroundProps) {
     );
   }
 
+  function ensureFolderExpanded(folderId: string | null | undefined) {
+    if (!folderId) {
+      return;
+    }
+
+    setExpandedFolderIds((current) =>
+      current.includes(folderId) ? current : [...current, folderId]
+    );
+  }
+
   function toggleCollectionExpanded(collectionId: string) {
     setExpandedCollectionIds((current) =>
       current.includes(collectionId)
         ? current.filter((id) => id !== collectionId)
         : [...current, collectionId]
     );
+  }
+
+  function toggleFolderExpanded(folderId: string) {
+    setExpandedFolderIds((current) =>
+      current.includes(folderId)
+        ? current.filter((id) => id !== folderId)
+        : [...current, folderId]
+    );
+  }
+
+  function isFolderExpanded(folderId: string) {
+    return expandedFolderIds().includes(folderId) || collectionFilter().trim().length > 0;
   }
 
   function openRequestTab(requestId: string, collectionId?: string) {
@@ -1519,6 +2014,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
     });
 
     ensureCollectionExpanded(collectionId ?? request.collectionId);
+    ensureFolderExpanded(request.folderId);
     setResponseSummary(null);
     setResponseError(null);
   }
@@ -1578,6 +2074,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
     });
 
     ensureCollectionExpanded(collectionId);
+    ensureFolderExpanded(folderId);
     setResponseSummary(null);
     setResponseError(null);
   }
@@ -1744,13 +2241,18 @@ export function RestPlayground(props: RestPlaygroundProps) {
   }
 
   function createEnvironment() {
-    const name = window.prompt("Environment name", "New Environment")?.trim();
-    if (!name) {
-      return;
-    }
-
     commitWorkspace((next) => {
       const environmentId = makeId("env");
+      const baseName = "New Environment";
+      const existingNames = new Set(next.environments.map((environment) => environment.name));
+      let name = baseName;
+      let suffix = 2;
+
+      while (existingNames.has(name)) {
+        name = `${baseName} ${suffix}`;
+        suffix += 1;
+      }
+
       next.environments.push({
         id: environmentId,
         name,
@@ -1905,6 +2407,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
       next.history = next.history.filter((entry) => !removingIds.has(entry.requestId));
       next.openRequestIds = next.openRequestIds.filter((id) => !removingIds.has(id));
       next.pinnedRequestIds = next.pinnedRequestIds.filter((id) => !removingIds.has(id));
+      if (next.lastResponse && removingIds.has(next.lastResponse.requestId)) {
+        next.lastResponse = null;
+      }
 
       const fallbackCollection = next.collections[0];
       next.activeCollectionId = fallbackCollection?.id ?? "";
@@ -2063,6 +2568,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
       next.history = next.history.filter((entry) => !removingIds.has(entry.requestId));
       next.openRequestIds = next.openRequestIds.filter((id) => !removingIds.has(id));
       next.pinnedRequestIds = next.pinnedRequestIds.filter((id) => !removingIds.has(id));
+      if (next.lastResponse && removingIds.has(next.lastResponse.requestId)) {
+        next.lastResponse = null;
+      }
 
       if (removingIds.has(next.activeRequestId)) {
         next.activeRequestId = collection.requestIds[0] ?? next.requests[0]?.id ?? "";
@@ -2241,6 +2749,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
     });
 
     ensureCollectionExpanded(target.collectionId);
+    ensureFolderExpanded(target.folderId);
     closeAllMenus();
   }
 
@@ -2259,6 +2768,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
       next.history = next.history.filter((entry) => entry.requestId !== requestId);
       next.openRequestIds = next.openRequestIds.filter((id) => id !== requestId);
       next.pinnedRequestIds = next.pinnedRequestIds.filter((id) => id !== requestId);
+      if (next.lastResponse?.requestId === requestId) {
+        next.lastResponse = null;
+      }
 
       next.collections.forEach((collection) => {
         collection.requestIds = collection.requestIds.filter((id) => id !== requestId);
@@ -2379,12 +2891,17 @@ export function RestPlayground(props: RestPlaygroundProps) {
       const result = await executeRestRequest(request, activeEnvironment() ?? undefined);
       setResponseSummary(result);
       commitWorkspace((next) => {
+        next.lastResponse = {
+          requestId: request.id,
+          response: cloneRestValue(result)
+        };
         next.history = [createHistoryEntry(request, result), ...next.history].slice(0, 20);
       });
     } catch (error) {
       setResponseSummary(null);
       setResponseError(error instanceof Error ? error.message : "Request failed.");
       commitWorkspace((next) => {
+        next.lastResponse = null;
         next.history = [createHistoryEntry(request, null), ...next.history].slice(0, 20);
       });
     } finally {
@@ -2571,6 +3088,16 @@ export function RestPlayground(props: RestPlaygroundProps) {
     window.addEventListener("mouseup", handlePointerUp, { once: true });
   }
 
+  function persistScriptEditorHeight(
+    event: MouseEvent | FocusEvent,
+    storageKey: string,
+    setter: (value: number) => void
+  ) {
+    const nextHeight = clampScriptEditorHeight((event.currentTarget as HTMLTextAreaElement).offsetHeight);
+    setter(nextHeight);
+    window.localStorage.setItem(storageKey, String(nextHeight));
+  }
+
   onMount(() => {
     let disposed = false;
 
@@ -2582,6 +3109,22 @@ export function RestPlayground(props: RestPlaygroundProps) {
       }
     }
 
+    const savedPreRequestHeight = window.localStorage.getItem(preRequestScriptHeightStorageKey);
+    if (savedPreRequestHeight) {
+      const parsed = Number(savedPreRequestHeight);
+      if (!Number.isNaN(parsed)) {
+        setPreRequestScriptHeight(clampScriptEditorHeight(parsed));
+      }
+    }
+
+    const savedPostResponseHeight = window.localStorage.getItem(postResponseScriptHeightStorageKey);
+    if (savedPostResponseHeight) {
+      const parsed = Number(savedPostResponseHeight);
+      if (!Number.isNaN(parsed)) {
+        setPostResponseScriptHeight(clampScriptEditorHeight(parsed));
+      }
+    }
+
     loadRestWorkspace()
       .then((state) => {
         if (disposed) {
@@ -2590,6 +3133,8 @@ export function RestPlayground(props: RestPlaygroundProps) {
         const normalized = normalizeRestWorkspace(state);
         setWorkspace(normalized);
         setExpandedCollectionIds(normalized.activeCollectionId ? [normalized.activeCollectionId] : []);
+        setResponseSummary(normalized.lastResponse?.response ?? null);
+        setResponseError(null);
         setIsLoaded(true);
       })
       .catch(() => {
@@ -2676,7 +3221,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                     <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">Collections</p>
                     <div class="relative" data-rest-menu-root>
                       <button
-                        class="theme-control inline-flex h-6 w-6 items-center justify-center rounded-full text-sm leading-none"
+                        class="inline-flex h-6 w-6 items-center justify-center rounded-full p-0 leading-none transition hover:bg-[var(--app-accent-soft)]"
                         title="Collection actions"
                         onClick={() => {
                           setShowCollectionCreateMenu((current) => !current);
@@ -3001,10 +3546,32 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                   {(folderEntry) => (
                                     <div class="grid gap-1">
                                       <div class="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5">
+                                        <button
+                                          class="inline-flex h-5 w-5 items-center justify-center rounded-md text-[11px]"
+                                          title={isFolderExpanded(folderEntry.folder.id) ? "Collapse" : "Expand"}
+                                          onMouseDown={(event) => event.stopPropagation()}
+                                          onPointerDown={(event) => event.stopPropagation()}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            toggleFolderExpanded(folderEntry.folder.id);
+                                          }}
+                                        >
+                                          <span class={`transition ${isFolderExpanded(folderEntry.folder.id) ? "rotate-90" : ""}`}>
+                                            ▸
+                                          </span>
+                                        </button>
                                         <span class="theme-chip rounded-full px-2 py-0.5 text-[11px] font-medium">Dir</span>
-                                        <p class="min-w-0 flex-1 truncate text-[13px] font-medium" title={folderEntry.folder.name}>
-                                          {folderEntry.folder.name}
-                                        </p>
+                                        <button
+                                          class="min-w-0 flex-1 text-left"
+                                          title={folderEntry.folder.name}
+                                          onMouseDown={(event) => event.stopPropagation()}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            toggleFolderExpanded(folderEntry.folder.id);
+                                          }}
+                                        >
+                                          <p class="truncate text-[13px] font-medium">{folderEntry.folder.name}</p>
+                                        </button>
                                         <span class="theme-chip rounded-full px-2 py-0.5 text-[11px] font-medium">
                                             {folderEntry.requests.length}
                                           </span>
@@ -3151,135 +3718,137 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                         </div>
                                       </div>
 
-                                      <div class="grid gap-1">
-                                        <For each={folderEntry.requests}>
-                                          {(request) => (
-                                            <div
-                                              class={`theme-sidebar-item flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
-                                                workspace.activeRequestId === request.id
-                                                  ? "theme-sidebar-item-active"
-                                                  : ""
-                                              }`}
-                                            >
-                                              <button class={getRequestBadgeClass(request)} onClick={() => openRequestTab(request.id, request.collectionId)}>
-                                                {getRequestKindLabel(request)}
-                                              </button>
-                                              <button class="min-w-0 flex-1 text-left" onClick={() => openRequestTab(request.id, request.collectionId)}>
-                                                <p class="truncate text-[13px] font-medium" title={request.name}>{request.name}</p>
-                                              </button>
-                                              <div class="relative shrink-0" data-rest-menu-root>
-                                                <button
-                                                  class="theme-control inline-flex h-5 w-5 items-center justify-center rounded-md text-[11px]"
-                                                  title="Request options"
-                                                  onMouseDown={(event) => event.stopPropagation()}
-                                                  onPointerDown={(event) => event.stopPropagation()}
-                                                  onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    setRequestMenuId((current) => current === request.id ? null : request.id);
-                                                    setRequestOrderMenuId(null);
-                                                    setRequestMoveMenuId(null);
-                                                  }}
-                                                >
-                                                  ⋯
+                                      <Show when={isFolderExpanded(folderEntry.folder.id)}>
+                                        <div class="grid gap-1">
+                                          <For each={folderEntry.requests}>
+                                            {(request) => (
+                                              <div
+                                                class={`theme-sidebar-item flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
+                                                  workspace.activeRequestId === request.id
+                                                    ? "theme-sidebar-item-active"
+                                                    : ""
+                                                }`}
+                                              >
+                                                <button class={getRequestBadgeClass(request)} onClick={() => openRequestTab(request.id, request.collectionId)}>
+                                                  {getRequestKindLabel(request)}
                                                 </button>
-                                                <Show when={requestMenuId() === request.id}>
-                                                  <div
-                                                    class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-10 min-w-[172px] border p-1"
-                                                    data-rest-menu-root
-                                                    style={{ "border-color": "var(--app-border)" }}
+                                                <button class="min-w-0 flex-1 text-left" onClick={() => openRequestTab(request.id, request.collectionId)}>
+                                                  <p class="truncate text-[13px] font-medium" title={request.name}>{request.name}</p>
+                                                </button>
+                                                <div class="relative shrink-0" data-rest-menu-root>
+                                                  <button
+                                                    class="theme-control inline-flex h-5 w-5 items-center justify-center rounded-md text-[11px]"
+                                                    title="Request options"
+                                                    onMouseDown={(event) => event.stopPropagation()}
+                                                    onPointerDown={(event) => event.stopPropagation()}
+                                                    onClick={(event) => {
+                                                      event.stopPropagation();
+                                                      setRequestMenuId((current) => current === request.id ? null : request.id);
+                                                      setRequestOrderMenuId(null);
+                                                      setRequestMoveMenuId(null);
+                                                    }}
                                                   >
-                                                    <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => void copyRequestAsCurl(request.id)}>
-                                                      Copy cURL
-                                                    </button>
-                                                    <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => renameRequest(request.id)}>
-                                                      Rename
-                                                    </button>
-                                                    <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => duplicateRequest(request.id)}>
-                                                      Duplicate
-                                                    </button>
-                                                    <div class="relative" data-rest-menu-root>
-                                                      <button
-                                                        class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
-                                                        onClick={(event) => {
-                                                          event.stopPropagation();
-                                                          setRequestMoveMenuId((current) => current === request.id ? null : request.id);
-                                                          setRequestOrderMenuId(null);
-                                                        }}
-                                                      >
-                                                        <span>Move to</span>
-                                                        <span class="theme-text-soft text-[10px]">›</span>
+                                                    ⋯
+                                                  </button>
+                                                  <Show when={requestMenuId() === request.id}>
+                                                    <div
+                                                      class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-10 min-w-[172px] border p-1"
+                                                      data-rest-menu-root
+                                                      style={{ "border-color": "var(--app-border)" }}
+                                                    >
+                                                      <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => void copyRequestAsCurl(request.id)}>
+                                                        Copy cURL
                                                       </button>
-                                                      <Show when={requestMoveMenuId() === request.id}>
-                                                        <div
-                                                          class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[188px] border p-1"
-                                                          data-rest-menu-root
-                                                          style={{ "border-color": "var(--app-border)" }}
-                                                        >
-                                                          <For each={workspace.collections}>
-                                                            {(collection) => (
-                                                              <>
-                                                                <button
-                                                                  class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                                                  onClick={() => moveRequest(request.id, { collectionId: collection.id, folderId: null })}
-                                                                >
-                                                                  {collection.name}
-                                                                </button>
-                                                                <For each={collection.folders}>
-                                                                  {(folder) => (
-                                                                    <button
-                                                                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 pl-7 text-left text-sm"
-                                                                      onClick={() => moveRequest(request.id, { collectionId: collection.id, folderId: folder.id })}
-                                                                    >
-                                                                      {collection.name} / {folder.name}
-                                                                    </button>
-                                                                  )}
-                                                                </For>
-                                                              </>
-                                                            )}
-                                                          </For>
-                                                        </div>
-                                                      </Show>
-                                                    </div>
-                                                    <div class="relative" data-rest-menu-root>
-                                                      <button
-                                                        class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
-                                                        onClick={(event) => {
-                                                          event.stopPropagation();
-                                                          setRequestOrderMenuId((current) => current === request.id ? null : request.id);
-                                                          setRequestMoveMenuId(null);
-                                                        }}
-                                                      >
-                                                        <span>Order</span>
-                                                        <span class="theme-text-soft text-[10px]">›</span>
+                                                      <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => renameRequest(request.id)}>
+                                                        Rename
                                                       </button>
-                                                      <Show when={requestOrderMenuId() === request.id}>
-                                                        <div
-                                                          class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[132px] border p-1"
-                                                          data-rest-menu-root
-                                                          style={{ "border-color": "var(--app-border)" }}
+                                                      <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => duplicateRequest(request.id)}>
+                                                        Duplicate
+                                                      </button>
+                                                      <div class="relative" data-rest-menu-root>
+                                                        <button
+                                                          class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
+                                                          onClick={(event) => {
+                                                            event.stopPropagation();
+                                                            setRequestMoveMenuId((current) => current === request.id ? null : request.id);
+                                                            setRequestOrderMenuId(null);
+                                                          }}
                                                         >
-                                                          <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "top")}>
-                                                            Pin to Top
-                                                          </button>
-                                                          <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "up")}>
-                                                            Move Up
-                                                          </button>
-                                                          <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "down")}>
-                                                            Move Down
-                                                          </button>
-                                                        </div>
-                                                      </Show>
+                                                          <span>Move to</span>
+                                                          <span class="theme-text-soft text-[10px]">›</span>
+                                                        </button>
+                                                        <Show when={requestMoveMenuId() === request.id}>
+                                                          <div
+                                                            class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[188px] border p-1"
+                                                            data-rest-menu-root
+                                                            style={{ "border-color": "var(--app-border)" }}
+                                                          >
+                                                            <For each={workspace.collections}>
+                                                              {(collection) => (
+                                                                <>
+                                                                  <button
+                                                                    class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                                    onClick={() => moveRequest(request.id, { collectionId: collection.id, folderId: null })}
+                                                                  >
+                                                                    {collection.name}
+                                                                  </button>
+                                                                  <For each={collection.folders}>
+                                                                    {(folder) => (
+                                                                      <button
+                                                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 pl-7 text-left text-sm"
+                                                                        onClick={() => moveRequest(request.id, { collectionId: collection.id, folderId: folder.id })}
+                                                                      >
+                                                                        {collection.name} / {folder.name}
+                                                                      </button>
+                                                                    )}
+                                                                  </For>
+                                                                </>
+                                                              )}
+                                                            </For>
+                                                          </div>
+                                                        </Show>
+                                                      </div>
+                                                      <div class="relative" data-rest-menu-root>
+                                                        <button
+                                                          class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
+                                                          onClick={(event) => {
+                                                            event.stopPropagation();
+                                                            setRequestOrderMenuId((current) => current === request.id ? null : request.id);
+                                                            setRequestMoveMenuId(null);
+                                                          }}
+                                                        >
+                                                          <span>Order</span>
+                                                          <span class="theme-text-soft text-[10px]">›</span>
+                                                        </button>
+                                                        <Show when={requestOrderMenuId() === request.id}>
+                                                          <div
+                                                            class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[132px] border p-1"
+                                                            data-rest-menu-root
+                                                            style={{ "border-color": "var(--app-border)" }}
+                                                          >
+                                                            <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "top")}>
+                                                              Pin to Top
+                                                            </button>
+                                                            <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "up")}>
+                                                              Move Up
+                                                            </button>
+                                                            <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "down")}>
+                                                              Move Down
+                                                            </button>
+                                                          </div>
+                                                        </Show>
+                                                      </div>
+                                                      <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]" onClick={() => deleteRequest(request.id)}>
+                                                        Delete
+                                                      </button>
                                                     </div>
-                                                    <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]" onClick={() => deleteRequest(request.id)}>
-                                                      Delete
-                                                    </button>
-                                                  </div>
-                                                </Show>
+                                                  </Show>
+                                                </div>
                                               </div>
-                                            </div>
-                                          )}
-                                        </For>
-                                      </div>
+                                            )}
+                                          </For>
+                                        </div>
+                                      </Show>
                                     </div>
                                   )}
                                 </For>
@@ -3306,11 +3875,11 @@ export function RestPlayground(props: RestPlaygroundProps) {
                   <div class="flex items-center justify-between gap-3">
                     <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">Environments</p>
                     <button
-                      class="theme-control inline-flex h-6 w-6 items-center justify-center rounded-full text-sm leading-none"
+                      class="inline-flex h-6 w-6 items-center justify-center rounded-full p-0 leading-none transition hover:bg-[var(--app-accent-soft)]"
                       title="New environment"
                       onClick={createEnvironment}
                     >
-                      +
+                      <MacAddIcon />
                     </button>
                   </div>
                   <div class="grid gap-1">
@@ -3359,7 +3928,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                             ⎘
                           </button>
                           <button
-                            class="theme-control inline-flex h-6 w-6 items-center justify-center rounded-full text-sm leading-none text-[#ff3b30]"
+                            class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm leading-none text-[#ff3b30] transition hover:bg-[rgba(255,59,48,0.12)]"
                             title="Delete environment"
                             onClick={() => deleteEnvironment(environment().id)}
                           >
@@ -3389,6 +3958,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
                         <KeyValueTableEditor
                           rows={environment().variables}
+                          resizeStorageKey="devox-kv-environment-variables"
                           valuePlaceholder="https://api.example.com"
                           onUpdate={(id, key, value) =>
                             commitWorkspace((next) => {
@@ -3542,11 +4112,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
                           <Show when={!isPinned()}>
                             <button
-                              class={`inline-flex h-5 w-5 items-center justify-center transition-opacity ${
-                                workspace.activeRequestId === requestId
-                                  ? "opacity-100"
-                                  : "opacity-0 group-hover:opacity-100"
-                              }`}
+                              class="inline-flex h-5 w-5 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 closeRequestTab(requestId);
@@ -3658,8 +4224,8 @@ export function RestPlayground(props: RestPlaygroundProps) {
             "grid-template-columns": `minmax(0, ${mainPaneSplit()}fr) 10px minmax(360px, ${100 - mainPaneSplit()}fr)`
           }}
         >
-          <div class="flex min-h-0 flex-col border-r" style={{ "border-color": "var(--app-border)" }}>
-            <div class="relative z-30 shrink-0 border-b px-3 py-2" style={{ "border-color": "var(--app-border)" }}>
+          <div class="flex min-h-0 flex-col overflow-auto border-r" style={{ "border-color": "var(--app-border)" }}>
+            <div class="shrink-0 border-b px-3 py-2" style={{ "border-color": "var(--app-border)" }}>
               <Show when={!canSendActiveRequest() && activeRequest()}>
                 {(request) => (
                   <div class="mb-3 rounded-lg border px-3 py-2.5 text-sm" style={{ "border-color": "var(--app-border)", background: "var(--app-panel-soft)" }}>
@@ -3688,17 +4254,14 @@ export function RestPlayground(props: RestPlaygroundProps) {
                 </Show>
               </div>
 
-              <div
-                class={topEditorTab() === "headers"
-                  ? "relative z-30 max-h-[34dvh] overflow-visible"
-                  : "max-h-[34dvh] overflow-auto"}
-              >
+              <div class={topEditorTab() === "headers" ? "relative overflow-visible" : ""}>
                 <Show when={activeRequest()}>
                   {(request) => (
                     <Switch>
                       <Match when={topEditorTab() === "headers"}>
                         <KeyValueTableEditor
                           rows={request().headers}
+                          resizeStorageKey="devox-kv-request-headers"
                           valuePlaceholder=""
                           keySuggestions={commonHeaderKeys}
                           getValueSuggestions={(row) => commonHeaderValueMap[row.key.trim().toLowerCase()] ?? [
@@ -3857,18 +4420,18 @@ export function RestPlayground(props: RestPlaygroundProps) {
               </div>
             </div>
 
-            <div class="relative z-0 min-h-0 flex-1 overflow-auto px-3 py-2">
+            <div class="shrink-0 px-3 py-2">
               <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div class="flex flex-wrap items-center gap-1.5">
                   <EditorToggle active={bottomEditorTab() === "body"} label="Body" onClick={() => setBottomEditorTab("body")} />
-                  <EditorToggle active={bottomEditorTab() === "params"} label="Params" onClick={() => setBottomEditorTab("params")} />
+                  <EditorToggle active={bottomEditorTab() === "script"} label="Script" onClick={() => setBottomEditorTab("script")} />
                 </div>
-                <Show when={bottomEditorTab() === "params"}>
+                <Show when={bottomEditorTab() === "script"}>
                   <button
                     class="inline-flex h-6 w-6 items-center justify-center rounded-full transition"
-                    title="Add param"
+                    title="Insert pre-request example"
                     onClick={() => updateActiveRequest((current) => {
-                      current.query = [...current.query, createKeyValueEntry()];
+                      current.scripts.preRequest = preRequestScriptExample;
                     })}
                   >
                     <MacAddIcon />
@@ -3876,33 +4439,10 @@ export function RestPlayground(props: RestPlaygroundProps) {
                 </Show>
               </div>
 
-              <div class="min-h-0">
+              <div>
                 <Show when={activeRequest()}>
                   {(request) => (
                     <Switch>
-                      <Match when={bottomEditorTab() === "params"}>
-                        <KeyValueTableEditor
-                          rows={request().query}
-                          valuePlaceholder="{{variable}}"
-                          onUpdate={(id, key, value) => updateActiveRequest((current) => {
-                            current.query = current.query.map((entry) =>
-                              entry.id === id ? { ...entry, [key]: value } : entry
-                            );
-                          })}
-                          onToggle={(id) => updateActiveRequest((current) => {
-                            current.query = current.query.map((entry) =>
-                              entry.id === id ? { ...entry, enabled: !entry.enabled } : entry
-                            );
-                          })}
-                          onRemove={(id) => updateActiveRequest((current) => {
-                            current.query = current.query.filter((entry) => entry.id !== id);
-                          })}
-                          onAdd={() => updateActiveRequest((current) => {
-                            current.query = [...current.query, createKeyValueEntry()];
-                          })}
-                        />
-                      </Match>
-
                       <Match when={bottomEditorTab() === "body"}>
                         <div class="flex w-full flex-col gap-3">
                           <div class="flex flex-wrap items-center justify-between gap-3">
@@ -4008,6 +4548,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                           <Show when={request().body.type === "form-data"}>
                             <FormDataTableEditor
                               rows={request().body.type === "form-data" ? request().body.entries : []}
+                              resizeStorageKey="devox-kv-body-form-data"
                               onUpdate={(id, patch) => updateActiveRequest((current) => {
                                 if (current.body.type === "form-data") {
                                   current.body = {
@@ -4042,6 +4583,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                           <Show when={request().body.type === "form-urlencoded"}>
                             <KeyValueTableEditor
                               rows={request().body.type === "form-urlencoded" ? request().body.entries : []}
+                              resizeStorageKey="devox-kv-body-form-urlencoded"
                               onUpdate={(id, key, value) => updateActiveRequest((current) => {
                                 if (current.body.type === "form-urlencoded") {
                                   current.body = {
@@ -4072,6 +4614,86 @@ export function RestPlayground(props: RestPlaygroundProps) {
                               })}
                             />
                           </Show>
+                        </div>
+                      </Match>
+
+                      <Match when={bottomEditorTab() === "script"}>
+                        <div class="flex w-full flex-col gap-3">
+                          <div class="theme-panel-soft rounded-[18px] border px-3 py-3" style={{ "border-color": "var(--app-border)" }}>
+                            <div class="mb-2 flex items-center justify-between gap-2">
+                              <div>
+                                <p class="theme-text text-sm font-semibold">Pre-request Script</p>
+                                <p class="theme-text-soft text-xs">Run JavaScript before the request is sent.</p>
+                              </div>
+                              <button
+                                class="theme-control rounded-md px-2.5 py-1 text-xs font-medium"
+                                onClick={() => updateActiveRequest((current) => {
+                                  current.scripts.preRequest = preRequestScriptExample;
+                                })}
+                              >
+                                Use Example
+                              </button>
+                            </div>
+                            <textarea
+                              class="theme-input min-h-[280px] w-full rounded-[18px] px-3 py-2.5 font-mono text-sm leading-6 transition"
+                              placeholder={preRequestScriptExample}
+                              style={{ height: `${preRequestScriptHeight()}px` }}
+                              value={request().scripts.preRequest}
+                              onInput={(event) => updateActiveRequest((current) => {
+                                current.scripts.preRequest = event.currentTarget.value;
+                              })}
+                              onMouseUp={(event) =>
+                                persistScriptEditorHeight(
+                                  event,
+                                  preRequestScriptHeightStorageKey,
+                                  setPreRequestScriptHeight
+                                )}
+                              onBlur={(event) =>
+                                persistScriptEditorHeight(
+                                  event,
+                                  preRequestScriptHeightStorageKey,
+                                  setPreRequestScriptHeight
+                                )}
+                            />
+                          </div>
+
+                          <div class="theme-panel-soft rounded-[18px] border px-3 py-3" style={{ "border-color": "var(--app-border)" }}>
+                            <div class="mb-2 flex items-center justify-between gap-2">
+                              <div>
+                                <p class="theme-text text-sm font-semibold">Post-response Script</p>
+                                <p class="theme-text-soft text-xs">Run JavaScript after the response returns and persist useful values.</p>
+                              </div>
+                              <button
+                                class="theme-control rounded-md px-2.5 py-1 text-xs font-medium"
+                                onClick={() => updateActiveRequest((current) => {
+                                  current.scripts.postResponse = postResponseScriptExample;
+                                })}
+                              >
+                                Use Example
+                              </button>
+                            </div>
+                            <textarea
+                              class="theme-input min-h-[280px] w-full rounded-[18px] px-3 py-2.5 font-mono text-sm leading-6 transition"
+                              placeholder={postResponseScriptExample}
+                              style={{ height: `${postResponseScriptHeight()}px` }}
+                              value={request().scripts.postResponse}
+                              onInput={(event) => updateActiveRequest((current) => {
+                                current.scripts.postResponse = event.currentTarget.value;
+                              })}
+                              onMouseUp={(event) =>
+                                persistScriptEditorHeight(
+                                  event,
+                                  postResponseScriptHeightStorageKey,
+                                  setPostResponseScriptHeight
+                                )}
+                              onBlur={(event) =>
+                                persistScriptEditorHeight(
+                                  event,
+                                  postResponseScriptHeightStorageKey,
+                                  setPostResponseScriptHeight
+                                )}
+                            />
+                          </div>
                         </div>
                       </Match>
                     </Switch>
@@ -4168,16 +4790,23 @@ export function RestPlayground(props: RestPlaygroundProps) {
                   </Match>
                   <Match when={true}>
                     <div class="theme-code flex h-full min-h-[240px] flex-col overflow-hidden rounded-[20px] border" style={{ "border-color": "var(--app-border)" }}>
-                      <pre class="theme-text-muted h-full flex-1 overflow-x-auto px-3 py-3 font-mono text-sm leading-7">
-                        <code>{responseSummary()?.body ?? "Send a request to inspect the response body."}</code>
-                      </pre>
+                      <Show
+                        when={responseSummary() && isJsonContentType(responseSummary()!.contentType)}
+                        fallback={
+                          <pre class="theme-text-muted h-full flex-1 overflow-x-auto px-3 py-3 font-mono text-sm leading-7">
+                            <code>{responseSummary()?.body ?? "Send a request to inspect the response body."}</code>
+                          </pre>
+                        }
+                      >
+                        <JsonHighlightedCode value={responseSummary()?.body ?? ""} />
+                      </Show>
                     </div>
                   </Match>
                 </Switch>
               </Match>
               <Match when={responseTab() === "headers"}>
                 <div class="min-h-[240px]">
-                  <KeyValueTableEditor rows={responseSummary()?.headers ?? []} readOnly />
+                  <KeyValueTableEditor rows={responseSummary()?.headers ?? []} resizeStorageKey="devox-kv-response-headers" readOnly />
                 </div>
               </Match>
             </Switch>

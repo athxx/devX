@@ -44,6 +44,11 @@ export type RequestBody =
   | { type: "form-urlencoded"; entries: KeyValueEntry[] }
   | { type: "binary"; value: string };
 
+export type RequestScripts = {
+  preRequest: string;
+  postResponse: string;
+};
+
 export type RequestDraft = {
   id: string;
   name: string;
@@ -57,6 +62,7 @@ export type RequestDraft = {
   headers: KeyValueEntry[];
   body: RequestBody;
   auth: RequestAuth;
+  scripts: RequestScripts;
 };
 
 export type CollectionFolder = {
@@ -101,11 +107,17 @@ export type ResponseSummary = {
   finalUrl: string;
 };
 
+export type StoredResponseSummary = {
+  requestId: string;
+  response: ResponseSummary;
+};
+
 export type RestWorkspaceState = {
   collections: Collection[];
   requests: RequestDraft[];
   environments: Environment[];
   history: HistoryEntry[];
+  lastResponse: StoredResponseSummary | null;
   openRequestIds: string[];
   pinnedRequestIds: string[];
   activeCollectionId: string;

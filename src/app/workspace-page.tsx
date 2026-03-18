@@ -76,7 +76,8 @@ function SettingsIcon() {
 
 export function WorkspacePage(_props: WorkspacePageProps) {
   const sidebarWidthStorageKey = "devox-sidebar-width";
-  const clampSidebarWidth = (value: number) => Math.min(360, Math.max(180, Math.round(value)));
+  const topTabHoverDelayMs = 300;
+  const clampSidebarWidth = (value: number) => Math.min(520, Math.max(180, Math.round(value)));
   const [darkMode, setDarkMode] = createSignal(true);
   const [locale, setLocale] = createSignal<WorkspaceLocale>("zh-CN");
   const [activeTab, setActiveTab] = createSignal<WorkspaceTab>("api");
@@ -84,6 +85,7 @@ export function WorkspacePage(_props: WorkspacePageProps) {
   const [sidebarWidth, setSidebarWidth] = createSignal(220);
   const [sidebarResizing, setSidebarResizing] = createSignal(false);
   const copy = createMemo(() => workspaceCopy[locale()]);
+  let topTabHoverTimer: number | undefined;
 
   onMount(() => {
     const stopSyncScheduler = startSyncScheduler();
@@ -110,6 +112,12 @@ export function WorkspacePage(_props: WorkspacePageProps) {
     }
 
     onCleanup(stopSyncScheduler);
+  });
+
+  onCleanup(() => {
+    if (topTabHoverTimer) {
+      window.clearTimeout(topTabHoverTimer);
+    }
   });
 
   createEffect(() => {
@@ -150,6 +158,21 @@ export function WorkspacePage(_props: WorkspacePageProps) {
 
     window.addEventListener("mousemove", handlePointerMove);
     window.addEventListener("mouseup", handlePointerUp, { once: true });
+  };
+
+  const cancelTopTabHover = () => {
+    if (topTabHoverTimer) {
+      window.clearTimeout(topTabHoverTimer);
+      topTabHoverTimer = undefined;
+    }
+  };
+
+  const scheduleTopTabHover = (tab: WorkspaceTab) => {
+    cancelTopTabHover();
+    topTabHoverTimer = window.setTimeout(() => {
+      setActiveTab(tab);
+      topTabHoverTimer = undefined;
+    }, topTabHoverDelayMs);
   };
 
   const renderActivePage = () => {
@@ -241,7 +264,8 @@ export function WorkspacePage(_props: WorkspacePageProps) {
                     : "theme-tab border-transparent hover:text-[var(--app-text-muted)]"
                 }`}
                 aria-current={activeTab() === tab.id ? "page" : undefined}
-                onMouseEnter={() => setActiveTab(tab.id)}
+                onMouseEnter={() => scheduleTopTabHover(tab.id)}
+                onMouseLeave={cancelTopTabHover}
                 onFocus={() => setActiveTab(tab.id)}
               >
                 {tab.id === "home" ? <HomeIcon /> : null}

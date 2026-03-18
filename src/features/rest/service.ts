@@ -9,6 +9,7 @@ import type {
   RequestAuth,
   RequestBody,
   RequestDraft,
+  RequestScripts,
   ResponseSummary,
   RestWorkspaceState
 } from "./models";
@@ -51,7 +52,8 @@ export function createRequestDraft(collectionId: string, partial: Partial<Reques
     query: partial.query ?? [],
     headers: partial.headers ?? [createKeyValueEntry({ key: "Accept", value: "application/json" })],
     body: partial.body ?? { type: "none" },
-    auth: partial.auth ?? { type: "none" }
+    auth: partial.auth ?? { type: "none" },
+    scripts: normalizeRequestScripts(partial.scripts)
   };
 }
 
@@ -107,6 +109,7 @@ export function createDefaultRestWorkspace(): RestWorkspaceState {
       }
     ],
     history: [],
+    lastResponse: null,
     openRequestIds: [request.id],
     pinnedRequestIds: [],
     activeCollectionId: coreCollectionId,
@@ -189,6 +192,13 @@ function normalizeKeyValueEntry(entry: KeyValueEntry): KeyValueEntry {
   };
 }
 
+function normalizeRequestScripts(scripts?: Partial<RequestScripts> | null): RequestScripts {
+  return {
+    preRequest: scripts?.preRequest ?? "",
+    postResponse: scripts?.postResponse ?? ""
+  };
+}
+
 export function normalizeRestWorkspace(state: RestWorkspaceState): RestWorkspaceState {
   const collections = state.collections.map((collection) => {
     const collectionRequests = state.requests
@@ -224,7 +234,8 @@ export function normalizeRestWorkspace(state: RestWorkspaceState): RestWorkspace
         folderId: request.folderId && folderIds.has(request.folderId) ? request.folderId : null,
         query: request.query.map(normalizeKeyValueEntry),
         headers: request.headers.map(normalizeKeyValueEntry),
-        body: normalizeRequestBody(request.body)
+        body: normalizeRequestBody(request.body),
+        scripts: normalizeRequestScripts(request.scripts)
       };
     });
   const activeCollectionId =
@@ -238,11 +249,22 @@ export function normalizeRestWorkspace(state: RestWorkspaceState): RestWorkspace
     state.environments.find((environment) => environment.id === state.activeEnvironmentId)?.id ??
     state.environments[0]?.id ??
     "";
+  const lastResponse =
+    state.lastResponse && requestIds.has(state.lastResponse.requestId)
+      ? {
+          requestId: state.lastResponse.requestId,
+          response: {
+            ...state.lastResponse.response,
+            headers: state.lastResponse.response.headers.map(normalizeKeyValueEntry)
+          }
+        }
+      : null;
 
   return {
     ...state,
     collections,
     requests,
+    lastResponse,
     openRequestIds: openRequestIds.length > 0 ? openRequestIds : activeRequestId ? [activeRequestId] : [],
     pinnedRequestIds,
     activeCollectionId,
