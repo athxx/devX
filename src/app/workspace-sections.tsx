@@ -1,6 +1,7 @@
 import type { JSX } from "solid-js";
 import { For, Show, createSignal } from "solid-js";
 import { SectionCard } from "../components/section-card";
+import { WorkspaceSection } from "../components/workspace-section";
 import { WorkspaceSidebarLayout } from "../components/workspace-sidebar-layout";
 import { ProxyPanel } from "../features/proxy/components/proxy-panel";
 import { SyncPanel } from "../features/sync/components/sync-panel";
@@ -76,28 +77,6 @@ function SettingsPlaceholder(props: {
         </div>
       </div>
     </SectionCard>
-  );
-}
-
-function LinearWorkspaceSection(props: {
-  eyebrow?: string;
-  title: string;
-  class?: string;
-  children: JSX.Element;
-}) {
-  return (
-    <section
-      class={`border-t px-4 py-4 ${props.class ?? ""}`}
-      style={{ "border-color": "var(--app-border)" }}
-    >
-      <div class="mb-4 space-y-1">
-        <Show when={props.eyebrow}>
-          <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">{props.eyebrow}</p>
-        </Show>
-        <h2 class="theme-text text-base font-semibold">{props.title}</h2>
-      </div>
-      {props.children}
-    </section>
   );
 }
 
@@ -331,7 +310,7 @@ export function DbWorkspace(props: SidebarWorkspaceProps) {
         </>
       }
     >
-        <LinearWorkspaceSection eyebrow="Query Editor" title="Query Draft">
+        <WorkspaceSection eyebrow="Query Editor" title="Query Draft">
           <div class="theme-code border px-4 py-4" style={{ "border-color": "var(--app-border)" }}>
             <pre class="theme-text-muted overflow-x-auto font-mono text-sm leading-7">
               <code>{`SELECT id, name, status
@@ -341,9 +320,9 @@ ORDER BY created_at DESC
 LIMIT 50;`}</code>
             </pre>
           </div>
-        </LinearWorkspaceSection>
+        </WorkspaceSection>
 
-        <LinearWorkspaceSection eyebrow="Preview" title="Result Viewer" class="border-b">
+        <WorkspaceSection eyebrow="Preview" title="Result Viewer" class="border-b">
           <div
             class="grid gap-px overflow-hidden border md:grid-cols-3"
             style={{ "border-color": "var(--app-border)", background: "var(--app-border)" }}
@@ -361,7 +340,7 @@ LIMIT 50;`}</code>
               <p class="theme-text mt-2 text-lg font-semibold">PostgreSQL</p>
             </div>
           </div>
-        </LinearWorkspaceSection>
+        </WorkspaceSection>
     </WorkspaceSidebarLayout>
   );
 }
@@ -396,7 +375,7 @@ export function ToolsWorkspace(props: SidebarWorkspaceProps) {
         </>
       }
     >
-        <LinearWorkspaceSection eyebrow="Toolkit" title="Utility Modules">
+        <WorkspaceSection eyebrow="Toolkit" title="Utility Modules">
           <div class="grid gap-4 md:grid-cols-3">
             <For each={toolGroups}>
               {(tool) => (
@@ -407,9 +386,9 @@ export function ToolsWorkspace(props: SidebarWorkspaceProps) {
               )}
             </For>
           </div>
-        </LinearWorkspaceSection>
+        </WorkspaceSection>
 
-        <LinearWorkspaceSection eyebrow="Scratchpad" title="Transform Playground" class="border-b">
+        <WorkspaceSection eyebrow="Scratchpad" title="Transform Playground" class="border-b">
           <div class="theme-code border px-4 py-4" style={{ "border-color": "var(--app-border)" }}>
             <pre class="theme-text-muted overflow-x-auto font-mono text-sm leading-7">
               <code>{`{
@@ -419,7 +398,7 @@ export function ToolsWorkspace(props: SidebarWorkspaceProps) {
 }`}</code>
             </pre>
           </div>
-        </LinearWorkspaceSection>
+        </WorkspaceSection>
     </WorkspaceSidebarLayout>
   );
 }
@@ -458,7 +437,7 @@ export function SshWorkspace(props: SidebarWorkspaceProps) {
         </>
       }
     >
-        <LinearWorkspaceSection eyebrow="SSH" title="Terminal Workspace" class="xl:border-r">
+        <WorkspaceSection eyebrow="SSH" title="Terminal Workspace" class="xl:border-r">
           <div class="theme-code border px-4 py-4" style={{ "border-color": "var(--app-border)" }}>
             <pre class="theme-text-muted overflow-x-auto font-mono text-sm leading-7">
               <code>{`devops@staging-web-01:~$ ssh deploy@10.0.1.24
@@ -467,7 +446,7 @@ Waiting for transport adapter...
 `}</code>
             </pre>
           </div>
-        </LinearWorkspaceSection>
+        </WorkspaceSection>
 
         <LinearWorkspaceSection eyebrow="Status" title="Connection Notes" class="border-b">
           <div

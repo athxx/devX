@@ -12,7 +12,9 @@ import {
   onMount
 } from "solid-js";
 import { createStore, unwrap } from "solid-js/store";
+import { AppButton } from "../../../components/app-button";
 import { WorkspaceSidebarLayout } from "../../../components/workspace-sidebar-layout";
+import { RequestTabsBar } from "./request-tabs-bar";
 import type {
   Collection,
   CollectionFolder,
@@ -1136,34 +1138,6 @@ function EditorToggle(props: {
   );
 }
 
-function LinearSection(props: {
-  eyebrow?: string;
-  title?: string;
-  class?: string;
-  children: JSX.Element;
-}) {
-  return (
-    <section
-      class={`border-t px-3 py-2 ${props.class ?? ""}`}
-      style={{ "border-color": "var(--app-border)" }}
-    >
-      <Show when={props.eyebrow || props.title}>
-        <div class="mb-3 space-y-0.5">
-          <Show when={props.eyebrow}>
-            <p class="theme-eyebrow text-[10px] font-semibold uppercase tracking-[0.18em]">
-              {props.eyebrow}
-            </p>
-          </Show>
-          <Show when={props.title}>
-            <h2 class="theme-text text-sm font-semibold">{props.title}</h2>
-          </Show>
-        </div>
-      </Show>
-      {props.children}
-    </section>
-  );
-}
-
 function ColumnResizeHandle(props: {
   onMouseDown: (event: MouseEvent) => void;
 }) {
@@ -1838,6 +1812,25 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
   const currentTabMenuRequest = createMemo(() =>
     requestTabMenuState() ? requestMap().get(requestTabMenuState()!.id) ?? null : null
+  );
+  const requestTabItems = createMemo(() =>
+    orderedOpenRequestIds()
+      .map((requestId) => {
+        const request = requestMap().get(requestId);
+        if (!request) {
+          return null;
+        }
+
+        return {
+          id: requestId,
+          name: request.name,
+          badgeLabel: getRequestKindLabel(request),
+          badgeClass: getRequestBadgeClass(request),
+          active: workspace.activeRequestId === requestId,
+          pinned: workspace.pinnedRequestIds.includes(requestId)
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
   );
 
   const canSendActiveRequest = createMemo(() => {
@@ -4020,14 +4013,55 @@ export function RestPlayground(props: RestPlaygroundProps) {
         <div class="border-b" style={{ "border-color": "var(--app-border)" }}>
           <div class="grid gap-1.5">
             <div class="overflow-visible">
-              <div
-                class="relative z-10 grid min-w-0 w-full auto-cols-fr grid-flow-col items-stretch overflow-hidden border"
-                style={{ "border-color": "var(--app-border)" }}
-                onDragOver={(event) => {
+              <RequestTabsBar
+                items={requestTabItems()}
+                draggedId={draggedTabId()}
+                dropTargetId={tabDropTargetId()}
+                renderCloseIcon={() => <ControlDot variant="delete" />}
+                renderPinIcon={() => <PinIcon />}
+                onTabOpen={(requestId) => {
+                  const request = requestMap().get(requestId);
+                  if (request) {
+                    openRequestTab(requestId, request.collectionId);
+                  }
+                }}
+                onTabClose={(requestId) => closeRequestTab(requestId)}
+                onTabContextMenu={(requestId, event) => {
+                  setRequestTabMenuState({
+                    id: requestId,
+                    x: event.clientX,
+                    y: event.clientY
+                  });
+                }}
+                onDragStart={(requestId, event) => {
+                  setDraggedTabId(requestId);
+                  event.dataTransfer?.setData("text/plain", requestId);
+                  if (event.dataTransfer) {
+                    event.dataTransfer.effectAllowed = "move";
+                  }
+                }}
+                onDragEnd={() => {
+                  setDraggedTabId(null);
+                  setTabDropTargetId(null);
+                }}
+                onTabDragOver={(requestId, event) => {
+                  event.preventDefault();
+                  setTabDropTargetId(requestId);
+                }}
+                onTabDrop={(requestId, event) => {
+                  event.preventDefault();
+                  const draggedId = draggedTabId();
+                  if (draggedId) {
+                    reorderRequestTabs(draggedId, requestId);
+                  }
+                  setDraggedTabId(null);
+                  setTabDropTargetId(null);
+                }}
+                onStripDragOver={(event) => {
                   event.preventDefault();
                   setTabDropTargetId(null);
                 }}
-                onDrop={(event) => {
+                onStripDrop={(event) => {
                   event.preventDefault();
                   const draggedId = draggedTabId();
                   if (draggedId) {
@@ -4036,104 +4070,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                   setDraggedTabId(null);
                   setTabDropTargetId(null);
                 }}
-              >
-                <For each={orderedOpenRequestIds()}>
-                  {(requestId) => {
-                    const request = createMemo(() => requestMap().get(requestId) ?? null);
-                    const isPinned = createMemo(() => workspace.pinnedRequestIds.includes(requestId));
-
-                    return (
-                      <Show when={request()}>
-                        <div
-                          class={`group relative min-w-0 transition ${
-                            workspace.activeRequestId === requestId
-                              ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
-                              : ""
-                          } ${
-                            tabDropTargetId() === requestId && draggedTabId() !== requestId
-                              ? "ring-1 ring-[var(--app-accent)]"
-                              : ""
-                          } ${
-                            draggedTabId() === requestId ? "opacity-60" : ""
-                          }`}
-                          style={{
-                            "border-left":
-                              orderedOpenRequestIds()[0] === requestId
-                                ? "0"
-                                : "1px solid var(--app-border)"
-                          }}
-                          draggable={!isPinned()}
-                          onDragStart={(event) => {
-                            if (isPinned()) {
-                              event.preventDefault();
-                              return;
-                            }
-                            setDraggedTabId(requestId);
-                            event.dataTransfer?.setData("text/plain", requestId);
-                            if (event.dataTransfer) {
-                              event.dataTransfer.effectAllowed = "move";
-                            }
-                          }}
-                          onDragOver={(event) => {
-                            event.preventDefault();
-                            setTabDropTargetId(requestId);
-                          }}
-                          onDrop={(event) => {
-                            event.preventDefault();
-                            const draggedId = draggedTabId();
-                            if (draggedId) {
-                              reorderRequestTabs(draggedId, requestId);
-                            }
-                            setDraggedTabId(null);
-                            setTabDropTargetId(null);
-                          }}
-                          onDragEnd={() => {
-                            setDraggedTabId(null);
-                            setTabDropTargetId(null);
-                          }}
-                          onContextMenu={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            setRequestTabMenuState({
-                              id: requestId,
-                              x: event.clientX,
-                              y: event.clientY
-                            });
-                          }}
-                        >
-                          <button
-                            class="flex h-full w-full min-w-0 items-center justify-center gap-1.5 px-8 py-2 text-center"
-                            onClick={() => openRequestTab(requestId, request()!.collectionId)}
-                          >
-                            <span class={`${getRequestBadgeClass(request()!)} shrink-0`}>
-                              {getRequestKindLabel(request()!)}
-                            </span>
-                            <span class="truncate text-center text-sm font-medium">{request()!.name}</span>
-                          </button>
-
-                          <Show when={isPinned()}>
-                            <span class="pointer-events-none absolute right-1.5 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center text-[var(--app-accent)]">
-                              <PinIcon />
-                            </span>
-                          </Show>
-
-                          <Show when={!isPinned()}>
-                            <button
-                              class="absolute right-1.5 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                closeRequestTab(requestId);
-                              }}
-                            >
-                              <ControlDot variant="delete" />
-                            </button>
-                          </Show>
-                        </div>
-                      </Show>
-                    );
-                  }}
-                </For>
-              </div>
+              />
             </div>
 
             <Show when={activeRequest()}>
@@ -4177,14 +4114,15 @@ export function RestPlayground(props: RestPlaygroundProps) {
                     </For>
                   </select>
                   <div class="flex items-center gap-2">
-                    <button
-                      class={`h-8 rounded-md px-3 py-1 text-sm font-medium transition ${
+                    <AppButton
+                      variant={
                         saveState() === "saved"
-                          ? "bg-[#34c759] text-white"
+                          ? "success"
                           : saveState() === "error"
-                            ? "bg-[#ff3b30] text-white"
-                            : "theme-control"
-                      }`}
+                            ? "danger"
+                            : "default"
+                      }
+                      size="sm"
                       disabled={saveState() === "saving"}
                       onClick={() => void manualSaveWorkspace()}
                     >
@@ -4195,15 +4133,16 @@ export function RestPlayground(props: RestPlaygroundProps) {
                           : saveState() === "error"
                             ? "Save failed"
                             : "Save"}
-                    </button>
+                    </AppButton>
                   </div>
-                  <button
-                    class="theme-button-primary h-8 rounded-md px-4 py-1 text-sm font-semibold transition"
+                  <AppButton
+                    variant="primary"
+                    size="sm"
                     disabled={isSending() || !canSendActiveRequest()}
                     onClick={() => void sendActiveRequest()}
                   >
                     {!canSendActiveRequest() ? "Coming Soon" : isSending() ? "Sending..." : "Send"}
-                  </button>
+                  </AppButton>
                 </div>
               )}
             </Show>
@@ -4617,14 +4556,15 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                 <p class="theme-text text-sm font-semibold">Pre-request Script</p>
                                 <p class="theme-text-soft text-xs">Run JavaScript before the request is sent.</p>
                               </div>
-                              <button
-                                class="theme-control rounded-md px-2.5 py-1 text-xs font-medium"
+                              <AppButton
+                                variant="default"
+                                class="rounded-md px-2.5 py-1 text-xs font-medium"
                                 onClick={() => updateActiveRequest((current) => {
                                   current.scripts.preRequest = preRequestScriptExample;
                                 })}
                               >
                                 Use Example
-                              </button>
+                              </AppButton>
                             </div>
                             <textarea
                               class="theme-input min-h-[280px] w-full rounded-[18px] px-3 py-2.5 font-mono text-sm leading-6 transition"
@@ -4655,14 +4595,15 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                 <p class="theme-text text-sm font-semibold">Post-response Script</p>
                                 <p class="theme-text-soft text-xs">Run JavaScript after the response returns and persist useful values.</p>
                               </div>
-                              <button
-                                class="theme-control rounded-md px-2.5 py-1 text-xs font-medium"
+                              <AppButton
+                                variant="default"
+                                class="rounded-md px-2.5 py-1 text-xs font-medium"
                                 onClick={() => updateActiveRequest((current) => {
                                   current.scripts.postResponse = postResponseScriptExample;
                                 })}
                               >
                                 Use Example
-                              </button>
+                              </AppButton>
                             </div>
                             <textarea
                               class="theme-input min-h-[280px] w-full rounded-[18px] px-3 py-2.5 font-mono text-sm leading-6 transition"

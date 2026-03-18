@@ -240,9 +240,29 @@ a {
   background: var(--app-pane-glass);
 }
 
+.theme-request-tab-strip {
+  background:
+    linear-gradient(
+      180deg,
+      #ffffffcc 0%,
+      #dcdcdccc 100%
+    );
+
+}
+
+:root[data-theme="dark"] .theme-request-tab-strip {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(68, 68, 72, 0.8) 0%,
+      rgba(32, 32, 36, 0.8) 100%
+    );
+
+}
+
 .theme-donate-button {
   position: relative;
-  border: solid 1.5px transparent;
+  border: solid 2px transparent;
   background: color-mix(in srgb, var(--app-panel-soft) 88%, transparent);
   color: var(--app-text);
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
@@ -385,6 +405,7 @@ a {
     cursor: col-resize;
     user-select: none;
     touch-action: none;
+    z-index: 35;
   }
 
   .workspace-sidebar-resizer::before {
@@ -398,14 +419,14 @@ a {
     transition: background 140ms ease;
   }
 
-  /* .workspace-sidebar-resizer::after {
+  .workspace-sidebar-resizer::after {
     content: "";
     position: absolute;
     top: 0;
     bottom: 0;
-    left: -4px;
-    right: -4px;
-  } */
+    left: -6px;
+    right: -6px;
+  }
 
   .workspace-sidebar-resizer:hover::before,
   .workspace-sidebar-layout[data-sidebar-resizing="true"] .workspace-sidebar-resizer::before {
