@@ -707,6 +707,96 @@ function FormatJsonIcon() {
   );
 }
 
+function isJsonContentType(contentType: string) {
+  const normalized = contentType.toLowerCase();
+  return normalized.includes("application/json") || normalized.includes("+json");
+}
+
+function isHtmlContentType(contentType: string) {
+  const normalized = contentType.toLowerCase();
+  return normalized.includes("text/html") || normalized.includes("application/xhtml+xml");
+}
+
+function JsonPreviewNode(props: {
+  value: unknown;
+  name?: string;
+  depth?: number;
+}) {
+  const depth = props.depth ?? 0;
+
+  if (props.value === null) {
+    return (
+      <div class="font-mono text-sm">
+        <Show when={props.name}>
+          <span class="theme-text-soft mr-2">{props.name}:</span>
+        </Show>
+        <span class="text-[#ff6482]">null</span>
+      </div>
+    );
+  }
+
+  if (Array.isArray(props.value)) {
+    return (
+      <details class="pl-2" open={depth < 1}>
+        <summary class="cursor-pointer list-none font-mono text-sm">
+          <Show when={props.name}>
+            <span class="theme-text-soft mr-2">{props.name}:</span>
+          </Show>
+          <span class="theme-text">[{props.value.length}]</span>
+        </summary>
+        <div class="mt-1 space-y-1 border-l pl-3" style={{ "border-color": "var(--app-border)" }}>
+          <For each={props.value}>
+            {(item, index) => (
+              <JsonPreviewNode value={item} name={`${index()}`} depth={depth + 1} />
+            )}
+          </For>
+        </div>
+      </details>
+    );
+  }
+
+  if (typeof props.value === "object") {
+    const entries = Object.entries(props.value as Record<string, unknown>);
+
+    return (
+      <details class="pl-2" open={depth < 1}>
+        <summary class="cursor-pointer list-none font-mono text-sm">
+          <Show when={props.name}>
+            <span class="theme-text-soft mr-2">{props.name}:</span>
+          </Show>
+          <span class="theme-text">{`{${entries.length}}`}</span>
+        </summary>
+        <div class="mt-1 space-y-1 border-l pl-3" style={{ "border-color": "var(--app-border)" }}>
+          <For each={entries}>
+            {([key, value]) => <JsonPreviewNode value={value} name={key} depth={depth + 1} />}
+          </For>
+        </div>
+      </details>
+    );
+  }
+
+  const valueType = typeof props.value;
+  const valueClass =
+    valueType === "string"
+      ? "text-[#34c759]"
+      : valueType === "number"
+        ? "text-[#0a84ff]"
+        : valueType === "boolean"
+          ? "text-[#ff9f0a]"
+          : "theme-text";
+
+  return (
+    <div class="font-mono text-sm">
+      <Show when={props.name}>
+        <span class="theme-text-soft mr-2">{props.name}:</span>
+      </Show>
+      <span class={valueClass}>
+        {valueType === "string" ? `"${String(props.value)}"` : String(props.value)}
+      </span>
+    </div>
+  );
+}
+
 function PinIcon() {
   return (
     <svg
@@ -1066,9 +1156,36 @@ function FormDataTableEditor(props: {
                     />
                   }
                 >
-                  <div class="flex min-w-0 items-center gap-2">
-                    <label class="theme-control inline-flex h-8 shrink-0 cursor-pointer items-center justify-center rounded-md px-3 text-sm">
-                      Choose File
+                  <div class="flex min-w-0 items-center">
+                    <label
+                      class={`inline-flex h-8 min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-md px-3 text-sm transition ${
+                        row().fileName
+                          ? "bg-[var(--app-method-get-bg)] text-[var(--app-method-get)]"
+                          : "theme-control"
+                      }`}
+                    >
+                      <span class="truncate">{row().fileName || "Choose"}</span>
+                      <Show when={row().fileName}>
+                        <button
+                          class="inline-flex h-5 w-5 items-center justify-center"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                          }}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            props.onUpdate(row().id, {
+                              fileName: "",
+                              fileContent: "",
+                              fileContentType: "",
+                              value: ""
+                            });
+                          }}
+                        >
+                          <MacCloseIcon />
+                        </button>
+                      </Show>
                       <input
                         class="hidden"
                         type="file"
@@ -1089,11 +1206,6 @@ function FormDataTableEditor(props: {
                         }}
                       />
                     </label>
-                    <div class="theme-input flex h-8 min-w-0 flex-1 items-center rounded-md px-2.5 text-sm">
-                      <span class="truncate">
-                        {row().fileName || "No file selected"}
-                      </span>
-                    </div>
                   </div>
                 </Show>
               </div>
@@ -1122,6 +1234,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
   const [topEditorTab, setTopEditorTab] = createSignal<"headers" | "auth">("headers");
   const [bottomEditorTab, setBottomEditorTab] = createSignal<"body" | "params">("body");
   const [responseTab, setResponseTab] = createSignal<ResponseTabId>("body");
+  const [responseBodyView, setResponseBodyView] = createSignal<"raw" | "preview">("raw");
   const [mainPaneSplit, setMainPaneSplit] = createSignal(40);
   const [mainPaneResizing, setMainPaneResizing] = createSignal(false);
   const [expandedCollectionIds, setExpandedCollectionIds] = createSignal<string[]>([]);
@@ -1284,6 +1397,33 @@ export function RestPlayground(props: RestPlaygroundProps) {
     }
 
     return resolveTemplate(request.url, activeEnvironment() ?? undefined);
+  });
+
+  const responsePreviewKind = createMemo<"json" | "html" | null>(() => {
+    const summary = responseSummary();
+    if (!summary) {
+      return null;
+    }
+    if (isJsonContentType(summary.contentType)) {
+      return "json";
+    }
+    if (isHtmlContentType(summary.contentType)) {
+      return "html";
+    }
+    return null;
+  });
+
+  const responsePreviewJson = createMemo<unknown | null>(() => {
+    const summary = responseSummary();
+    if (!summary || responsePreviewKind() !== "json") {
+      return null;
+    }
+
+    try {
+      return JSON.parse(summary.body);
+    } catch {
+      return null;
+    }
   });
 
   function closeAllMenus() {
@@ -2358,7 +2498,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
     return (
       <Show when={showCollectionCreateMenu()}>
         <div
-          class="theme-panel-soft absolute right-0 top-9 z-10 min-w-[180px] border p-1"
+          class="theme-panel-soft theme-menu-popover absolute right-0 top-9 z-10 min-w-[180px] border p-1"
           data-rest-menu-root
           style={{ "border-color": "var(--app-border)" }}
         >
@@ -2382,7 +2522,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
   function renderRequestCreateMenu(collectionId: string, folderId: string | null = null) {
     return (
       <div
-        class="theme-panel-soft absolute right-0 top-7 z-10 min-w-[170px] border p-1"
+        class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-10 min-w-[170px] border p-1"
         data-rest-menu-root
         style={{ "border-color": "var(--app-border)" }}
       >
@@ -2488,6 +2628,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
     const activeId = workspace.activeCollectionId;
     if (activeId) {
       ensureCollectionExpanded(activeId);
+    }
+  });
+
+  createEffect(() => {
+    if (responsePreviewKind() === null) {
+      setResponseBodyView("raw");
     }
   });
 
@@ -2628,7 +2774,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
                                   <Show when={collectionMenuId() === entry.collection.id}>
                                     <div
-                                      class="theme-panel-soft absolute right-0 top-7 z-10 min-w-[160px] border p-1"
+                                      class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-10 min-w-[160px] border p-1"
                                       data-rest-menu-root
                                       style={{ "border-color": "var(--app-border)" }}
                                     >
@@ -2666,7 +2812,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
                                         <Show when={collectionOrderMenuId() === entry.collection.id}>
                                           <div
-                                            class="theme-panel-soft absolute left-full top-0 ml-1 min-w-[132px] border p-1"
+                                            class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[132px] border p-1"
                                             data-rest-menu-root
                                             style={{ "border-color": "var(--app-border)" }}
                                           >
@@ -2756,7 +2902,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                         </button>
                                         <Show when={requestMenuId() === request.id}>
                                           <div
-                                            class="theme-panel-soft absolute right-0 top-7 z-10 min-w-[172px] border p-1"
+                                            class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-10 min-w-[172px] border p-1"
                                             data-rest-menu-root
                                             style={{ "border-color": "var(--app-border)" }}
                                           >
@@ -2783,7 +2929,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                               </button>
                                               <Show when={requestMoveMenuId() === request.id}>
                                                 <div
-                                                  class="theme-panel-soft absolute left-full top-0 ml-1 min-w-[188px] border p-1"
+                                                  class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[188px] border p-1"
                                                   data-rest-menu-root
                                                   style={{ "border-color": "var(--app-border)" }}
                                                 >
@@ -2826,7 +2972,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                               </button>
                                               <Show when={requestOrderMenuId() === request.id}>
                                                 <div
-                                                  class="theme-panel-soft absolute left-full top-0 ml-1 min-w-[132px] border p-1"
+                                                  class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[132px] border p-1"
                                                   data-rest-menu-root
                                                   style={{ "border-color": "var(--app-border)" }}
                                                 >
@@ -2896,7 +3042,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                             </button>
                                             <Show when={folderMenuId() === folderEntry.folder.id}>
                                             <div
-                                              class="theme-panel-soft absolute right-0 top-7 z-10 min-w-[176px] border p-1"
+                                              class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-10 min-w-[176px] border p-1"
                                               data-rest-menu-root
                                               style={{ "border-color": "var(--app-border)" }}
                                             >
@@ -2920,7 +3066,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                 </button>
                                                 <Show when={folderMoveMenuId() === folderEntry.folder.id}>
                                                   <div
-                                                    class="theme-panel-soft absolute left-full top-0 ml-1 min-w-[170px] border p-1"
+                                                    class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[170px] border p-1"
                                                     data-rest-menu-root
                                                     style={{ "border-color": "var(--app-border)" }}
                                                   >
@@ -2951,7 +3097,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                 </button>
                                                 <Show when={folderOrderMenuId() === folderEntry.folder.id}>
                                                   <div
-                                                    class="theme-panel-soft absolute left-full top-0 ml-1 min-w-[132px] border p-1"
+                                                    class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[132px] border p-1"
                                                     data-rest-menu-root
                                                     style={{ "border-color": "var(--app-border)" }}
                                                   >
@@ -2981,7 +3127,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                 </button>
                                                 <Show when={folderOrderMenuId() === `sort:${folderEntry.folder.id}`}>
                                                   <div
-                                                    class="theme-panel-soft absolute left-full top-0 ml-1 min-w-[156px] border p-1"
+                                                    class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[156px] border p-1"
                                                     data-rest-menu-root
                                                     style={{ "border-color": "var(--app-border)" }}
                                                   >
@@ -3038,7 +3184,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                 </button>
                                                 <Show when={requestMenuId() === request.id}>
                                                   <div
-                                                    class="theme-panel-soft absolute right-0 top-7 z-10 min-w-[172px] border p-1"
+                                                    class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-10 min-w-[172px] border p-1"
                                                     data-rest-menu-root
                                                     style={{ "border-color": "var(--app-border)" }}
                                                   >
@@ -3065,7 +3211,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                       </button>
                                                       <Show when={requestMoveMenuId() === request.id}>
                                                         <div
-                                                          class="theme-panel-soft absolute left-full top-0 ml-1 min-w-[188px] border p-1"
+                                                          class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[188px] border p-1"
                                                           data-rest-menu-root
                                                           style={{ "border-color": "var(--app-border)" }}
                                                         >
@@ -3108,7 +3254,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                       </button>
                                                       <Show when={requestOrderMenuId() === request.id}>
                                                         <div
-                                                          class="theme-panel-soft absolute left-full top-0 ml-1 min-w-[132px] border p-1"
+                                                          class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[132px] border p-1"
                                                           data-rest-menu-root
                                                           style={{ "border-color": "var(--app-border)" }}
                                                         >
@@ -3966,6 +4112,20 @@ export function RestPlayground(props: RestPlaygroundProps) {
               <div class="flex flex-wrap items-center gap-1.5">
                 <EditorToggle active={responseTab() === "body"} label="Body" onClick={() => setResponseTab("body")} />
                 <EditorToggle active={responseTab() === "headers"} label="Headers" onClick={() => setResponseTab("headers")} />
+                <Show when={responseTab() === "body" && responsePreviewKind()}>
+                  <button
+                    class={`rounded-lg px-2 py-1 text-[11px] font-medium transition ${
+                      responseBodyView() === "preview"
+                        ? "bg-[var(--app-method-delete-bg)] text-[var(--app-method-delete)]"
+                        : "bg-[var(--app-method-get-bg)] text-[var(--app-method-get)]"
+                    }`}
+                    onClick={() =>
+                      setResponseBodyView((current) => current === "preview" ? "raw" : "preview")
+                    }
+                  >
+                    Preview
+                  </button>
+                </Show>
               </div>
               <Show when={responseSummary()}>
                 {(summary) => (
@@ -3985,11 +4145,35 @@ export function RestPlayground(props: RestPlaygroundProps) {
             <div class="min-h-0 flex-1">
             <Switch>
               <Match when={responseTab() === "body"}>
-                <div class="theme-code flex h-full min-h-[240px] flex-col overflow-hidden rounded-[20px] border" style={{ "border-color": "var(--app-border)" }}>
-                  <pre class="theme-text-muted h-full flex-1 overflow-x-auto px-3 py-3 font-mono text-sm leading-7">
-                    <code>{responseSummary()?.body ?? "Send a request to inspect the response body."}</code>
-                  </pre>
-                </div>
+                <Switch>
+                  <Match when={responseBodyView() === "preview" && responsePreviewKind() === "json" && responsePreviewJson() !== null}>
+                    <div class="theme-code flex h-full min-h-[240px] flex-col overflow-auto rounded-[20px] border px-3 py-3" style={{ "border-color": "var(--app-border)" }}>
+                      <JsonPreviewNode value={responsePreviewJson()} />
+                    </div>
+                  </Match>
+                  <Match when={responseBodyView() === "preview" && responsePreviewKind() === "html" && responseSummary()}>
+                    <div class="theme-code flex h-full min-h-[240px] flex-col overflow-hidden rounded-[20px] border" style={{ "border-color": "var(--app-border)" }}>
+                      <iframe
+                        class="h-full min-h-[240px] w-full border-0 bg-white"
+                        sandbox=""
+                        srcdoc={responseSummary()?.body ?? ""}
+                        title="HTML preview"
+                      />
+                    </div>
+                  </Match>
+                  <Match when={responseBodyView() === "preview" && responsePreviewKind() === "json" && responsePreviewJson() === null}>
+                    <div class="theme-code flex h-full min-h-[240px] items-center rounded-[20px] border px-4 text-sm theme-text-soft" style={{ "border-color": "var(--app-border)" }}>
+                      JSON preview is unavailable because the response body could not be parsed.
+                    </div>
+                  </Match>
+                  <Match when={true}>
+                    <div class="theme-code flex h-full min-h-[240px] flex-col overflow-hidden rounded-[20px] border" style={{ "border-color": "var(--app-border)" }}>
+                      <pre class="theme-text-muted h-full flex-1 overflow-x-auto px-3 py-3 font-mono text-sm leading-7">
+                        <code>{responseSummary()?.body ?? "Send a request to inspect the response body."}</code>
+                      </pre>
+                    </div>
+                  </Match>
+                </Switch>
               </Match>
               <Match when={responseTab() === "headers"}>
                 <div class="min-h-[240px]">
