@@ -771,27 +771,30 @@ export function SshPanel(props: SshPanelProps) {
       fontSize: 13,
       lineHeight: 1.2,
       cursorBlink: true,
+      allowTransparency: true,
       theme: {
-        background: "#0d0e14",
-        foreground: "#c0caf5",
-        cursor: "#7aa2f7",
-        selectionBackground: "rgba(122,162,247,0.25)",
-        black: "#1d202f",
-        red: "#f7768e",
+        background: "#181818cc",
+        foreground: "#d7dae0",
+        cursor: "#0091ff",
+        cursorAccent: "#282c34",
+        selectionBackground: "#7aa2f752",
+        selectionInactiveBackground: "#7aa2f733",
+        black: "#282c34",
+        red: "#ff4d73",
         green: "#9ece6a",
-        yellow: "#e0af68",
-        blue: "#7aa2f7",
-        magenta: "#bb9af7",
-        cyan: "#7dcfff",
-        white: "#a9b1d6",
-        brightBlack: "#414868",
-        brightRed: "#f7768e",
-        brightGreen: "#9ece6a",
-        brightYellow: "#e0af68",
-        brightBlue: "#7aa2f7",
-        brightMagenta: "#bb9af7",
-        brightCyan: "#7dcfff",
-        brightWhite: "#c0caf5"
+        yellow: "#ffcc33",
+        blue: "#4da6ff",
+        magenta: "#d86cff",
+        cyan: "#36d7ff",
+        white: "#e9edf3",
+        brightBlack: "#5c6370",
+        brightRed: "#ff7a95",
+        brightGreen: "#98ff91",
+        brightYellow: "#ffd95c",
+        brightBlue: "#7fc0ff",
+        brightMagenta: "#e79cff",
+        brightCyan: "#74e7ff",
+        brightWhite: "#ffffff"
       }
     });
     const fitAddon = new FitAddon();
@@ -2138,11 +2141,12 @@ export function SshPanel(props: SshPanelProps) {
                                 )}
                             >
                               <span
-                                class={`absolute rounded-full bg-[var(--app-border)] ${
+                                class={`absolute rounded-full ${
                                   rect()?.direction === "columns"
-                                    ? "inset-y-0 left-1/2 w-px -translate-x-1/2"
-                                    : "inset-x-0 top-1/2 h-px -translate-y-1/2"
+                                    ? "inset-y-0 left-1/2 w-[2px] -translate-x-1/2"
+                                    : "inset-x-0 top-1/2 h-[2px] -translate-y-1/2"
                                 }`}
+                                style={{ background: "#676767" }}
                               />
                             </button>
                           );
