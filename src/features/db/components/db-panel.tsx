@@ -6,6 +6,7 @@ import {
   onCleanup,
   onMount
 } from "solid-js";
+import { createStore } from "solid-js/store";
 import { RequestTabsBar } from "../../rest/components/request-tabs-bar";
 import { ControlDot, PinIcon } from "../../rest/components/rest-ui-primitives";
 import { WorkspaceSidebarLayout } from "../../../components/workspace-sidebar-layout";
@@ -59,6 +60,7 @@ type FolderMenuState = {
 };
 
 type DbSidebarView = "connections" | "favorites" | "history";
+type DbConnectionModalMode = "create" | "edit";
 
 function arrayMove<T>(items: T[], fromIndex: number, toIndex: number) {
   if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
@@ -229,6 +231,10 @@ export function DbPanel(props: DbPanelProps) {
   const [rawByTabId, setRawByTabId] = createSignal<Record<string, string>>({});
   const [executionByTabId, setExecutionByTabId] = createSignal<Record<string, DbExecutionState>>({});
   const [resultViewByTabId, setResultViewByTabId] = createSignal<Record<string, "table" | "raw">>({});
+  const [connectionModalMode, setConnectionModalMode] = createSignal<DbConnectionModalMode | null>(null);
+  const [connectionDraftState, setConnectionDraftState] = createStore<{ value: DbConnection | null }>({
+    value: null
+  });
 
   const normalizedFilter = createMemo(() => filter().trim().toLowerCase());
   const connectionMap = createMemo(() => new Map(workspace().connections.map((connection) => [connection.id, connection])));
@@ -322,50 +328,91 @@ export function DbPanel(props: DbPanelProps) {
     setHeaderMenuOpen(false);
   }
 
-  async function addConnection(kind: DbConnectionKind, folderId: string | null = null) {
-    const connection = createDbConnection(kind, folderId);
-    const tab = createDbTab(connection);
-    await commitWorkspace((draft) => {
-      draft.connections.push(connection);
-      draft.tabsById[tab.id] = tab;
-      draft.openTabIds.push(tab.id);
-      draft.activeTabId = tab.id;
-    });
-    if (folderId) {
-      setExpandedFolderIds((current) => (current.includes(folderId) ? current : [...current, folderId]));
-    }
+  function openCreateConnectionModal(kind: DbConnectionKind, folderId: string | null = null) {
+    setConnectionDraftState("value", createDbConnection(kind, folderId));
+    setConnectionModalMode("create");
     setAddConnectionMenuOpen(false);
     setHeaderMenuOpen(false);
     setFolderMenu(null);
     setFolderAddMenuId(null);
   }
 
-  async function updateActiveConnection(patch: Partial<DbConnection>) {
-    const tab = activeTab();
-    const connection = activeConnection();
-    if (!tab || !connection) return;
-    await commitWorkspace((draft) => {
-      const target = draft.connections.find((item) => item.id === connection.id);
-      if (!target) return;
-      Object.assign(target, patch);
-      target.url = buildDbConnectionUrl(target);
-      draft.tabsById[tab.id].title = target.name;
-    });
+  function openEditConnectionModal(connection: DbConnection) {
+    setConnectionDraftState("value", cloneValue(connection));
+    setConnectionModalMode("edit");
+    setConnectionMenu(null);
+    setConnectionMoveMenuId(null);
   }
 
-  async function updateActiveConnectionConfig<K extends keyof DbConnectionConfig>(
+  function closeConnectionModal() {
+    setConnectionModalMode(null);
+    setConnectionDraftState("value", null);
+  }
+
+  function updateConnectionDraft<K extends keyof DbConnection>(key: K, value: DbConnection[K]) {
+    const current = connectionDraftState.value;
+    if (!current) return;
+    setConnectionDraftState("value", key, value);
+    if (key !== "url") {
+      const next = cloneValue({ ...current, [key]: value });
+      setConnectionDraftState("value", "url", buildDbConnectionUrl(next));
+    }
+  }
+
+  function updateConnectionDraftConfig<K extends keyof DbConnectionConfig>(
     key: K,
     value: DbConnectionConfig[K]
   ) {
-    const tab = activeTab();
-    const connection = activeConnection();
-    if (!tab || !connection) return;
-    await commitWorkspace((draft) => {
-      const target = draft.connections.find((item) => item.id === connection.id);
-      if (!target) return;
-      target.config[key] = value;
-      target.url = buildDbConnectionUrl(target);
+    const current = connectionDraftState.value;
+    if (!current) return;
+    setConnectionDraftState("value", "config", key, value);
+    const next = cloneValue({
+      ...current,
+      config: {
+        ...current.config,
+        [key]: value
+      }
     });
+    setConnectionDraftState("value", "url", buildDbConnectionUrl(next));
+  }
+
+  async function saveConnectionDraft() {
+    const draftConnection = connectionDraftState.value ? cloneValue(connectionDraftState.value) : null;
+    const mode = connectionModalMode();
+    if (!draftConnection || !mode) return;
+    const normalizedConnection = {
+      ...draftConnection,
+      name: draftConnection.name.trim() || getConnectionTypeLabel(draftConnection.kind),
+      url: buildDbConnectionUrl(draftConnection) || draftConnection.url.trim()
+    };
+
+    if (mode === "create") {
+      const tab = createDbTab(normalizedConnection);
+      await commitWorkspace((draft) => {
+        draft.connections.push(normalizedConnection);
+        draft.tabsById[tab.id] = tab;
+        draft.openTabIds.push(tab.id);
+        draft.activeTabId = tab.id;
+      });
+      if (normalizedConnection.folderId) {
+        setExpandedFolderIds((current) =>
+          current.includes(normalizedConnection.folderId!) ? current : [...current, normalizedConnection.folderId!]
+        );
+      }
+    } else {
+      await commitWorkspace((draft) => {
+        const target = draft.connections.find((item) => item.id === normalizedConnection.id);
+        if (!target) return;
+        Object.assign(target, normalizedConnection);
+        for (const tab of Object.values(draft.tabsById)) {
+          if (tab.connectionId === normalizedConnection.id) {
+            tab.title = normalizedConnection.name;
+          }
+        }
+      });
+    }
+
+    closeConnectionModal();
   }
 
   async function updateActiveQuery(query: string) {
@@ -783,13 +830,13 @@ export function DbPanel(props: DbPanelProps) {
     );
   }
 
-  function renderConnectionConfigForm(connection: DbConnection) {
+  function renderConnectionDraftForm(connection: DbConnection) {
     const config = connection.config;
 
     if (connection.kind === "sqlite") {
       return (
         <div class="grid gap-3">
-          {renderConfigField("File Path", config.filePath, (value) => void updateActiveConnectionConfig("filePath", value), "text", "./devx.db")}
+          {renderConfigField("File Path", config.filePath, (value) => updateConnectionDraftConfig("filePath", value), "text", "./devx.db")}
         </div>
       );
     }
@@ -797,12 +844,12 @@ export function DbPanel(props: DbPanelProps) {
     if (connection.kind === "redis") {
       return (
         <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {renderConfigField("Host", config.host, (value) => void updateActiveConnectionConfig("host", value))}
-          {renderConfigField("Port", config.port, (value) => void updateActiveConnectionConfig("port", value), "text", "6379")}
-          {renderConfigField("Database", config.database, (value) => void updateActiveConnectionConfig("database", value), "text", "0")}
-          {renderConfigField("Username", config.username, (value) => void updateActiveConnectionConfig("username", value))}
-          {renderConfigField("Password", config.password, (value) => void updateActiveConnectionConfig("password", value), "password")}
-          {renderConfigField("Options", config.options, (value) => void updateActiveConnectionConfig("options", value), "text", "protocol=3")}
+          {renderConfigField("Host", config.host, (value) => updateConnectionDraftConfig("host", value))}
+          {renderConfigField("Port", config.port, (value) => updateConnectionDraftConfig("port", value), "text", "6379")}
+          {renderConfigField("DB", config.database, (value) => updateConnectionDraftConfig("database", value), "text", "0")}
+          {renderConfigField("Login", config.username, (value) => updateConnectionDraftConfig("username", value))}
+          {renderConfigField("Password", config.password, (value) => updateConnectionDraftConfig("password", value), "password")}
+          {renderConfigField("Parameters", config.options, (value) => updateConnectionDraftConfig("options", value), "text", "protocol=3")}
         </div>
       );
     }
@@ -810,14 +857,14 @@ export function DbPanel(props: DbPanelProps) {
     if (connection.kind === "mongodb") {
       return (
         <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {renderConfigField("Host", config.host, (value) => void updateActiveConnectionConfig("host", value))}
-          {renderConfigField("Port", config.port, (value) => void updateActiveConnectionConfig("port", value), "text", "27017")}
-          {renderConfigField("Database", config.database, (value) => void updateActiveConnectionConfig("database", value), "text", "test")}
-          {renderConfigField("Username", config.username, (value) => void updateActiveConnectionConfig("username", value))}
-          {renderConfigField("Password", config.password, (value) => void updateActiveConnectionConfig("password", value), "password")}
-          {renderConfigField("Auth Source", config.authSource, (value) => void updateActiveConnectionConfig("authSource", value), "text", "admin")}
+          {renderConfigField("Host", config.host, (value) => updateConnectionDraftConfig("host", value))}
+          {renderConfigField("Port", config.port, (value) => updateConnectionDraftConfig("port", value), "text", "27017")}
+          {renderConfigField("Database", config.database, (value) => updateConnectionDraftConfig("database", value), "text", "test")}
+          {renderConfigField("Login", config.username, (value) => updateConnectionDraftConfig("username", value))}
+          {renderConfigField("Password", config.password, (value) => updateConnectionDraftConfig("password", value), "password")}
+          {renderConfigField("Auth Source", config.authSource, (value) => updateConnectionDraftConfig("authSource", value), "text", "admin")}
           <div class="md:col-span-2 xl:col-span-3">
-            {renderConfigField("Options", config.options, (value) => void updateActiveConnectionConfig("options", value), "text", "replicaSet=rs0")}
+            {renderConfigField("Parameters", config.options, (value) => updateConnectionDraftConfig("options", value), "text", "replicaSet=rs0")}
           </div>
         </div>
       );
@@ -826,12 +873,12 @@ export function DbPanel(props: DbPanelProps) {
     if (connection.kind === "oracle") {
       return (
         <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {renderConfigField("Host", config.host, (value) => void updateActiveConnectionConfig("host", value))}
-          {renderConfigField("Port", config.port, (value) => void updateActiveConnectionConfig("port", value), "text", "1521")}
-          {renderConfigField("Service", config.serviceName, (value) => void updateActiveConnectionConfig("serviceName", value), "text", "FREEPDB1")}
-          {renderConfigField("Username", config.username, (value) => void updateActiveConnectionConfig("username", value))}
-          {renderConfigField("Password", config.password, (value) => void updateActiveConnectionConfig("password", value), "password")}
-          {renderConfigField("Options", config.options, (value) => void updateActiveConnectionConfig("options", value), "text", "standaloneConnection=0")}
+          {renderConfigField("Host", config.host, (value) => updateConnectionDraftConfig("host", value))}
+          {renderConfigField("Port", config.port, (value) => updateConnectionDraftConfig("port", value), "text", "1521")}
+          {renderConfigField("Service", config.serviceName, (value) => updateConnectionDraftConfig("serviceName", value), "text", "FREEPDB1")}
+          {renderConfigField("Login", config.username, (value) => updateConnectionDraftConfig("username", value))}
+          {renderConfigField("Password", config.password, (value) => updateConnectionDraftConfig("password", value), "password")}
+          {renderConfigField("Parameters", config.options, (value) => updateConnectionDraftConfig("options", value), "text", "standaloneConnection=0")}
         </div>
       );
     }
@@ -840,12 +887,12 @@ export function DbPanel(props: DbPanelProps) {
 
     return (
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {renderConfigField("Host", config.host, (value) => void updateActiveConnectionConfig("host", value))}
-        {renderConfigField("Port", config.port, (value) => void updateActiveConnectionConfig("port", value), "text", portPlaceholder)}
-        {renderConfigField("Database", config.database, (value) => void updateActiveConnectionConfig("database", value), "text", "devx")}
-        {renderConfigField("Username", config.username, (value) => void updateActiveConnectionConfig("username", value))}
-        {renderConfigField("Password", config.password, (value) => void updateActiveConnectionConfig("password", value), "password")}
-        {renderConfigField("Options", config.options, (value) => void updateActiveConnectionConfig("options", value), "text", "sslmode=disable")}
+        {renderConfigField("Host", config.host, (value) => updateConnectionDraftConfig("host", value))}
+        {renderConfigField("Port", config.port, (value) => updateConnectionDraftConfig("port", value), "text", portPlaceholder)}
+        {renderConfigField("Database", config.database, (value) => updateConnectionDraftConfig("database", value), "text", "devx")}
+        {renderConfigField("Login", config.username, (value) => updateConnectionDraftConfig("username", value))}
+        {renderConfigField("Password", config.password, (value) => updateConnectionDraftConfig("password", value), "password")}
+        {renderConfigField("Parameters", config.options, (value) => updateConnectionDraftConfig("options", value), "text", "sslmode=disable")}
       </div>
     );
   }
@@ -1080,7 +1127,7 @@ export function DbPanel(props: DbPanelProps) {
                           {(kind) => (
                             <button
                               class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                              onClick={() => void addConnection(kind)}
+                            onClick={() => openCreateConnectionModal(kind)}
                             >
                               {getConnectionTypeLabel(kind)}
                             </button>
@@ -1119,7 +1166,7 @@ export function DbPanel(props: DbPanelProps) {
                 class="theme-input h-8 w-full rounded-md px-2.5 text-sm"
                 placeholder={
                   sidebarView() === "connections"
-                    ? "Filter folders / connections"
+                    ? "Filter"
                     : sidebarView() === "favorites"
                       ? "Filter favorites"
                       : "Filter history"
@@ -1213,7 +1260,7 @@ export function DbPanel(props: DbPanelProps) {
                                 {(kind) => (
                                   <button
                                     class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                    onClick={() => void addConnection(kind, entry.folder.id)}
+                                    onClick={() => openCreateConnectionModal(kind, entry.folder.id)}
                                   >
                                     {getConnectionTypeLabel(kind)}
                                   </button>
@@ -1343,20 +1390,21 @@ export function DbPanel(props: DbPanelProps) {
 
           <Show when={activeTab() && activeConnection()} fallback={<div class="flex-1 min-h-0" />}>
             <div class="border-b px-3 py-2" style={{ "border-color": "var(--app-border)" }}>
-              <div class="grid gap-2 xl:grid-cols-[auto_minmax(180px,0.9fr)_auto_auto_auto]">
+              <div class="grid gap-2 xl:grid-cols-[auto_minmax(180px,0.9fr)_auto_auto_auto_auto]">
                 <div class="flex items-center">
                   <span class={getConnectionBadge(activeConnection()!).class}>
                     {getConnectionBadge(activeConnection()!).label}
                   </span>
                 </div>
-                <input
-                  class="theme-input h-8 rounded-md px-2.5 text-sm"
-                  value={activeConnection()!.name}
-                  onInput={(event) => void updateActiveConnection({ name: event.currentTarget.value })}
-                />
+                <div class="theme-control inline-flex h-8 items-center rounded-md px-3 text-sm font-medium">
+                  {activeConnection()!.name}
+                </div>
                 <div class="theme-control inline-flex h-8 items-center rounded-md px-3 text-sm font-medium">
                   {getConnectionTypeLabel(activeConnection()!.kind)}
                 </div>
+                <button class="theme-control h-8 rounded-md px-3 text-sm font-medium" onClick={() => openEditConnectionModal(activeConnection()!)}>
+                  Edit
+                </button>
                 <button class="theme-control h-8 rounded-md px-3 text-sm font-medium" onClick={() => void addCurrentQueryToFavorites()}>
                   Favorite
                 </button>
@@ -1366,17 +1414,6 @@ export function DbPanel(props: DbPanelProps) {
                 <button class="theme-success h-8 rounded-md px-3 text-sm font-semibold" onClick={() => void runCurrentTab()}>
                   Run
                 </button>
-              </div>
-              <div class="mt-3 grid gap-3">
-                {renderConnectionConfigForm(activeConnection()!)}
-                <label class="grid gap-1">
-                  <span class="theme-text-soft text-[11px] uppercase tracking-[0.16em]">Resolved DSN / URL</span>
-                  <input
-                    class="theme-input h-8 rounded-md px-2.5 text-sm"
-                    value={activeConnection()!.url}
-                    onInput={(event) => void updateActiveConnection({ url: event.currentTarget.value })}
-                  />
-                </label>
               </div>
             </div>
 
@@ -1398,6 +1435,48 @@ export function DbPanel(props: DbPanelProps) {
           </Show>
         </div>
       </WorkspaceSidebarLayout>
+
+      <Show when={Boolean(connectionModalMode() && connectionDraftState.value)}>
+        <div class="fixed inset-0 z-[320] flex items-center justify-center bg-[rgba(15,23,42,0.3)] px-4 py-6" data-db-menu-root>
+          <div class="theme-panel-soft w-full max-w-4xl rounded-[22px] border p-5 shadow-[0_24px_60px_rgba(15,23,42,0.24)]" style={{ "border-color": "var(--app-border)" }}>
+            <div class="flex items-start justify-between gap-4 border-b pb-4" style={{ "border-color": "var(--app-border)" }}>
+              <div>
+                <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">
+                  {connectionModalMode() === "create" ? "New Connection" : "Edit Connection"}
+                </p>
+                <h3 class="theme-text mt-2 text-lg font-semibold">
+                  {getConnectionTypeLabel(connectionDraftState.value!.kind)}
+                </h3>
+              </div>
+              <button class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0" onClick={() => closeConnectionModal()}>
+                <ControlDot variant="delete" />
+              </button>
+            </div>
+
+            <div class="mt-4 grid gap-3">
+              {renderConfigField("Alias", connectionDraftState.value!.name, (value) => updateConnectionDraft("name", value))}
+              {renderConnectionDraftForm(connectionDraftState.value!)}
+              <label class="grid gap-1">
+                <span class="theme-text-soft text-[11px] uppercase tracking-[0.16em]">Connection String</span>
+                <input
+                  class="theme-input h-8 rounded-md px-2.5 text-sm"
+                  value={connectionDraftState.value!.url}
+                  onInput={(event) => updateConnectionDraft("url", event.currentTarget.value)}
+                />
+              </label>
+            </div>
+
+            <div class="mt-5 flex items-center justify-end gap-2">
+              <button class="theme-control h-8 rounded-md px-3 text-sm font-medium" onClick={() => closeConnectionModal()}>
+                Cancel
+              </button>
+              <button class="theme-success h-8 rounded-md px-3 text-sm font-semibold" onClick={() => void saveConnectionDraft()}>
+                Save Connection
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
 
       <Show when={folderMenu()}>
         <div
@@ -1430,10 +1509,7 @@ export function DbPanel(props: DbPanelProps) {
               }}
             >
               <button class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm" onClick={() => void openConnectionTab(connection, true)}>Open</button>
-              <button class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm" onClick={() => {
-                void openConnectionTab(connection, false);
-                setConnectionMenu(null);
-              }}>Edit</button>
+              <button class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm" onClick={() => openEditConnectionModal(connection)}>Edit</button>
               <button class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm" onClick={() => void moveConnectionDirection(connection, "up")}>Move Up</button>
               <button class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm" onClick={() => void moveConnectionDirection(connection, "down")}>Move Down</button>
               <div class="relative" data-db-menu-root>

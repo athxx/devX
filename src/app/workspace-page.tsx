@@ -58,22 +58,21 @@ function SettingsIcon() {
     <svg
       aria-hidden="true"
       class="h-4 w-4"
-      xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
     >
       <path
-        d="M12 8.75a3.25 3.25 0 1 0 0 6.5 3.25 3.25 0 0 0 0-6.5Z"
-        stroke="currentColor"
+        d="M13.752 4.693c0-.835-.61-1.544-1.436-1.67a2.111 2.111 0 0 0-.632 0 1.689 1.689 0 0 0-1.436 1.67v1.181c-.471.135-.92.322-1.34.556l-.836-.835a1.689 1.689 0 0 0-2.196-.166c-.17.126-.32.277-.447.447a1.689 1.689 0 0 0 .166 2.196l.835.835a6.33 6.33 0 0 0-.556 1.341h-1.18c-.836 0-1.545.61-1.67 1.436-.032.21-.032.423 0 .632a1.689 1.689 0 0 0 1.67 1.436h1.18c.135.471.322.92.556 1.34l-.835.836c-.59.59-.66 1.523-.166 2.196.126.17.277.32.447.447a1.688 1.688 0 0 0 2.196-.166l.835-.835c.42.234.87.421 1.341.556v1.18c0 .836.61 1.545 1.436 1.67.21.032.423.032.632 0a1.688 1.688 0 0 0 1.436-1.67v-1.18a6.335 6.335 0 0 0 1.34-.556l.836.835c.59.59 1.523.66 2.196.166a2.11 2.11 0 0 0 .447-.447 1.688 1.688 0 0 0-.166-2.196l-.835-.835c.234-.42.421-.87.556-1.341h1.18c.836 0 1.545-.61 1.67-1.436.032-.21.032-.423 0-.632a1.688 1.688 0 0 0-1.67-1.436h-1.18a6.332 6.332 0 0 0-.556-1.34l.835-.836c.59-.59.66-1.524.166-2.196a2.11 2.11 0 0 0-.447-.447 1.689 1.689 0 0 0-2.196.166l-.835.835a6.328 6.328 0 0 0-1.341-.556v-1.18z"
+        stroke="#676767"
+        stroke-width="1.5"
         stroke-linecap="round"
         stroke-linejoin="round"
-        stroke-width="1.8"
       />
       <path
-        d="M19 12a7 7 0 0 0-.09-1.1l1.63-1.27-1.5-2.6-1.97.53a7.02 7.02 0 0 0-1.9-1.1L14.9 4h-3l-.27 2.46a7.02 7.02 0 0 0-1.9 1.1l-1.97-.53-1.5 2.6 1.63 1.27A7 7 0 0 0 8 12c0 .37.03.74.09 1.1l-1.63 1.27 1.5 2.6 1.97-.53c.58.45 1.21.82 1.9 1.1L11.9 20h3l.27-2.46c.69-.28 1.32-.65 1.9-1.1l1.97.53 1.5-2.6-1.63-1.27c.06-.36.09-.73.09-1.1Z"
-        stroke="currentColor"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="1.4"
+        d="M9.5 12a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0z"
+        stroke="#676767"
+        stroke-width="1.5"
       />
     </svg>
   );
@@ -187,58 +186,8 @@ export function WorkspacePage(_props: WorkspacePageProps) {
     }, topTabHoverDelayMs);
   };
 
-  const renderActivePage = () => {
-    switch (activeTab()) {
-      case "settings":
-        return (
-          <SettingsWorkspace
-            sidebarOpen={sidebarOpen()}
-            sidebarWidth={sidebarWidth()}
-            sidebarResizing={sidebarResizing()}
-            onSidebarResizeStart={handleSidebarResizeStart}
-          />
-        );
-      case "home":
-        return <HomeWorkspace />;
-      case "db":
-        return (
-          <DbWorkspace
-            sidebarOpen={sidebarOpen()}
-            sidebarWidth={sidebarWidth()}
-            sidebarResizing={sidebarResizing()}
-            onSidebarResizeStart={handleSidebarResizeStart}
-          />
-        );
-      case "tools":
-        return (
-          <ToolsWorkspace
-            sidebarOpen={sidebarOpen()}
-            sidebarWidth={sidebarWidth()}
-            sidebarResizing={sidebarResizing()}
-            onSidebarResizeStart={handleSidebarResizeStart}
-          />
-        );
-      case "ssh":
-        return (
-          <SshWorkspace
-            sidebarOpen={sidebarOpen()}
-            sidebarWidth={sidebarWidth()}
-            sidebarResizing={sidebarResizing()}
-            onSidebarResizeStart={handleSidebarResizeStart}
-          />
-        );
-      case "api":
-      default:
-        return (
-          <RestPlayground
-            sidebarOpen={sidebarOpen()}
-            sidebarWidth={sidebarWidth()}
-            sidebarResizing={sidebarResizing()}
-            onSidebarResizeStart={handleSidebarResizeStart}
-          />
-        );
-    }
-  };
+  const tabPanelStyle = (tab: WorkspaceTab) =>
+    activeTab() === tab ? { display: "contents" } : { display: "none" };
 
   return (
     <AppShell
@@ -358,7 +307,49 @@ export function WorkspacePage(_props: WorkspacePageProps) {
         </div>
       }
     >
-      {renderActivePage()}
+      <div style={tabPanelStyle("home")}>
+        <HomeWorkspace />
+      </div>
+      <div style={tabPanelStyle("api")}>
+        <RestPlayground
+          sidebarOpen={sidebarOpen()}
+          sidebarWidth={sidebarWidth()}
+          sidebarResizing={sidebarResizing()}
+          onSidebarResizeStart={handleSidebarResizeStart}
+        />
+      </div>
+      <div style={tabPanelStyle("db")}>
+        <DbWorkspace
+          sidebarOpen={sidebarOpen()}
+          sidebarWidth={sidebarWidth()}
+          sidebarResizing={sidebarResizing()}
+          onSidebarResizeStart={handleSidebarResizeStart}
+        />
+      </div>
+      <div style={tabPanelStyle("ssh")}>
+        <SshWorkspace
+          sidebarOpen={sidebarOpen()}
+          sidebarWidth={sidebarWidth()}
+          sidebarResizing={sidebarResizing()}
+          onSidebarResizeStart={handleSidebarResizeStart}
+        />
+      </div>
+      <div style={tabPanelStyle("tools")}>
+        <ToolsWorkspace
+          sidebarOpen={sidebarOpen()}
+          sidebarWidth={sidebarWidth()}
+          sidebarResizing={sidebarResizing()}
+          onSidebarResizeStart={handleSidebarResizeStart}
+        />
+      </div>
+      <div style={tabPanelStyle("settings")}>
+        <SettingsWorkspace
+          sidebarOpen={sidebarOpen()}
+          sidebarWidth={sidebarWidth()}
+          sidebarResizing={sidebarResizing()}
+          onSidebarResizeStart={handleSidebarResizeStart}
+        />
+      </div>
     </AppShell>
   );
 }
