@@ -3,10 +3,8 @@ import { For, Show, createSignal } from "solid-js";
 import { SectionCard } from "../components/section-card";
 import { WorkspaceSection } from "../components/workspace-section";
 import { WorkspaceSidebarLayout } from "../components/workspace-sidebar-layout";
-import { DbPanel } from "../features/db/components/db-panel";
 import { ProxyPanel } from "../features/proxy/components/proxy-panel";
 import { SyncPanel } from "../features/sync/components/sync-panel";
-import { SshPanel } from "../features/ssh/components/ssh-panel";
 
 type SidebarWorkspaceProps = {
   sidebarOpen: boolean;
@@ -16,30 +14,52 @@ type SidebarWorkspaceProps = {
 };
 
 const homeCards = [
-  { title: "API Requests", meta: "12 collections", summary: "继续进入 REST 工作台，管理请求集合、历史记录和环境变量。" },
-  { title: "Database", meta: "4 connections", summary: "预留数据库连接、查询历史和结果查看的工作区。" },
-  { title: "Tools", meta: "8 utilities", summary: "格式转换、Diff、编码解码、JSON 处理等工具集入口。" }
+  {
+    title: "API Requests",
+    meta: "12 collections",
+    summary: "继续进入 REST 工作台，管理请求集合、历史记录和环境变量。",
+  },
+  {
+    title: "Database",
+    meta: "4 connections",
+    summary: "预留数据库连接、查询历史和结果查看的工作区。",
+  },
+  {
+    title: "Tools",
+    meta: "8 utilities",
+    summary: "格式转换、Diff、编码解码、JSON 处理等工具集入口。",
+  },
 ];
 
 const toolGroups = [
   { name: "Formatter", summary: "JSON / SQL / XML / YAML 格式化与压缩。" },
   { name: "Diff", summary: "文本、配置、接口返回值差异对比。" },
-  { name: "Encode", summary: "Base64、URL、JWT、Hash、Timestamp 等常用转换。" }
+  { name: "Encode", summary: "Base64、URL、JWT、Hash、Timestamp 等常用转换。" },
 ];
 
-type SettingsSectionId = "proxy" | "sync" | "account" | "team" | "billing" | "about";
+type SettingsSectionId =
+  | "proxy"
+  | "sync"
+  | "account"
+  | "team"
+  | "billing"
+  | "about";
 
 const settingsSections: Array<{
   id: SettingsSectionId;
   title: string;
   summary: string;
 }> = [
-  { id: "proxy", title: "Proxy", summary: "API / DB / SSH 的代理入口与连通性测试。" },
+  {
+    id: "proxy",
+    title: "Proxy",
+    summary: "API / DB / SSH 的代理入口与连通性测试。",
+  },
   { id: "sync", title: "Sync", summary: "云同步、备份和导入导出。" },
   { id: "account", title: "Account", summary: "个人身份、偏好和访问控制。" },
   { id: "team", title: "Team", summary: "团队版、统一管理和工作区分发。" },
   { id: "billing", title: "Billing", summary: "赞助、订阅和企业采购入口。" },
-  { id: "about", title: "About", summary: "产品说明、版本信息和支持入口。" }
+  { id: "about", title: "About", summary: "产品说明、版本信息和支持入口。" },
 ];
 
 function SettingsPlaceholder(props: {
@@ -54,7 +74,9 @@ function SettingsPlaceholder(props: {
         <div class="grid gap-3">
           <div class="theme-control rounded-3xl p-4">
             <p class="theme-text text-sm font-semibold">{props.title}</p>
-            <p class="theme-text-muted mt-2 text-sm leading-6">{props.summary}</p>
+            <p class="theme-text-muted mt-2 text-sm leading-6">
+              {props.summary}
+            </p>
           </div>
           <div class="grid gap-3 md:grid-cols-3">
             <For each={props.bullets}>
@@ -71,7 +93,9 @@ function SettingsPlaceholder(props: {
         </div>
 
         <div class="theme-control rounded-3xl p-4">
-          <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">Status</p>
+          <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">
+            Status
+          </p>
           <p class="theme-text mt-2 text-lg font-semibold">Planning Slot</p>
           <p class="theme-text-muted mt-3 text-sm leading-6">
             这里现在先保留后台管理模板式的信息位，方便后面继续扩展成完整设置中心。
@@ -91,8 +115,12 @@ export function HomeWorkspace() {
             {(card) => (
               <article class="theme-control rounded-3xl p-4">
                 <p class="theme-text text-sm font-semibold">{card.title}</p>
-                <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">{card.meta}</p>
-                <p class="theme-text-muted mt-3 text-sm leading-6">{card.summary}</p>
+                <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">
+                  {card.meta}
+                </p>
+                <p class="theme-text-muted mt-3 text-sm leading-6">
+                  {card.summary}
+                </p>
               </article>
             )}
           </For>
@@ -102,15 +130,21 @@ export function HomeWorkspace() {
       <SectionCard eyebrow="Today" title="Recent Activity">
         <div class="grid gap-3">
           <div class="theme-control rounded-2xl px-4 py-4">
-            <p class="theme-text text-sm font-medium">REST collection refreshed</p>
+            <p class="theme-text text-sm font-medium">
+              REST collection refreshed
+            </p>
             <p class="theme-text-soft mt-1 text-xs">Core APIs · 12 requests</p>
           </div>
           <div class="theme-control rounded-2xl px-4 py-4">
-            <p class="theme-text text-sm font-medium">JSON diff snapshot saved</p>
+            <p class="theme-text text-sm font-medium">
+              JSON diff snapshot saved
+            </p>
             <p class="theme-text-soft mt-1 text-xs">Billing payload · 09:21</p>
           </div>
           <div class="theme-control rounded-2xl px-4 py-4">
-            <p class="theme-text text-sm font-medium">Environment switched to Staging</p>
+            <p class="theme-text text-sm font-medium">
+              Environment switched to Staging
+            </p>
             <p class="theme-text-soft mt-1 text-xs">Shared workspace state</p>
           </div>
         </div>
@@ -120,7 +154,8 @@ export function HomeWorkspace() {
 }
 
 export function SettingsWorkspace(props: SidebarWorkspaceProps) {
-  const [activeSection, setActiveSection] = createSignal<SettingsSectionId>("proxy");
+  const [activeSection, setActiveSection] =
+    createSignal<SettingsSectionId>("proxy");
 
   const renderSettingsContent = () => {
     switch (activeSection()) {
@@ -177,37 +212,32 @@ export function SettingsWorkspace(props: SidebarWorkspaceProps) {
       contentClass="mt-4 grid gap-4"
       sidebar={
         <>
-        <div class="grid gap-1">
-          <For each={settingsSections}>
-            {(section) => (
-              <button
-                class={`theme-sidebar-item w-full rounded-xl px-3 py-2.5 text-left ${
-                  activeSection() === section.id ? "theme-sidebar-item-active" : ""
-                }`}
-                onClick={() => setActiveSection(section.id)}
-              >
-                <p class="theme-text text-sm font-semibold">{section.title}</p>
-                <p class="theme-text-soft mt-1 text-xs leading-5">{section.summary}</p>
-              </button>
-            )}
-          </For>
-        </div>
+          <div class="grid gap-1">
+            <For each={settingsSections}>
+              {(section) => (
+                <button
+                  class={`theme-sidebar-item w-full rounded-xl px-3 py-2.5 text-left ${
+                    activeSection() === section.id
+                      ? "theme-sidebar-item-active"
+                      : ""
+                  }`}
+                  onClick={() => setActiveSection(section.id)}
+                >
+                  <p class="theme-text text-sm font-semibold">
+                    {section.title}
+                  </p>
+                  <p class="theme-text-soft mt-1 text-xs leading-5">
+                    {section.summary}
+                  </p>
+                </button>
+              )}
+            </For>
+          </div>
         </>
       }
     >
       {renderSettingsContent()}
     </WorkspaceSidebarLayout>
-  );
-}
-
-export function DbWorkspace(props: SidebarWorkspaceProps) {
-  return (
-    <DbPanel
-      sidebarOpen={props.sidebarOpen}
-      sidebarWidth={props.sidebarWidth}
-      sidebarResizing={props.sidebarResizing}
-      onSidebarResizeStart={props.onSidebarResizeStart}
-    />
   );
 }
 
@@ -222,10 +252,17 @@ export function ToolsWorkspace(props: SidebarWorkspaceProps) {
       contentStyle={{ "border-color": "var(--app-border)" }}
       sidebar={
         <>
-          <div class="mb-5 border-b pb-4" style={{ "border-color": "var(--app-border)" }}>
-            <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">Utilities</p>
+          <div
+            class="mb-5 border-b pb-4"
+            style={{ "border-color": "var(--app-border)" }}
+          >
+            <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">
+              Utilities
+            </p>
             <h2 class="theme-text mt-2 text-lg font-semibold">Tools</h2>
-            <p class="theme-text-soft mt-1 text-sm leading-6">格式转换、差异对比和编码工具统一放在左侧菜单里。</p>
+            <p class="theme-text-soft mt-1 text-sm leading-6">
+              格式转换、差异对比和编码工具统一放在左侧菜单里。
+            </p>
           </div>
 
           <div class="grid gap-3">
@@ -233,7 +270,9 @@ export function ToolsWorkspace(props: SidebarWorkspaceProps) {
               {(tool) => (
                 <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
                   <p class="theme-text text-sm font-semibold">{tool.name}</p>
-                  <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">utility module</p>
+                  <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">
+                    utility module
+                  </p>
                 </div>
               )}
             </For>
@@ -241,41 +280,42 @@ export function ToolsWorkspace(props: SidebarWorkspaceProps) {
         </>
       }
     >
-        <WorkspaceSection eyebrow="Toolkit" title="Utility Modules">
-          <div class="grid gap-4 md:grid-cols-3">
-            <For each={toolGroups}>
-              {(tool) => (
-                <div class="border px-4 py-4" style={{ "border-color": "var(--app-border)" }}>
-                  <p class="theme-text text-sm font-semibold">{tool.name}</p>
-                  <p class="theme-text-muted mt-3 text-sm leading-6">{tool.summary}</p>
-                </div>
-              )}
-            </For>
-          </div>
-        </WorkspaceSection>
+      <WorkspaceSection eyebrow="Toolkit" title="Utility Modules">
+        <div class="grid gap-4 md:grid-cols-3">
+          <For each={toolGroups}>
+            {(tool) => (
+              <div
+                class="border px-4 py-4"
+                style={{ "border-color": "var(--app-border)" }}
+              >
+                <p class="theme-text text-sm font-semibold">{tool.name}</p>
+                <p class="theme-text-muted mt-3 text-sm leading-6">
+                  {tool.summary}
+                </p>
+              </div>
+            )}
+          </For>
+        </div>
+      </WorkspaceSection>
 
-        <WorkspaceSection eyebrow="Scratchpad" title="Transform Playground" class="border-b">
-          <div class="theme-code border px-4 py-4" style={{ "border-color": "var(--app-border)" }}>
-            <pre class="theme-text-muted overflow-x-auto font-mono text-sm leading-7">
-              <code>{`{
+      <WorkspaceSection
+        eyebrow="Scratchpad"
+        title="Transform Playground"
+        class="border-b"
+      >
+        <div
+          class="theme-code border px-4 py-4"
+          style={{ "border-color": "var(--app-border)" }}
+        >
+          <pre class="theme-text-muted overflow-x-auto font-mono text-sm leading-7">
+            <code>{`{
   "mode": "formatter",
   "input": "base64 / url / json / jwt",
   "output": "preview here"
 }`}</code>
-            </pre>
-          </div>
-        </WorkspaceSection>
+          </pre>
+        </div>
+      </WorkspaceSection>
     </WorkspaceSidebarLayout>
-  );
-}
-
-export function SshWorkspace(props: SidebarWorkspaceProps) {
-  return (
-    <SshPanel
-      sidebarOpen={props.sidebarOpen}
-      sidebarWidth={props.sidebarWidth}
-      sidebarResizing={props.sidebarResizing}
-      onSidebarResizeStart={props.onSidebarResizeStart}
-    />
   );
 }

@@ -9,15 +9,26 @@ import {
   createMemo,
   createSignal,
   onCleanup,
-  onMount
+  onMount,
 } from "solid-js";
 import { createStore, unwrap } from "solid-js/store";
 import { AppButton } from "../../../components/app-button";
+import { TabsBar } from "../../../components/tabs-bar";
+import {
+  ControlDot,
+  EditorToggle,
+  FormatJsonIcon,
+  PinIcon,
+} from "../../../components/ui-primitives";
 import { WorkspaceSidebarLayout } from "../../../components/workspace-sidebar-layout";
-import { isHtmlContentType, isJsonContentType, JsonHighlightedCode, JsonPreviewNode } from "./rest-json-view";
-import { RequestTabsBar } from "./request-tabs-bar";
+import { arrayMove, makeId, reorderByDirection } from "../../../lib/utils";
+import {
+  isHtmlContentType,
+  isJsonContentType,
+  JsonHighlightedCode,
+  JsonPreviewNode,
+} from "./rest-json-view";
 import { FormDataTableEditor, KeyValueTableEditor } from "./rest-table-editors";
-import { ControlDot, EditorToggle, FormatJsonIcon, PinIcon } from "./rest-ui-primitives";
 import type {
   Collection,
   CollectionFolder,
@@ -28,7 +39,7 @@ import type {
   RequestKind,
   RequestMethod,
   ResponseSummary,
-  RestWorkspaceState
+  RestWorkspaceState,
 } from "../models";
 import {
   createDefaultRestWorkspace,
@@ -39,7 +50,7 @@ import {
   loadRestWorkspace,
   normalizeRestWorkspace,
   resolveTemplate,
-  saveRestWorkspace
+  saveRestWorkspace,
 } from "../service";
 
 type SidebarPanelId = "collections" | "environments" | "history";
@@ -65,13 +76,13 @@ const editorTabs: Array<{ id: EditorTabId; label: string }> = [
   { id: "params", label: "Params" },
   { id: "headers", label: "Headers" },
   { id: "body", label: "Body" },
-  { id: "auth", label: "Auth" }
+  { id: "auth", label: "Auth" },
 ];
 
 const sidebarTabs: Array<{ id: SidebarPanelId; label: string }> = [
   { id: "collections", label: "Collections" },
   { id: "environments", label: "ENV" },
-  { id: "history", label: "HIS" }
+  { id: "history", label: "HIS" },
 ];
 
 const preRequestScriptHeightStorageKey = "devx-script-height-pre-request";
@@ -108,7 +119,7 @@ const requestCreateOptions: Array<{ id: RequestKind; label: string }> = [
   { id: "curl", label: "cURL" },
   { id: "websocket", label: "WebSocket" },
   { id: "graphql", label: "GraphQL" },
-  { id: "socketio", label: "Socket.IO" }
+  { id: "socketio", label: "Socket.IO" },
 ];
 
 const commonHeaderKeys = [
@@ -127,7 +138,7 @@ const commonHeaderKeys = [
   "Referer",
   "User-Agent",
   "X-API-Key",
-  "X-Requested-With"
+  "X-Requested-With",
 ];
 
 const commonHeaderValueMap: Record<string, string[]> = {
@@ -136,7 +147,7 @@ const commonHeaderValueMap: Record<string, string[]> = {
     "application/json; charset=utf-8",
     "text/plain",
     "text/html",
-    "*/*"
+    "*/*",
   ],
   "accept-encoding": ["gzip, deflate, br", "gzip, deflate", "identity"],
   "accept-language": ["en-US,en;q=0.9", "zh-CN,zh;q=0.9", "en;q=0.8"],
@@ -149,11 +160,11 @@ const commonHeaderValueMap: Record<string, string[]> = {
     "application/x-www-form-urlencoded",
     "multipart/form-data",
     "text/plain",
-    "application/octet-stream"
+    "application/octet-stream",
   ],
   pragma: ["no-cache"],
   "x-requested-with": ["XMLHttpRequest"],
-  "x-api-key": ["{{apiKey}}"]
+  "x-api-key": ["{{apiKey}}"],
 };
 
 const requestMethods: RequestMethod[] = [
@@ -165,45 +176,8 @@ const requestMethods: RequestMethod[] = [
   "HEAD",
   "OPTIONS",
   "TRACE",
-  "CONNECT"
+  "CONNECT",
 ];
-
-function makeId(prefix: string) {
-  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function arrayMove<T>(items: T[], fromIndex: number, toIndex: number) {
-  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
-    return items.slice();
-  }
-
-  const next = items.slice();
-  const [item] = next.splice(fromIndex, 1);
-  next.splice(Math.max(0, Math.min(next.length, toIndex)), 0, item);
-  return next;
-}
-
-function reorderByDirection(ids: string[], id: string, direction: "top" | "up" | "down") {
-  const index = ids.indexOf(id);
-
-  if (index < 0) {
-    return ids.slice();
-  }
-
-  if (direction === "top") {
-    return arrayMove(ids, index, 0);
-  }
-
-  if (direction === "up" && index > 0) {
-    return arrayMove(ids, index, index - 1);
-  }
-
-  if (direction === "down" && index < ids.length - 1) {
-    return arrayMove(ids, index, index + 1);
-  }
-
-  return ids.slice();
-}
 
 function formatBytes(value: number) {
   if (value < 1024) {
@@ -269,7 +243,7 @@ function getRequestBadgeClass(request: RequestDraft) {
 function createRequestForKind(
   collectionId: string,
   kind: RequestKind,
-  folderId: string | null = null
+  folderId: string | null = null,
 ) {
   switch (kind) {
     case "graphql":
@@ -281,18 +255,21 @@ function createRequestForKind(
         url: "{{baseUrl}}/graphql",
         headers: [
           createKeyValueEntry({ key: "Accept", value: "application/json" }),
-          createKeyValueEntry({ key: "Content-Type", value: "application/json" })
+          createKeyValueEntry({
+            key: "Content-Type",
+            value: "application/json",
+          }),
         ],
         body: {
           type: "json",
           value: JSON.stringify(
             {
-              query: "query Example {\n  __typename\n}"
+              query: "query Example {\n  __typename\n}",
             },
             null,
-            2
-          )
-        }
+            2,
+          ),
+        },
       });
     case "websocket":
       return createRequestDraft(collectionId, {
@@ -301,7 +278,7 @@ function createRequestForKind(
         name: "WebSocket Request",
         url: "wss://example.com/socket",
         headers: [],
-        body: { type: "none" }
+        body: { type: "none" },
       });
     case "socketio":
       return createRequestDraft(collectionId, {
@@ -310,21 +287,21 @@ function createRequestForKind(
         name: "Socket.IO Request",
         url: "https://example.com/socket.io/?EIO=4&transport=websocket",
         headers: [],
-        body: { type: "none" }
+        body: { type: "none" },
       });
     case "curl":
       return createRequestDraft(collectionId, {
         folderId,
         kind: "curl",
         name: "Imported cURL",
-        url: "{{baseUrl}}/users"
+        url: "{{baseUrl}}/users",
       });
     case "http":
     default:
       return createRequestDraft(collectionId, {
         folderId,
         name: "New Request",
-        url: "{{baseUrl}}/posts"
+        url: "{{baseUrl}}/posts",
       });
   }
 }
@@ -540,7 +517,7 @@ function buildCurlCommand(request: RequestDraft, environment?: Environment) {
     .forEach((entry) => {
       url.searchParams.append(
         resolveTemplate(entry.key, environment),
-        resolveTemplate(entry.value, environment)
+        resolveTemplate(entry.value, environment),
       );
     });
 
@@ -551,7 +528,7 @@ function buildCurlCommand(request: RequestDraft, environment?: Environment) {
     .forEach((entry) => {
       parts.push(
         "-H",
-        `'${resolveTemplate(entry.key, environment)}: ${resolveTemplate(entry.value, environment)}'`
+        `'${resolveTemplate(entry.key, environment)}: ${resolveTemplate(entry.value, environment)}'`,
       );
     });
 
@@ -559,13 +536,13 @@ function buildCurlCommand(request: RequestDraft, environment?: Environment) {
     case "bearer":
       parts.push(
         "-H",
-        `'Authorization: Bearer ${resolveTemplate(request.auth.token, environment)}'`
+        `'Authorization: Bearer ${resolveTemplate(request.auth.token, environment)}'`,
       );
       break;
     case "basic":
       parts.push(
         "-u",
-        `'${resolveTemplate(request.auth.username, environment)}:${resolveTemplate(request.auth.password, environment)}'`
+        `'${resolveTemplate(request.auth.username, environment)}:${resolveTemplate(request.auth.password, environment)}'`,
       );
       break;
     case "api-key":
@@ -574,8 +551,8 @@ function buildCurlCommand(request: RequestDraft, environment?: Environment) {
           "-H",
           `'${resolveTemplate(request.auth.key, environment)}: ${resolveTemplate(
             request.auth.value,
-            environment
-          )}'`
+            environment,
+          )}'`,
         );
       }
       break;
@@ -586,7 +563,10 @@ function buildCurlCommand(request: RequestDraft, environment?: Environment) {
   switch (request.body.type) {
     case "json":
       parts.push("-H", "'Content-Type: application/json'");
-      parts.push("--data-raw", `'${resolveTemplate(request.body.value, environment)}'`);
+      parts.push(
+        "--data-raw",
+        `'${resolveTemplate(request.body.value, environment)}'`,
+      );
       break;
     case "form-data":
       request.body.entries
@@ -596,16 +576,19 @@ function buildCurlCommand(request: RequestDraft, environment?: Environment) {
             "-F",
             entry.valueType === "file"
               ? `'${resolveTemplate(entry.key, environment)}=@${entry.fileName || "upload.bin"}'`
-              : `'${resolveTemplate(entry.key, environment)}=${resolveTemplate(entry.value, environment)}'`
+              : `'${resolveTemplate(entry.key, environment)}=${resolveTemplate(entry.value, environment)}'`,
           );
         });
       break;
     case "raw":
       parts.push(
         "-H",
-        `'Content-Type: ${resolveTemplate(request.body.contentType, environment) || "text/plain"}'`
+        `'Content-Type: ${resolveTemplate(request.body.contentType, environment) || "text/plain"}'`,
       );
-      parts.push("--data-raw", `'${resolveTemplate(request.body.value, environment)}'`);
+      parts.push(
+        "--data-raw",
+        `'${resolveTemplate(request.body.value, environment)}'`,
+      );
       break;
     case "form-urlencoded":
       request.body.entries
@@ -613,13 +596,16 @@ function buildCurlCommand(request: RequestDraft, environment?: Environment) {
         .forEach((entry) => {
           parts.push(
             "--data-urlencode",
-            `'${resolveTemplate(entry.key, environment)}=${resolveTemplate(entry.value, environment)}'`
+            `'${resolveTemplate(entry.key, environment)}=${resolveTemplate(entry.value, environment)}'`,
           );
         });
       break;
     case "binary":
       parts.push("-H", "'Content-Type: application/octet-stream'");
-      parts.push("--data-binary", `'${resolveTemplate(request.body.value, environment)}'`);
+      parts.push(
+        "--data-binary",
+        `'${resolveTemplate(request.body.value, environment)}'`,
+      );
       break;
     default:
       break;
@@ -631,7 +617,7 @@ function buildCurlCommand(request: RequestDraft, environment?: Environment) {
 function parseCurlCommand(
   collectionId: string,
   input: string,
-  folderId: string | null = null
+  folderId: string | null = null,
 ) {
   const tokens = splitShellArgs(input);
 
@@ -657,7 +643,9 @@ function parseCurlCommand(
     switch (token) {
       case "-X":
       case "--request": {
-        const next = tokens[index + 1]?.toUpperCase() as RequestMethod | undefined;
+        const next = tokens[index + 1]?.toUpperCase() as
+          | RequestMethod
+          | undefined;
         if (next && requestMethods.includes(next)) {
           method = next;
           index += 1;
@@ -700,8 +688,8 @@ function parseCurlCommand(
             headers.push(
               createKeyValueEntry({
                 key: value.slice(0, separatorIndex).trim(),
-                value: value.slice(separatorIndex + 1).trim()
-              })
+                value: value.slice(separatorIndex + 1).trim(),
+              }),
             );
           }
           index += 1;
@@ -726,8 +714,8 @@ function parseCurlCommand(
           urlEncodedEntries.push(
             createKeyValueEntry({
               key: value.slice(0, separatorIndex),
-              value: value.slice(separatorIndex + 1)
-            })
+              value: value.slice(separatorIndex + 1),
+            }),
           );
         }
         if (method === "GET") {
@@ -751,8 +739,8 @@ function parseCurlCommand(
               valueType: isFile ? "file" : "text",
               fileName: isFile ? nextValue.slice(1).split(/[;>]/, 1)[0] : "",
               fileContent: "",
-              fileContentType: ""
-            })
+              fileContentType: "",
+            }),
           );
         }
         if (method === "GET") {
@@ -765,8 +753,10 @@ function parseCurlCommand(
       case "--user": {
         const value = tokens[index + 1] ?? "";
         const separatorIndex = value.indexOf(":");
-        basicUsername = separatorIndex >= 0 ? value.slice(0, separatorIndex) : value;
-        basicPassword = separatorIndex >= 0 ? value.slice(separatorIndex + 1) : "";
+        basicUsername =
+          separatorIndex >= 0 ? value.slice(0, separatorIndex) : value;
+        basicPassword =
+          separatorIndex >= 0 ? value.slice(separatorIndex + 1) : "";
         index += 1;
         break;
       }
@@ -796,7 +786,9 @@ function parseCurlCommand(
     // Ignore partial URLs.
   }
 
-  const contentTypeHeader = headers.find((header) => header.key.toLowerCase() === "content-type");
+  const contentTypeHeader = headers.find(
+    (header) => header.key.toLowerCase() === "content-type",
+  );
   contentType = contentTypeHeader?.value ?? "";
 
   if (useGetForData && urlEncodedEntries.length > 0) {
@@ -804,8 +796,8 @@ function parseCurlCommand(
       queryEntries.push(
         createKeyValueEntry({
           key: entry.key,
-          value: entry.value
-        })
+          value: entry.value,
+        }),
       );
     });
   }
@@ -814,33 +806,35 @@ function parseCurlCommand(
   if (formDataEntries.length > 0) {
     body = {
       type: "form-data",
-      entries: formDataEntries
+      entries: formDataEntries,
     };
   } else if (urlEncodedEntries.length > 0 && !useGetForData) {
     body = {
       type: "form-urlencoded",
-      entries: urlEncodedEntries
+      entries: urlEncodedEntries,
     };
   } else if (rawBody) {
     body = contentType.includes("application/json")
       ? {
           type: "json",
-          value: rawBody
+          value: rawBody,
         }
       : contentType.includes("application/octet-stream")
         ? {
             type: "binary",
-            value: rawBody
+            value: rawBody,
           }
-      : {
-          type: "raw",
-          value: rawBody,
-          contentType: contentType || "text/plain"
-        };
+        : {
+            type: "raw",
+            value: rawBody,
+            contentType: contentType || "text/plain",
+          };
   }
 
   let auth: RequestDraft["auth"] = { type: "none" };
-  const authHeaderIndex = headers.findIndex((header) => header.key.toLowerCase() === "authorization");
+  const authHeaderIndex = headers.findIndex(
+    (header) => header.key.toLowerCase() === "authorization",
+  );
 
   if (basicUsername || basicPassword) {
     auth = { type: "basic", username: basicUsername, password: basicPassword };
@@ -858,8 +852,10 @@ function parseCurlCommand(
         const separatorIndex = decoded.indexOf(":");
         auth = {
           type: "basic",
-          username: separatorIndex >= 0 ? decoded.slice(0, separatorIndex) : decoded,
-          password: separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : ""
+          username:
+            separatorIndex >= 0 ? decoded.slice(0, separatorIndex) : decoded,
+          password:
+            separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : "",
         };
         headers.splice(authHeaderIndex, 1);
       } catch {
@@ -877,7 +873,7 @@ function parseCurlCommand(
     query: queryEntries,
     headers,
     body,
-    auth
+    auth,
   });
 }
 
@@ -891,7 +887,7 @@ function sanitizeFileName(value: string) {
 
 function downloadJsonFile(filename: string, data: unknown) {
   const blob = new Blob([JSON.stringify(data, null, 2)], {
-    type: "application/json"
+    type: "application/json",
   });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -924,46 +920,82 @@ function getResponseStatusClass(status: number) {
 }
 
 export function RestPlayground(props: RestPlaygroundProps) {
-  const [workspace, setWorkspace] = createStore<RestWorkspaceState>(createDefaultRestWorkspace());
+  const [workspace, setWorkspace] = createStore<RestWorkspaceState>(
+    createDefaultRestWorkspace(),
+  );
   const [isLoaded, setIsLoaded] = createSignal(false);
-  const [sidebarPanel, setSidebarPanel] = createSignal<SidebarPanelId>("collections");
+  const [sidebarPanel, setSidebarPanel] =
+    createSignal<SidebarPanelId>("collections");
   const [editorTab, setEditorTab] = createSignal<EditorTabId>("params");
-  const [topEditorTab, setTopEditorTab] = createSignal<"headers" | "auth">("headers");
-  const [bottomEditorTab, setBottomEditorTab] = createSignal<BottomEditorTabId>("body");
+  const [topEditorTab, setTopEditorTab] = createSignal<"headers" | "auth">(
+    "headers",
+  );
+  const [bottomEditorTab, setBottomEditorTab] =
+    createSignal<BottomEditorTabId>("body");
   const [responseTab, setResponseTab] = createSignal<ResponseTabId>("body");
-  const [responseBodyView, setResponseBodyView] = createSignal<"raw" | "preview">("raw");
+  const [responseBodyView, setResponseBodyView] = createSignal<
+    "raw" | "preview"
+  >("raw");
   const [mainPaneSplit, setMainPaneSplit] = createSignal(40);
   const [mainPaneResizing, setMainPaneResizing] = createSignal(false);
   const [preRequestScriptHeight, setPreRequestScriptHeight] = createSignal(280);
-  const [postResponseScriptHeight, setPostResponseScriptHeight] = createSignal(280);
-  const [expandedCollectionIds, setExpandedCollectionIds] = createSignal<string[]>([]);
+  const [postResponseScriptHeight, setPostResponseScriptHeight] =
+    createSignal(280);
+  const [expandedCollectionIds, setExpandedCollectionIds] = createSignal<
+    string[]
+  >([]);
   const [expandedFolderIds, setExpandedFolderIds] = createSignal<string[]>([]);
   const [collectionFilter, setCollectionFilter] = createSignal("");
-  const [responseSummary, setResponseSummary] = createSignal<ResponseSummary | null>(null);
+  const [responseSummary, setResponseSummary] =
+    createSignal<ResponseSummary | null>(null);
   const [responseError, setResponseError] = createSignal<string | null>(null);
   const [isSending, setIsSending] = createSignal(false);
   const [saveState, setSaveState] = createSignal<SaveState>("idle");
 
-  const [showCollectionCreateMenu, setShowCollectionCreateMenu] = createSignal(false);
-  const [collectionMenuId, setCollectionMenuId] = createSignal<string | null>(null);
-  const [collectionOrderMenuId, setCollectionOrderMenuId] = createSignal<string | null>(null);
-  const [collectionAddMenuId, setCollectionAddMenuId] = createSignal<string | null>(null);
+  const [showCollectionCreateMenu, setShowCollectionCreateMenu] =
+    createSignal(false);
+  const [collectionMenuId, setCollectionMenuId] = createSignal<string | null>(
+    null,
+  );
+  const [collectionOrderMenuId, setCollectionOrderMenuId] = createSignal<
+    string | null
+  >(null);
+  const [collectionAddMenuId, setCollectionAddMenuId] = createSignal<
+    string | null
+  >(null);
 
   const [folderMenuId, setFolderMenuId] = createSignal<string | null>(null);
-  const [folderOrderMenuId, setFolderOrderMenuId] = createSignal<string | null>(null);
-  const [folderMoveMenuId, setFolderMoveMenuId] = createSignal<string | null>(null);
-  const [folderAddMenuId, setFolderAddMenuId] = createSignal<string | null>(null);
+  const [folderOrderMenuId, setFolderOrderMenuId] = createSignal<string | null>(
+    null,
+  );
+  const [folderMoveMenuId, setFolderMoveMenuId] = createSignal<string | null>(
+    null,
+  );
+  const [folderAddMenuId, setFolderAddMenuId] = createSignal<string | null>(
+    null,
+  );
 
   const [requestMenuId, setRequestMenuId] = createSignal<string | null>(null);
-  const [requestOrderMenuId, setRequestOrderMenuId] = createSignal<string | null>(null);
-  const [requestMoveMenuId, setRequestMoveMenuId] = createSignal<string | null>(null);
+  const [requestOrderMenuId, setRequestOrderMenuId] = createSignal<
+    string | null
+  >(null);
+  const [requestMoveMenuId, setRequestMoveMenuId] = createSignal<string | null>(
+    null,
+  );
 
-  const [requestTabMenuState, setRequestTabMenuState] = createSignal<RequestTabMenuState | null>(null);
+  const [requestTabMenuState, setRequestTabMenuState] =
+    createSignal<RequestTabMenuState | null>(null);
   const [draggedTabId, setDraggedTabId] = createSignal<string | null>(null);
-  const [tabDropTargetId, setTabDropTargetId] = createSignal<string | null>(null);
+  const [tabDropTargetId, setTabDropTargetId] = createSignal<string | null>(
+    null,
+  );
 
-  const [curlImportCollectionId, setCurlImportCollectionId] = createSignal<string | null>(null);
-  const [curlImportFolderId, setCurlImportFolderId] = createSignal<string | null>(null);
+  const [curlImportCollectionId, setCurlImportCollectionId] = createSignal<
+    string | null
+  >(null);
+  const [curlImportFolderId, setCurlImportFolderId] = createSignal<
+    string | null
+  >(null);
   const [curlInput, setCurlInput] = createSignal("");
   const [curlError, setCurlError] = createSignal<string | null>(null);
 
@@ -975,33 +1007,43 @@ export function RestPlayground(props: RestPlaygroundProps) {
   const preRequestScriptHeightStorageKey = "devx-script-height-pre-request";
   const postResponseScriptHeightStorageKey = "devx-script-height-post-response";
 
-  const requestMap = createMemo(() => new Map(workspace.requests.map((request) => [request.id, request])));
+  const requestMap = createMemo(
+    () => new Map(workspace.requests.map((request) => [request.id, request])),
+  );
   const activeRequest = createMemo(
-    () => requestMap().get(workspace.activeRequestId) ?? null
+    () => requestMap().get(workspace.activeRequestId) ?? null,
   );
   const activeCollection = createMemo(
     () =>
-      workspace.collections.find((collection) => collection.id === workspace.activeCollectionId) ??
+      workspace.collections.find(
+        (collection) => collection.id === workspace.activeCollectionId,
+      ) ??
       workspace.collections[0] ??
-      null
+      null,
   );
   const activeEnvironment = createMemo(
     () =>
-      workspace.environments.find((environment) => environment.id === workspace.activeEnvironmentId) ??
+      workspace.environments.find(
+        (environment) => environment.id === workspace.activeEnvironmentId,
+      ) ??
       workspace.environments[0] ??
-      null
+      null,
   );
 
   const orderedOpenRequestIds = createMemo(() => {
-    const validRequestIds = new Set(workspace.requests.map((request) => request.id));
-    const openRequestIds = workspace.openRequestIds.filter((id) => validRequestIds.has(id));
+    const validRequestIds = new Set(
+      workspace.requests.map((request) => request.id),
+    );
+    const openRequestIds = workspace.openRequestIds.filter((id) =>
+      validRequestIds.has(id),
+    );
     const pinnedRequestIds = new Set(
-      workspace.pinnedRequestIds.filter((id) => validRequestIds.has(id))
+      workspace.pinnedRequestIds.filter((id) => validRequestIds.has(id)),
     );
 
     return [
       ...openRequestIds.filter((id) => pinnedRequestIds.has(id)),
-      ...openRequestIds.filter((id) => !pinnedRequestIds.has(id))
+      ...openRequestIds.filter((id) => !pinnedRequestIds.has(id)),
     ];
   });
 
@@ -1014,31 +1056,40 @@ export function RestPlayground(props: RestPlaygroundProps) {
           folder,
           requests: folder.requestIds
             .map((requestId) => requestMap().get(requestId))
-            .filter((request): request is RequestDraft => Boolean(request))
+            .filter((request): request is RequestDraft => Boolean(request)),
         }));
-        const folderIds = new Set(collection.folders.map((folder) => folder.id));
+        const folderIds = new Set(
+          collection.folders.map((folder) => folder.id),
+        );
         const rootRequests = collection.requestIds
           .map((requestId) => requestMap().get(requestId))
           .filter(
             (request): request is RequestDraft =>
-              Boolean(request) && (!request.folderId || !folderIds.has(request.folderId))
+              Boolean(request) &&
+              (!request.folderId || !folderIds.has(request.folderId)),
           );
 
         if (!filter) {
           return { collection, folders, rootRequests };
         }
 
-        const collectionMatches = collection.name.toLowerCase().includes(filter);
+        const collectionMatches = collection.name
+          .toLowerCase()
+          .includes(filter);
         if (collectionMatches) {
           return { collection, folders, rootRequests };
         }
 
         const matchingFolders = folders
           .map((entry) => {
-            const folderMatches = entry.folder.name.toLowerCase().includes(filter);
+            const folderMatches = entry.folder.name
+              .toLowerCase()
+              .includes(filter);
             const requests = folderMatches
               ? entry.requests
-              : entry.requests.filter((request) => request.name.toLowerCase().includes(filter));
+              : entry.requests.filter((request) =>
+                  request.name.toLowerCase().includes(filter),
+                );
 
             if (!folderMatches && requests.length === 0) {
               return null;
@@ -1046,20 +1097,20 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
             return {
               folder: entry.folder,
-              requests
+              requests,
             };
           })
           .filter(
             (
-              entry
+              entry,
             ): entry is {
               folder: CollectionFolder;
               requests: RequestDraft[];
-            } => Boolean(entry)
+            } => Boolean(entry),
           );
 
         const matchingRootRequests = rootRequests.filter((request) =>
-          request.name.toLowerCase().includes(filter)
+          request.name.toLowerCase().includes(filter),
         );
 
         if (matchingFolders.length === 0 && matchingRootRequests.length === 0) {
@@ -1069,22 +1120,27 @@ export function RestPlayground(props: RestPlaygroundProps) {
         return {
           collection,
           folders: matchingFolders,
-          rootRequests: matchingRootRequests
+          rootRequests: matchingRootRequests,
         };
       })
       .filter(
         (
-          entry
+          entry,
         ): entry is {
           collection: Collection;
-          folders: Array<{ folder: CollectionFolder; requests: RequestDraft[] }>;
+          folders: Array<{
+            folder: CollectionFolder;
+            requests: RequestDraft[];
+          }>;
           rootRequests: RequestDraft[];
-        } => Boolean(entry)
+        } => Boolean(entry),
       );
   });
 
   const currentTabMenuRequest = createMemo(() =>
-    requestTabMenuState() ? requestMap().get(requestTabMenuState()!.id) ?? null : null
+    requestTabMenuState()
+      ? (requestMap().get(requestTabMenuState()!.id) ?? null)
+      : null,
   );
   const requestTabItems = createMemo(() =>
     orderedOpenRequestIds()
@@ -1100,15 +1156,17 @@ export function RestPlayground(props: RestPlaygroundProps) {
           badgeLabel: getRequestKindLabel(request),
           badgeClass: getRequestBadgeClass(request),
           active: workspace.activeRequestId === requestId,
-          pinned: workspace.pinnedRequestIds.includes(requestId)
+          pinned: workspace.pinnedRequestIds.includes(requestId),
         };
       })
-      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .filter((item): item is NonNullable<typeof item> => Boolean(item)),
   );
 
   const canSendActiveRequest = createMemo(() => {
     const request = activeRequest();
-    return Boolean(request && request.kind !== "websocket" && request.kind !== "socketio");
+    return Boolean(
+      request && request.kind !== "websocket" && request.kind !== "socketio",
+    );
   });
 
   const activeRequestResolvedUrl = createMemo(() => {
@@ -1204,7 +1262,10 @@ export function RestPlayground(props: RestPlaygroundProps) {
     }
   }
 
-  function commitWorkspace(mutator: (next: RestWorkspaceState) => void, options?: { persist?: boolean }) {
+  function commitWorkspace(
+    mutator: (next: RestWorkspaceState) => void,
+    options?: { persist?: boolean },
+  ) {
     const next = snapshotWorkspace();
     mutator(next);
     const normalized = normalizeRestWorkspace(next);
@@ -1217,7 +1278,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
   function ensureCollectionExpanded(collectionId: string) {
     setExpandedCollectionIds((current) =>
-      current.includes(collectionId) ? current : [...current, collectionId]
+      current.includes(collectionId) ? current : [...current, collectionId],
     );
   }
 
@@ -1227,7 +1288,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
     }
 
     setExpandedFolderIds((current) =>
-      current.includes(folderId) ? current : [...current, folderId]
+      current.includes(folderId) ? current : [...current, folderId],
     );
   }
 
@@ -1235,7 +1296,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
     setExpandedCollectionIds((current) =>
       current.includes(collectionId)
         ? current.filter((id) => id !== collectionId)
-        : [...current, collectionId]
+        : [...current, collectionId],
     );
   }
 
@@ -1243,12 +1304,15 @@ export function RestPlayground(props: RestPlaygroundProps) {
     setExpandedFolderIds((current) =>
       current.includes(folderId)
         ? current.filter((id) => id !== folderId)
-        : [...current, folderId]
+        : [...current, folderId],
     );
   }
 
   function isFolderExpanded(folderId: string) {
-    return expandedFolderIds().includes(folderId) || collectionFilter().trim().length > 0;
+    return (
+      expandedFolderIds().includes(folderId) ||
+      collectionFilter().trim().length > 0
+    );
   }
 
   function openRequestTab(requestId: string, collectionId?: string) {
@@ -1274,7 +1338,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
   function selectCollection(collectionId: string) {
     commitWorkspace((next) => {
       next.activeCollectionId = collectionId;
-      const collection = next.collections.find((item) => item.id === collectionId);
+      const collection = next.collections.find(
+        (item) => item.id === collectionId,
+      );
       if (!collection) {
         return;
       }
@@ -1304,9 +1370,15 @@ export function RestPlayground(props: RestPlaygroundProps) {
     });
   }
 
-  function addRequestToWorkspace(collectionId: string, request: RequestDraft, folderId: string | null) {
+  function addRequestToWorkspace(
+    collectionId: string,
+    request: RequestDraft,
+    folderId: string | null,
+  ) {
     commitWorkspace((next) => {
-      const collection = next.collections.find((item) => item.id === collectionId);
+      const collection = next.collections.find(
+        (item) => item.id === collectionId,
+      );
       if (!collection) {
         return;
       }
@@ -1340,8 +1412,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
     const currentIndex = currentOpenIds.indexOf(requestId);
 
     commitWorkspace((next) => {
-      next.openRequestIds = next.openRequestIds.filter((id) => id !== requestId);
-      next.pinnedRequestIds = next.pinnedRequestIds.filter((id) => id !== requestId);
+      next.openRequestIds = next.openRequestIds.filter(
+        (id) => id !== requestId,
+      );
+      next.pinnedRequestIds = next.pinnedRequestIds.filter(
+        (id) => id !== requestId,
+      );
 
       if (next.activeRequestId === requestId) {
         const fallbackId =
@@ -1349,7 +1425,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
           currentOpenIds[currentIndex - 1] ??
           "";
         next.activeRequestId = fallbackId;
-        const fallbackRequest = next.requests.find((request) => request.id === fallbackId);
+        const fallbackRequest = next.requests.find(
+          (request) => request.id === fallbackId,
+        );
         if (fallbackRequest) {
           next.activeCollectionId = fallbackRequest.collectionId;
         }
@@ -1364,9 +1442,14 @@ export function RestPlayground(props: RestPlaygroundProps) {
   function togglePinnedRequestTab(requestId: string) {
     commitWorkspace((next) => {
       if (next.pinnedRequestIds.includes(requestId)) {
-        next.pinnedRequestIds = next.pinnedRequestIds.filter((id) => id !== requestId);
+        next.pinnedRequestIds = next.pinnedRequestIds.filter(
+          (id) => id !== requestId,
+        );
       } else {
-        next.pinnedRequestIds = [requestId, ...next.pinnedRequestIds.filter((id) => id !== requestId)];
+        next.pinnedRequestIds = [
+          requestId,
+          ...next.pinnedRequestIds.filter((id) => id !== requestId),
+        ];
         if (!next.openRequestIds.includes(requestId)) {
           next.openRequestIds.push(requestId);
         }
@@ -1377,7 +1460,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
   function closeOtherTabs(requestId: string) {
     commitWorkspace((next) => {
       const pinned = new Set(next.pinnedRequestIds);
-      next.openRequestIds = next.openRequestIds.filter((id) => id === requestId || pinned.has(id));
+      next.openRequestIds = next.openRequestIds.filter(
+        (id) => id === requestId || pinned.has(id),
+      );
       next.activeRequestId = requestId;
     });
     setRequestTabMenuState(null);
@@ -1386,12 +1471,14 @@ export function RestPlayground(props: RestPlaygroundProps) {
   function closeAllTabs() {
     commitWorkspace((next) => {
       const pinned = next.pinnedRequestIds.filter((id) =>
-        next.requests.some((request) => request.id === id)
+        next.requests.some((request) => request.id === id),
       );
       next.openRequestIds = pinned;
       if (next.openRequestIds.length > 0) {
         next.activeRequestId = next.openRequestIds[0];
-        const active = next.requests.find((request) => request.id === next.activeRequestId);
+        const active = next.requests.find(
+          (request) => request.id === next.activeRequestId,
+        );
         if (active) {
           next.activeCollectionId = active.collectionId;
         }
@@ -1403,7 +1490,10 @@ export function RestPlayground(props: RestPlaygroundProps) {
     setRequestTabMenuState(null);
   }
 
-  function closeTabsToDirection(requestId: string, direction: "left" | "right") {
+  function closeTabsToDirection(
+    requestId: string,
+    direction: "left" | "right",
+  ) {
     const orderedIds = orderedOpenRequestIds();
     const currentIndex = orderedIds.indexOf(requestId);
     if (currentIndex < 0) {
@@ -1417,7 +1507,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
           return true;
         }
         const index = orderedIds.indexOf(id);
-        return direction === "left" ? index > currentIndex : index < currentIndex;
+        return direction === "left"
+          ? index > currentIndex
+          : index < currentIndex;
       });
       next.activeRequestId = requestId;
     });
@@ -1471,7 +1563,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
     const collectionId = makeId("collection");
     const request = createRequestDraft(collectionId, {
       name: "New Request",
-      url: "{{baseUrl}}/posts"
+      url: "{{baseUrl}}/posts",
     });
 
     commitWorkspace((next) => {
@@ -1479,7 +1571,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
         id: collectionId,
         name,
         folders: [],
-        requestIds: [request.id]
+        requestIds: [request.id],
       });
       next.requests.push(request);
       next.activeCollectionId = collectionId;
@@ -1495,7 +1587,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
     commitWorkspace((next) => {
       const environmentId = makeId("env");
       const baseName = "New Environment";
-      const existingNames = new Set(next.environments.map((environment) => environment.name));
+      const existingNames = new Set(
+        next.environments.map((environment) => environment.name),
+      );
       let name = baseName;
       let suffix = 2;
 
@@ -1510,16 +1604,18 @@ export function RestPlayground(props: RestPlaygroundProps) {
         variables: [
           createKeyValueEntry({
             key: "baseUrl",
-            value: "https://jsonplaceholder.typicode.com"
-          })
-        ]
+            value: "https://jsonplaceholder.typicode.com",
+          }),
+        ],
       });
       next.activeEnvironmentId = environmentId;
     });
   }
 
   function duplicateEnvironment(environmentId: string) {
-    const environment = workspace.environments.find((item) => item.id === environmentId);
+    const environment = workspace.environments.find(
+      (item) => item.id === environmentId,
+    );
     if (!environment) {
       return;
     }
@@ -1534,9 +1630,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
           createKeyValueEntry({
             key: entry.key,
             value: entry.value,
-            enabled: entry.enabled
-          })
-        )
+            enabled: entry.enabled,
+          }),
+        ),
       };
       next.environments.push(duplicate);
       next.activeEnvironmentId = duplicateId;
@@ -1544,7 +1640,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
   }
 
   function deleteEnvironment(environmentId: string) {
-    const environment = workspace.environments.find((item) => item.id === environmentId);
+    const environment = workspace.environments.find(
+      (item) => item.id === environmentId,
+    );
     if (!environment) {
       return;
     }
@@ -1559,7 +1657,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
     }
 
     commitWorkspace((next) => {
-      next.environments = next.environments.filter((item) => item.id !== environmentId);
+      next.environments = next.environments.filter(
+        (item) => item.id !== environmentId,
+      );
       if (next.activeEnvironmentId === environmentId) {
         next.activeEnvironmentId = next.environments[0]?.id ?? "";
       }
@@ -1567,31 +1667,40 @@ export function RestPlayground(props: RestPlaygroundProps) {
   }
 
   function exportCollection(collectionId: string) {
-    const collection = workspace.collections.find((item) => item.id === collectionId);
+    const collection = workspace.collections.find(
+      (item) => item.id === collectionId,
+    );
     if (!collection) {
       return;
     }
 
-    const requestMapById = new Map(workspace.requests.map((request) => [request.id, request]));
+    const requestMapById = new Map(
+      workspace.requests.map((request) => [request.id, request]),
+    );
     const exportPayload = {
       format: "devx-collection",
       version: 1,
       collection: {
         id: collection.id,
-        name: collection.name
+        name: collection.name,
       },
       folders: collection.folders,
       requests: collection.requestIds
         .map((requestId) => requestMapById.get(requestId))
-        .filter((request): request is RequestDraft => Boolean(request))
+        .filter((request): request is RequestDraft => Boolean(request)),
     };
 
-    downloadJsonFile(`${sanitizeFileName(collection.name || "collection")}.json`, exportPayload);
+    downloadJsonFile(
+      `${sanitizeFileName(collection.name || "collection")}.json`,
+      exportPayload,
+    );
     closeAllMenus();
   }
 
   function renameCollection(collectionId: string) {
-    const collection = workspace.collections.find((item) => item.id === collectionId);
+    const collection = workspace.collections.find(
+      (item) => item.id === collectionId,
+    );
     if (!collection) {
       return;
     }
@@ -1617,12 +1726,14 @@ export function RestPlayground(props: RestPlaygroundProps) {
     }
 
     commitWorkspace((next) => {
-      const collection = next.collections.find((item) => item.id === collectionId);
+      const collection = next.collections.find(
+        (item) => item.id === collectionId,
+      );
       if (collection) {
         collection.folders.push({
           id: makeId("folder"),
           name,
-          requestIds: []
+          requestIds: [],
         });
       }
     });
@@ -1632,7 +1743,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
   }
 
   function deleteCollection(collectionId: string) {
-    const collection = workspace.collections.find((item) => item.id === collectionId);
+    const collection = workspace.collections.find(
+      (item) => item.id === collectionId,
+    );
     if (!collection) {
       return;
     }
@@ -1650,22 +1763,36 @@ export function RestPlayground(props: RestPlaygroundProps) {
       const removingIds = new Set(
         next.requests
           .filter((request) => request.collectionId === collectionId)
-          .map((request) => request.id)
+          .map((request) => request.id),
       );
 
-      next.collections = next.collections.filter((item) => item.id !== collectionId);
-      next.requests = next.requests.filter((request) => !removingIds.has(request.id));
-      next.history = next.history.filter((entry) => !removingIds.has(entry.requestId));
-      next.openRequestIds = next.openRequestIds.filter((id) => !removingIds.has(id));
-      next.pinnedRequestIds = next.pinnedRequestIds.filter((id) => !removingIds.has(id));
+      next.collections = next.collections.filter(
+        (item) => item.id !== collectionId,
+      );
+      next.requests = next.requests.filter(
+        (request) => !removingIds.has(request.id),
+      );
+      next.history = next.history.filter(
+        (entry) => !removingIds.has(entry.requestId),
+      );
+      next.openRequestIds = next.openRequestIds.filter(
+        (id) => !removingIds.has(id),
+      );
+      next.pinnedRequestIds = next.pinnedRequestIds.filter(
+        (id) => !removingIds.has(id),
+      );
       if (next.lastResponse && removingIds.has(next.lastResponse.requestId)) {
         next.lastResponse = null;
       }
 
       const fallbackCollection = next.collections[0];
       next.activeCollectionId = fallbackCollection?.id ?? "";
-      next.activeRequestId = fallbackCollection?.requestIds[0] ?? next.requests[0]?.id ?? "";
-      if (next.activeRequestId && !next.openRequestIds.includes(next.activeRequestId)) {
+      next.activeRequestId =
+        fallbackCollection?.requestIds[0] ?? next.requests[0]?.id ?? "";
+      if (
+        next.activeRequestId &&
+        !next.openRequestIds.includes(next.activeRequestId)
+      ) {
         next.openRequestIds.push(next.activeRequestId);
       }
     });
@@ -1675,15 +1802,20 @@ export function RestPlayground(props: RestPlaygroundProps) {
     setResponseError(null);
   }
 
-  function orderCollection(collectionId: string, direction: "top" | "up" | "down") {
+  function orderCollection(
+    collectionId: string,
+    direction: "top" | "up" | "down",
+  ) {
     commitWorkspace((next) => {
       const orderedIds = reorderByDirection(
         next.collections.map((collection) => collection.id),
         collectionId,
-        direction
+        direction,
       );
       next.collections = orderedIds
-        .map((id) => next.collections.find((collection) => collection.id === id))
+        .map((id) =>
+          next.collections.find((collection) => collection.id === id),
+        )
         .filter((collection): collection is Collection => Boolean(collection));
     });
     closeAllMenus();
@@ -1715,7 +1847,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
   function duplicateFolder(collectionId: string, folderId: string) {
     commitWorkspace((next) => {
-      const collection = next.collections.find((item) => item.id === collectionId);
+      const collection = next.collections.find(
+        (item) => item.id === collectionId,
+      );
       const folder = collection?.folders.find((item) => item.id === folderId);
       if (!collection || !folder) {
         return;
@@ -1723,7 +1857,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
       const duplicateFolderId = makeId("folder");
       const duplicatedRequests = folder.requestIds
-        .map((requestId) => next.requests.find((request) => request.id === requestId))
+        .map((requestId) =>
+          next.requests.find((request) => request.id === requestId),
+        )
         .filter((request): request is RequestDraft => Boolean(request))
         .map((request) =>
           createRequestDraft(collectionId, {
@@ -1731,44 +1867,62 @@ export function RestPlayground(props: RestPlaygroundProps) {
             id: makeId("request"),
             createdAt: new Date().toISOString(),
             folderId: duplicateFolderId,
-            name: `${request.name} Copy`
-          })
+            name: `${request.name} Copy`,
+          }),
         );
 
       next.requests.push(...duplicatedRequests);
 
-      const folderIndex = collection.folders.findIndex((item) => item.id === folderId);
+      const folderIndex = collection.folders.findIndex(
+        (item) => item.id === folderId,
+      );
       collection.folders.splice(folderIndex + 1, 0, {
         id: duplicateFolderId,
         name: `${folder.name} Copy`,
-        requestIds: duplicatedRequests.map((request) => request.id)
+        requestIds: duplicatedRequests.map((request) => request.id),
       });
 
-      const lastOriginalRequestId = folder.requestIds[folder.requestIds.length - 1];
+      const lastOriginalRequestId =
+        folder.requestIds[folder.requestIds.length - 1];
       const insertAt =
-        lastOriginalRequestId && collection.requestIds.includes(lastOriginalRequestId)
+        lastOriginalRequestId &&
+        collection.requestIds.includes(lastOriginalRequestId)
           ? collection.requestIds.indexOf(lastOriginalRequestId) + 1
           : collection.requestIds.length;
-      collection.requestIds.splice(insertAt, 0, ...duplicatedRequests.map((request) => request.id));
+      collection.requestIds.splice(
+        insertAt,
+        0,
+        ...duplicatedRequests.map((request) => request.id),
+      );
     });
 
     ensureCollectionExpanded(collectionId);
     closeAllMenus();
   }
 
-  function moveFolderToCollection(fromCollectionId: string, folderId: string, toCollectionId: string) {
+  function moveFolderToCollection(
+    fromCollectionId: string,
+    folderId: string,
+    toCollectionId: string,
+  ) {
     if (fromCollectionId === toCollectionId) {
       return;
     }
 
     commitWorkspace((next) => {
-      const sourceCollection = next.collections.find((item) => item.id === fromCollectionId);
-      const targetCollection = next.collections.find((item) => item.id === toCollectionId);
+      const sourceCollection = next.collections.find(
+        (item) => item.id === fromCollectionId,
+      );
+      const targetCollection = next.collections.find(
+        (item) => item.id === toCollectionId,
+      );
       if (!sourceCollection || !targetCollection) {
         return;
       }
 
-      const folderIndex = sourceCollection.folders.findIndex((item) => item.id === folderId);
+      const folderIndex = sourceCollection.folders.findIndex(
+        (item) => item.id === folderId,
+      );
       if (folderIndex < 0) {
         return;
       }
@@ -1776,10 +1930,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
       const [folder] = sourceCollection.folders.splice(folderIndex, 1);
       targetCollection.folders.push(folder);
       sourceCollection.requestIds = sourceCollection.requestIds.filter(
-        (requestId) => !folder.requestIds.includes(requestId)
+        (requestId) => !folder.requestIds.includes(requestId),
       );
       targetCollection.requestIds.push(
-        ...folder.requestIds.filter((requestId) => !targetCollection.requestIds.includes(requestId))
+        ...folder.requestIds.filter(
+          (requestId) => !targetCollection.requestIds.includes(requestId),
+        ),
       );
 
       next.requests.forEach((request) => {
@@ -1802,29 +1958,48 @@ export function RestPlayground(props: RestPlaygroundProps) {
       return;
     }
 
-    if (!window.confirm(`Delete folder "${folder.name}" and all requests inside it?`)) {
+    if (
+      !window.confirm(
+        `Delete folder "${folder.name}" and all requests inside it?`,
+      )
+    ) {
       return;
     }
 
     commitWorkspace((next) => {
-      const collection = next.collections.find((item) => item.id === collectionId);
+      const collection = next.collections.find(
+        (item) => item.id === collectionId,
+      );
       if (!collection) {
         return;
       }
 
       const removingIds = new Set(folder.requestIds);
-      collection.folders = collection.folders.filter((item) => item.id !== folderId);
-      collection.requestIds = collection.requestIds.filter((requestId) => !removingIds.has(requestId));
-      next.requests = next.requests.filter((request) => !removingIds.has(request.id));
-      next.history = next.history.filter((entry) => !removingIds.has(entry.requestId));
-      next.openRequestIds = next.openRequestIds.filter((id) => !removingIds.has(id));
-      next.pinnedRequestIds = next.pinnedRequestIds.filter((id) => !removingIds.has(id));
+      collection.folders = collection.folders.filter(
+        (item) => item.id !== folderId,
+      );
+      collection.requestIds = collection.requestIds.filter(
+        (requestId) => !removingIds.has(requestId),
+      );
+      next.requests = next.requests.filter(
+        (request) => !removingIds.has(request.id),
+      );
+      next.history = next.history.filter(
+        (entry) => !removingIds.has(entry.requestId),
+      );
+      next.openRequestIds = next.openRequestIds.filter(
+        (id) => !removingIds.has(id),
+      );
+      next.pinnedRequestIds = next.pinnedRequestIds.filter(
+        (id) => !removingIds.has(id),
+      );
       if (next.lastResponse && removingIds.has(next.lastResponse.requestId)) {
         next.lastResponse = null;
       }
 
       if (removingIds.has(next.activeRequestId)) {
-        next.activeRequestId = collection.requestIds[0] ?? next.requests[0]?.id ?? "";
+        next.activeRequestId =
+          collection.requestIds[0] ?? next.requests[0]?.id ?? "";
       }
     });
 
@@ -1836,16 +2011,20 @@ export function RestPlayground(props: RestPlaygroundProps) {
   function sortFolderRequests(
     collectionId: string,
     folderId: string,
-    mode: "alpha-asc" | "alpha-desc" | "time"
+    mode: "alpha-asc" | "alpha-desc" | "time",
   ) {
     commitWorkspace((next) => {
-      const collection = next.collections.find((item) => item.id === collectionId);
+      const collection = next.collections.find(
+        (item) => item.id === collectionId,
+      );
       const folder = collection?.folders.find((item) => item.id === folderId);
       if (!collection || !folder) {
         return;
       }
 
-      const requestIndex = new Map(next.requests.map((request) => [request.id, request]));
+      const requestIndex = new Map(
+        next.requests.map((request) => [request.id, request]),
+      );
       folder.requestIds = folder.requestIds.slice().sort((leftId, rightId) => {
         const left = requestIndex.get(leftId);
         const right = requestIndex.get(rightId);
@@ -1853,21 +2032,34 @@ export function RestPlayground(props: RestPlaygroundProps) {
           return 0;
         }
         if (mode === "alpha-asc") {
-          return left.name.localeCompare(right.name, undefined, { sensitivity: "base" });
+          return left.name.localeCompare(right.name, undefined, {
+            sensitivity: "base",
+          });
         }
         if (mode === "alpha-desc") {
-          return right.name.localeCompare(left.name, undefined, { sensitivity: "base" });
+          return right.name.localeCompare(left.name, undefined, {
+            sensitivity: "base",
+          });
         }
-        return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+        return (
+          new Date(right.createdAt).getTime() -
+          new Date(left.createdAt).getTime()
+        );
       });
     });
 
     closeAllMenus();
   }
 
-  function orderFolder(collectionId: string, folderId: string, direction: "top" | "up" | "down") {
+  function orderFolder(
+    collectionId: string,
+    folderId: string,
+    direction: "top" | "up" | "down",
+  ) {
     commitWorkspace((next) => {
-      const collection = next.collections.find((item) => item.id === collectionId);
+      const collection = next.collections.find(
+        (item) => item.id === collectionId,
+      );
       if (!collection) {
         return;
       }
@@ -1875,7 +2067,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
       const orderedIds = reorderByDirection(
         collection.folders.map((folder) => folder.id),
         folderId,
-        direction
+        direction,
       );
       collection.folders = orderedIds
         .map((id) => collection.folders.find((folder) => folder.id === id))
@@ -1933,7 +2125,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
     commitWorkspace((next) => {
       const target = next.requests.find((item) => item.id === requestId);
-      const collection = next.collections.find((item) => item.id === request.collectionId);
+      const collection = next.collections.find(
+        (item) => item.id === request.collectionId,
+      );
       if (!target || !collection) {
         return;
       }
@@ -1943,7 +2137,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
         id: makeId("request"),
         name: `${target.name} Copy`,
         createdAt: new Date().toISOString(),
-        folderId: target.folderId ?? null
+        folderId: target.folderId ?? null,
       });
 
       next.requests.push(duplicate);
@@ -1952,7 +2146,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
       collection.requestIds.splice(collectionIndex + 1, 0, duplicate.id);
 
       if (duplicate.folderId) {
-        const folder = collection.folders.find((item) => item.id === duplicate.folderId);
+        const folder = collection.folders.find(
+          (item) => item.id === duplicate.folderId,
+        );
         const folderIndex = folder?.requestIds.indexOf(requestId) ?? -1;
         if (folder && folderIndex >= 0) {
           folder.requestIds.splice(folderIndex + 1, 0, duplicate.id);
@@ -1968,28 +2164,39 @@ export function RestPlayground(props: RestPlaygroundProps) {
     closeAllMenus();
   }
 
-  function moveRequest(requestId: string, target: { collectionId: string; folderId: string | null }) {
+  function moveRequest(
+    requestId: string,
+    target: { collectionId: string; folderId: string | null },
+  ) {
     const request = requestMap().get(requestId);
     if (!request) {
       return;
     }
 
     commitWorkspace((next) => {
-      const sourceCollection = next.collections.find((item) => item.id === request.collectionId);
-      const destinationCollection = next.collections.find((item) => item.id === target.collectionId);
+      const sourceCollection = next.collections.find(
+        (item) => item.id === request.collectionId,
+      );
+      const destinationCollection = next.collections.find(
+        (item) => item.id === target.collectionId,
+      );
       const sourceRequest = next.requests.find((item) => item.id === requestId);
       if (!sourceCollection || !destinationCollection || !sourceRequest) {
         return;
       }
 
-      sourceCollection.requestIds = sourceCollection.requestIds.filter((id) => id !== requestId);
+      sourceCollection.requestIds = sourceCollection.requestIds.filter(
+        (id) => id !== requestId,
+      );
       sourceCollection.folders.forEach((folder) => {
         folder.requestIds = folder.requestIds.filter((id) => id !== requestId);
       });
 
       destinationCollection.requestIds.push(requestId);
       if (target.folderId) {
-        const targetFolder = destinationCollection.folders.find((item) => item.id === target.folderId);
+        const targetFolder = destinationCollection.folders.find(
+          (item) => item.id === target.folderId,
+        );
         targetFolder?.requestIds.push(requestId);
       }
 
@@ -2004,13 +2211,18 @@ export function RestPlayground(props: RestPlaygroundProps) {
     closeAllMenus();
   }
 
-  function getRequestMoveTargetLabel(collection: RestCollection, folderId: string | null) {
+  function getRequestMoveTargetLabel(
+    collection: RestCollection,
+    folderId: string | null,
+  ) {
     if (!folderId) {
       return `${collection.name} / Root`;
     }
 
     const folder = collection.folders.find((item) => item.id === folderId);
-    return folder ? `${collection.name} / ${folder.name}` : `${collection.name} / Root`;
+    return folder
+      ? `${collection.name} / ${folder.name}`
+      : `${collection.name} / Root`;
   }
 
   function deleteRequest(requestId: string) {
@@ -2025,23 +2237,35 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
     commitWorkspace((next) => {
       next.requests = next.requests.filter((item) => item.id !== requestId);
-      next.history = next.history.filter((entry) => entry.requestId !== requestId);
-      next.openRequestIds = next.openRequestIds.filter((id) => id !== requestId);
-      next.pinnedRequestIds = next.pinnedRequestIds.filter((id) => id !== requestId);
+      next.history = next.history.filter(
+        (entry) => entry.requestId !== requestId,
+      );
+      next.openRequestIds = next.openRequestIds.filter(
+        (id) => id !== requestId,
+      );
+      next.pinnedRequestIds = next.pinnedRequestIds.filter(
+        (id) => id !== requestId,
+      );
       if (next.lastResponse?.requestId === requestId) {
         next.lastResponse = null;
       }
 
       next.collections.forEach((collection) => {
-        collection.requestIds = collection.requestIds.filter((id) => id !== requestId);
+        collection.requestIds = collection.requestIds.filter(
+          (id) => id !== requestId,
+        );
         collection.folders.forEach((folder) => {
-          folder.requestIds = folder.requestIds.filter((id) => id !== requestId);
+          folder.requestIds = folder.requestIds.filter(
+            (id) => id !== requestId,
+          );
         });
       });
 
       if (next.activeRequestId === requestId) {
         next.activeRequestId = next.requests[0]?.id ?? "";
-        const fallback = next.requests.find((item) => item.id === next.activeRequestId);
+        const fallback = next.requests.find(
+          (item) => item.id === next.activeRequestId,
+        );
         if (fallback) {
           next.activeCollectionId = fallback.collectionId;
         }
@@ -2060,15 +2284,23 @@ export function RestPlayground(props: RestPlaygroundProps) {
     }
 
     commitWorkspace((next) => {
-      const collection = next.collections.find((item) => item.id === request.collectionId);
+      const collection = next.collections.find(
+        (item) => item.id === request.collectionId,
+      );
       if (!collection) {
         return;
       }
 
       if (request.folderId) {
-        const folder = collection.folders.find((item) => item.id === request.folderId);
+        const folder = collection.folders.find(
+          (item) => item.id === request.folderId,
+        );
         if (folder) {
-          folder.requestIds = reorderByDirection(folder.requestIds, requestId, direction);
+          folder.requestIds = reorderByDirection(
+            folder.requestIds,
+            requestId,
+            direction,
+          );
         }
         return;
       }
@@ -2078,7 +2310,11 @@ export function RestPlayground(props: RestPlaygroundProps) {
         const entry = next.requests.find((item) => item.id === id);
         return entry && (!entry.folderId || !folderIds.has(entry.folderId));
       });
-      const orderedRootIds = reorderByDirection(rootRequestIds, requestId, direction);
+      const orderedRootIds = reorderByDirection(
+        rootRequestIds,
+        requestId,
+        direction,
+      );
       let rootIndex = 0;
       collection.requestIds = collection.requestIds.map((id) => {
         const entry = next.requests.find((item) => item.id === id);
@@ -2094,7 +2330,10 @@ export function RestPlayground(props: RestPlaygroundProps) {
     closeAllMenus();
   }
 
-  function startCurlImport(collectionId: string, folderId: string | null = null) {
+  function startCurlImport(
+    collectionId: string,
+    folderId: string | null = null,
+  ) {
     setCurlImportCollectionId(collectionId);
     setCurlImportFolderId(folderId);
     setCurlInput("curl https://api.example.com/users");
@@ -2109,14 +2348,22 @@ export function RestPlayground(props: RestPlaygroundProps) {
     }
 
     try {
-      const request = parseCurlCommand(collectionId, curlInput(), curlImportFolderId());
+      const request = parseCurlCommand(
+        collectionId,
+        curlInput(),
+        curlImportFolderId(),
+      );
       addRequestToWorkspace(collectionId, request, curlImportFolderId());
       setCurlImportCollectionId(null);
       setCurlImportFolderId(null);
       setCurlInput("");
       setCurlError(null);
     } catch (error) {
-      setCurlError(error instanceof Error ? error.message : "Failed to parse cURL command.");
+      setCurlError(
+        error instanceof Error
+          ? error.message
+          : "Failed to parse cURL command.",
+      );
     }
   }
 
@@ -2139,7 +2386,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
     if (!canSendActiveRequest()) {
       setResponseSummary(null);
       setResponseError(
-        `${request.kind === "websocket" ? "WebSocket" : "Socket.IO"} requests are not available in the REST runner yet.`
+        `${request.kind === "websocket" ? "WebSocket" : "Socket.IO"} requests are not available in the REST runner yet.`,
       );
       return;
     }
@@ -2148,21 +2395,32 @@ export function RestPlayground(props: RestPlaygroundProps) {
     setResponseError(null);
 
     try {
-      const result = await executeRestRequest(request, activeEnvironment() ?? undefined);
+      const result = await executeRestRequest(
+        request,
+        activeEnvironment() ?? undefined,
+      );
       setResponseSummary(result);
       commitWorkspace((next) => {
         next.lastResponse = {
           requestId: request.id,
-          response: cloneRestValue(result)
+          response: cloneRestValue(result),
         };
-        next.history = [createHistoryEntry(request, result), ...next.history].slice(0, 20);
+        next.history = [
+          createHistoryEntry(request, result),
+          ...next.history,
+        ].slice(0, 20);
       });
     } catch (error) {
       setResponseSummary(null);
-      setResponseError(error instanceof Error ? error.message : "Request failed.");
+      setResponseError(
+        error instanceof Error ? error.message : "Request failed.",
+      );
       commitWorkspace((next) => {
         next.lastResponse = null;
-        next.history = [createHistoryEntry(request, null), ...next.history].slice(0, 20);
+        next.history = [
+          createHistoryEntry(request, null),
+          ...next.history,
+        ].slice(0, 20);
       });
     } finally {
       setIsSending(false);
@@ -2194,9 +2452,11 @@ export function RestPlayground(props: RestPlaygroundProps) {
         parsed.folders?.map((folder, index) => ({
           id: folder.id ?? makeId("folder"),
           name: folder.name?.trim() || `Folder ${index + 1}`,
-          requestIds: []
+          requestIds: [],
         })) ?? [];
-      const importedFolderIds = new Set(importedFolders.map((folder) => folder.id));
+      const importedFolderIds = new Set(
+        importedFolders.map((folder) => folder.id),
+      );
       const importedRequests =
         parsed.requests?.map((request, index) =>
           createRequestDraft(collectionId, {
@@ -2205,20 +2465,30 @@ export function RestPlayground(props: RestPlaygroundProps) {
             createdAt: new Date().toISOString(),
             name: request.name ?? `Imported Request ${index + 1}`,
             kind: request.kind ?? "http",
-            folderId: request.folderId && importedFolderIds.has(request.folderId) ? request.folderId : null
-          })
+            folderId:
+              request.folderId && importedFolderIds.has(request.folderId)
+                ? request.folderId
+                : null,
+          }),
         ) ?? [];
 
       const requests =
         importedRequests.length > 0
           ? importedRequests
-          : [createRequestDraft(collectionId, { name: "Imported Request", url: "{{baseUrl}}/imported" })];
+          : [
+              createRequestDraft(collectionId, {
+                name: "Imported Request",
+                url: "{{baseUrl}}/imported",
+              }),
+            ];
 
       requests.forEach((request) => {
         if (!request.folderId) {
           return;
         }
-        const folder = importedFolders.find((entry) => entry.id === request.folderId);
+        const folder = importedFolders.find(
+          (entry) => entry.id === request.folderId,
+        );
         if (folder && !folder.requestIds.includes(request.id)) {
           folder.requestIds.push(request.id);
         }
@@ -2229,7 +2499,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
           id: collectionId,
           name: parsed.collection?.name || file.name.replace(/\.json$/i, ""),
           folders: importedFolders,
-          requestIds: requests.map((request) => request.id)
+          requestIds: requests.map((request) => request.id),
         });
         next.requests.push(...requests);
         next.activeCollectionId = collectionId;
@@ -2239,13 +2509,19 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
       ensureCollectionExpanded(collectionId);
     } catch {
-      window.alert("Import collection is not valid JSON yet. Expected { collection, requests }.");
+      window.alert(
+        "Import collection is not valid JSON yet. Expected { collection, requests }.",
+      );
     } finally {
       target.value = "";
     }
   }
 
-  function openRequestCreationMenu(collectionId: string, folderId: string | null = null, kind?: RequestKind) {
+  function openRequestCreationMenu(
+    collectionId: string,
+    folderId: string | null = null,
+    kind?: RequestKind,
+  ) {
     if (kind === "curl") {
       startCurlImport(collectionId, folderId);
       return;
@@ -2262,7 +2538,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
       setFolderAddMenuId((current) => (current === folderId ? null : folderId));
       setCollectionAddMenuId(null);
     } else {
-      setCollectionAddMenuId((current) => (current === collectionId ? null : collectionId));
+      setCollectionAddMenuId((current) =>
+        current === collectionId ? null : collectionId,
+      );
       setFolderAddMenuId(null);
     }
 
@@ -2296,7 +2574,10 @@ export function RestPlayground(props: RestPlaygroundProps) {
     );
   }
 
-  function renderRequestCreateMenu(collectionId: string, folderId: string | null = null) {
+  function renderRequestCreateMenu(
+    collectionId: string,
+    folderId: string | null = null,
+  ) {
     return (
       <div
         class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-10 min-w-[170px] border p-1"
@@ -2307,7 +2588,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
           {(option) => (
             <button
               class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-              onClick={() => openRequestCreationMenu(collectionId, folderId, option.id)}
+              onClick={() =>
+                openRequestCreationMenu(collectionId, folderId, option.id)
+              }
             >
               {option.label}
             </button>
@@ -2318,12 +2601,16 @@ export function RestPlayground(props: RestPlaygroundProps) {
   }
 
   function isCollectionExpanded(collectionId: string) {
-    return expandedCollectionIds().includes(collectionId) || collectionFilter().trim().length > 0;
+    return (
+      expandedCollectionIds().includes(collectionId) ||
+      collectionFilter().trim().length > 0
+    );
   }
 
   function startMainPaneResize(event: MouseEvent) {
     event.preventDefault();
-    const container = (event.currentTarget as HTMLElement | null)?.parentElement;
+    const container = (event.currentTarget as HTMLElement | null)
+      ?.parentElement;
     if (!container) {
       return;
     }
@@ -2339,7 +2626,10 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
     const handlePointerUp = () => {
       setMainPaneResizing(false);
-      window.localStorage.setItem(mainPaneSplitStorageKey, String(mainPaneSplit()));
+      window.localStorage.setItem(
+        mainPaneSplitStorageKey,
+        String(mainPaneSplit()),
+      );
       window.removeEventListener("mousemove", handlePointerMove);
       window.removeEventListener("mouseup", handlePointerUp);
     };
@@ -2351,9 +2641,11 @@ export function RestPlayground(props: RestPlaygroundProps) {
   function persistScriptEditorHeight(
     event: MouseEvent | FocusEvent,
     storageKey: string,
-    setter: (value: number) => void
+    setter: (value: number) => void,
   ) {
-    const nextHeight = clampScriptEditorHeight((event.currentTarget as HTMLTextAreaElement).offsetHeight);
+    const nextHeight = clampScriptEditorHeight(
+      (event.currentTarget as HTMLTextAreaElement).offsetHeight,
+    );
     setter(nextHeight);
     window.localStorage.setItem(storageKey, String(nextHeight));
   }
@@ -2361,7 +2653,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
   onMount(() => {
     let disposed = false;
 
-    const savedMainPaneSplit = window.localStorage.getItem(mainPaneSplitStorageKey);
+    const savedMainPaneSplit = window.localStorage.getItem(
+      mainPaneSplitStorageKey,
+    );
     if (savedMainPaneSplit) {
       const parsed = Number(savedMainPaneSplit);
       if (!Number.isNaN(parsed)) {
@@ -2369,7 +2663,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
       }
     }
 
-    const savedPreRequestHeight = window.localStorage.getItem(preRequestScriptHeightStorageKey);
+    const savedPreRequestHeight = window.localStorage.getItem(
+      preRequestScriptHeightStorageKey,
+    );
     if (savedPreRequestHeight) {
       const parsed = Number(savedPreRequestHeight);
       if (!Number.isNaN(parsed)) {
@@ -2377,7 +2673,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
       }
     }
 
-    const savedPostResponseHeight = window.localStorage.getItem(postResponseScriptHeightStorageKey);
+    const savedPostResponseHeight = window.localStorage.getItem(
+      postResponseScriptHeightStorageKey,
+    );
     if (savedPostResponseHeight) {
       const parsed = Number(savedPostResponseHeight);
       if (!Number.isNaN(parsed)) {
@@ -2392,7 +2690,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
         }
         const normalized = normalizeRestWorkspace(state);
         setWorkspace(normalized);
-        setExpandedCollectionIds(normalized.activeCollectionId ? [normalized.activeCollectionId] : []);
+        setExpandedCollectionIds(
+          normalized.activeCollectionId ? [normalized.activeCollectionId] : [],
+        );
         setResponseSummary(normalized.lastResponse?.response ?? null);
         setResponseError(null);
         setIsLoaded(true);
@@ -2403,7 +2703,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
         }
         const seed = createDefaultRestWorkspace();
         setWorkspace(seed);
-        setExpandedCollectionIds(seed.activeCollectionId ? [seed.activeCollectionId] : []);
+        setExpandedCollectionIds(
+          seed.activeCollectionId ? [seed.activeCollectionId] : [],
+        );
         setIsLoaded(true);
       });
 
@@ -2455,7 +2757,10 @@ export function RestPlayground(props: RestPlaygroundProps) {
         sidebar={
           <div class="space-y-4">
             <section class="space-y-2">
-              <div class="flex items-center gap-1 border-b pb-2" style={{ "border-color": "var(--app-border)" }}>
+              <div
+                class="flex items-center gap-1 border-b pb-2"
+                style={{ "border-color": "var(--app-border)" }}
+              >
                 <For each={sidebarTabs}>
                   {(tab) => (
                     <button
@@ -2478,7 +2783,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
               <Show when={sidebarPanel() === "collections"}>
                 <div class="space-y-2">
                   <div class="flex items-center justify-between gap-3">
-                    <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">Collections</p>
+                    <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">
+                      Collections
+                    </p>
                     <div class="relative" data-rest-menu-root>
                       <button
                         class="traffic-dot-button inline-flex h-6 w-6 items-center justify-center rounded-full p-0 leading-none transition"
@@ -2499,7 +2806,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
                     class="theme-input h-8 w-full rounded-md px-2.5 py-1 text-sm"
                     placeholder="Filter collections, folders, requests"
                     value={collectionFilter()}
-                    onInput={(event) => setCollectionFilter(event.currentTarget.value)}
+                    onInput={(event) =>
+                      setCollectionFilter(event.currentTarget.value)
+                    }
                   />
 
                   <input
@@ -2522,7 +2831,8 @@ export function RestPlayground(props: RestPlaygroundProps) {
                           <div class="grid gap-1">
                             <div
                               class={`theme-sidebar-item group flex min-w-0 items-center gap-1.5 rounded-lg px-1.5 py-1 ${
-                                workspace.activeCollectionId === entry.collection.id
+                                workspace.activeCollectionId ===
+                                entry.collection.id
                                   ? "theme-sidebar-item-active"
                                   : ""
                               }`}
@@ -2537,14 +2847,24 @@ export function RestPlayground(props: RestPlaygroundProps) {
                             >
                               <button
                                 class="inline-flex h-5 w-5 items-center justify-center rounded-md text-[11px]"
-                                title={isCollectionExpanded(entry.collection.id) ? "Collapse" : "Expand"}
+                                title={
+                                  isCollectionExpanded(entry.collection.id)
+                                    ? "Collapse"
+                                    : "Expand"
+                                }
                                 onMouseDown={(event) => event.stopPropagation()}
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onClick={() => toggleCollectionExpanded(entry.collection.id)}
+                                onPointerDown={(event) =>
+                                  event.stopPropagation()
+                                }
+                                onClick={() =>
+                                  toggleCollectionExpanded(entry.collection.id)
+                                }
                               >
                                 <svg
                                   class={`h-3.5 w-3.5 transition-transform ${
-                                    isCollectionExpanded(entry.collection.id) ? "rotate-90" : ""
+                                    isCollectionExpanded(entry.collection.id)
+                                      ? "rotate-90"
+                                      : ""
                                   }`}
                                   viewBox="0 0 16 16"
                                   fill="none"
@@ -2564,10 +2884,15 @@ export function RestPlayground(props: RestPlaygroundProps) {
                               <button
                                 class="min-w-0 flex-1 overflow-hidden text-left"
                                 onMouseDown={(event) => event.stopPropagation()}
-                                onClick={() => selectCollection(entry.collection.id)}
+                                onClick={() =>
+                                  selectCollection(entry.collection.id)
+                                }
                               >
                                 <div class="inline-flex max-w-full min-w-0 items-center gap-1.5 align-middle">
-                                  <p class="theme-text max-w-full truncate text-[13px] font-medium" title={entry.collection.name}>
+                                  <p
+                                    class="theme-text max-w-full truncate text-[13px] font-medium"
+                                    title={entry.collection.name}
+                                  >
                                     {entry.collection.name}
                                   </p>
                                   <span class="theme-chip shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
@@ -2578,21 +2903,31 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
                               <div
                                 class={`ml-1 flex shrink-0 items-center gap-1 transition-opacity ${
-                                  collectionMenuId() === entry.collection.id || collectionAddMenuId() === entry.collection.id
+                                  collectionMenuId() === entry.collection.id ||
+                                  collectionAddMenuId() === entry.collection.id
                                     ? "opacity-100"
                                     : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                                 }`}
                               >
-                                <div class="relative shrink-0" data-rest-menu-root>
+                                <div
+                                  class="relative shrink-0"
+                                  data-rest-menu-root
+                                >
                                   <button
                                     class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-[11px]"
                                     title="Collection options"
-                                    onMouseDown={(event) => event.stopPropagation()}
-                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onMouseDown={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                    onPointerDown={(event) =>
+                                      event.stopPropagation()
+                                    }
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       setCollectionMenuId((current) =>
-                                        current === entry.collection.id ? null : entry.collection.id
+                                        current === entry.collection.id
+                                          ? null
+                                          : entry.collection.id,
                                       );
                                       setCollectionOrderMenuId(null);
                                       setCollectionAddMenuId(null);
@@ -2602,39 +2937,61 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                     <ControlDot variant="menu" />
                                   </button>
 
-                                  <Show when={collectionMenuId() === entry.collection.id}>
+                                  <Show
+                                    when={
+                                      collectionMenuId() === entry.collection.id
+                                    }
+                                  >
                                     <div
                                       class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-10 min-w-[160px] border p-1"
                                       data-rest-menu-root
-                                      style={{ "border-color": "var(--app-border)" }}
+                                      style={{
+                                        "border-color": "var(--app-border)",
+                                      }}
                                     >
                                       <button
                                         class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                        onClick={() => renameCollection(entry.collection.id)}
+                                        onClick={() =>
+                                          renameCollection(entry.collection.id)
+                                        }
                                       >
                                         Rename
                                       </button>
                                       <button
                                         class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                        onClick={() => addFolder(entry.collection.id)}
+                                        onClick={() =>
+                                          addFolder(entry.collection.id)
+                                        }
                                       >
                                         Add Folder
                                       </button>
                                       <button
                                         class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                        onClick={() => exportCollection(entry.collection.id)}
+                                        onClick={() =>
+                                          exportCollection(entry.collection.id)
+                                        }
                                       >
                                         Export
                                       </button>
                                       <button
                                         class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                        onClick={() => orderCollection(entry.collection.id, "up")}
+                                        onClick={() =>
+                                          orderCollection(
+                                            entry.collection.id,
+                                            "up",
+                                          )
+                                        }
                                       >
                                         Move Up
                                       </button>
                                       <button
                                         class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                        onClick={() => orderCollection(entry.collection.id, "down")}
+                                        onClick={() =>
+                                          orderCollection(
+                                            entry.collection.id,
+                                            "down",
+                                          )
+                                        }
                                       >
                                         Move Down
                                       </button>
@@ -2643,46 +3000,81 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                           class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
                                           onClick={(event) => {
                                             event.stopPropagation();
-                                            setCollectionOrderMenuId((current) =>
-                                              current === entry.collection.id ? null : entry.collection.id
+                                            setCollectionOrderMenuId(
+                                              (current) =>
+                                                current === entry.collection.id
+                                                  ? null
+                                                  : entry.collection.id,
                                             );
                                           }}
                                         >
                                           <span>Order</span>
-                                          <span class="theme-text-soft text-[10px]">›</span>
+                                          <span class="theme-text-soft text-[10px]">
+                                            ›
+                                          </span>
                                         </button>
 
-                                        <Show when={collectionOrderMenuId() === entry.collection.id}>
+                                        <Show
+                                          when={
+                                            collectionOrderMenuId() ===
+                                            entry.collection.id
+                                          }
+                                        >
                                           <div
                                             class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[132px] border p-1"
                                             data-rest-menu-root
-                                            style={{ "border-color": "var(--app-border)" }}
+                                            style={{
+                                              "border-color":
+                                                "var(--app-border)",
+                                            }}
                                           >
                                             <button
                                               class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                              onClick={() => orderCollection(entry.collection.id, "top")}
+                                              onClick={() =>
+                                                orderCollection(
+                                                  entry.collection.id,
+                                                  "top",
+                                                )
+                                              }
                                             >
                                               Pin to Top
                                             </button>
                                             <button
                                               class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                              onClick={() => orderCollection(entry.collection.id, "up")}
+                                              onClick={() =>
+                                                orderCollection(
+                                                  entry.collection.id,
+                                                  "up",
+                                                )
+                                              }
                                             >
                                               Move Up
                                             </button>
                                             <button
                                               class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                              onClick={() => orderCollection(entry.collection.id, "down")}
+                                              onClick={() =>
+                                                orderCollection(
+                                                  entry.collection.id,
+                                                  "down",
+                                                )
+                                              }
                                             >
                                               Move Down
                                             </button>
                                           </div>
                                         </Show>
                                       </div>
-                                      <div class="my-1 border-t" style={{ "border-color": "var(--app-border)" }} />
+                                      <div
+                                        class="my-1 border-t"
+                                        style={{
+                                          "border-color": "var(--app-border)",
+                                        }}
+                                      />
                                       <button
                                         class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
-                                        onClick={() => deleteCollection(entry.collection.id)}
+                                        onClick={() =>
+                                          deleteCollection(entry.collection.id)
+                                        }
                                       >
                                         Delete
                                       </button>
@@ -2690,27 +3082,47 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                   </Show>
                                 </div>
 
-                                <div class="relative shrink-0" data-rest-menu-root>
+                                <div
+                                  class="relative shrink-0"
+                                  data-rest-menu-root
+                                >
                                   <button
                                     class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-xs"
                                     title="Add request"
-                                    onMouseDown={(event) => event.stopPropagation()}
-                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onMouseDown={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                    onPointerDown={(event) =>
+                                      event.stopPropagation()
+                                    }
                                     onClick={(event) => {
                                       event.stopPropagation();
-                                      openRequestCreationMenu(entry.collection.id, null);
+                                      openRequestCreationMenu(
+                                        entry.collection.id,
+                                        null,
+                                      );
                                     }}
                                   >
                                     <ControlDot variant="add" />
                                   </button>
-                                  <Show when={collectionAddMenuId() === entry.collection.id}>
-                                    {renderRequestCreateMenu(entry.collection.id, null)}
+                                  <Show
+                                    when={
+                                      collectionAddMenuId() ===
+                                      entry.collection.id
+                                    }
+                                  >
+                                    {renderRequestCreateMenu(
+                                      entry.collection.id,
+                                      null,
+                                    )}
                                   </Show>
                                 </div>
                               </div>
                             </div>
 
-                            <Show when={isCollectionExpanded(entry.collection.id)}>
+                            <Show
+                              when={isCollectionExpanded(entry.collection.id)}
+                            >
                               <div class="ml-2 grid gap-0.5">
                                 <For each={rootRequests()}>
                                   {(request) => (
@@ -2722,95 +3134,208 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                       }`}
                                       onContextMenu={(event) => {
                                         event.preventDefault();
-                                        openRequestTab(request.id, request.collectionId);
+                                        openRequestTab(
+                                          request.id,
+                                          request.collectionId,
+                                        );
                                         setRequestMenuId(request.id);
                                         setRequestOrderMenuId(null);
                                         setRequestMoveMenuId(null);
                                       }}
                                     >
-                                      <button class={getRequestBadgeClass(request)} onClick={() => openRequestTab(request.id, request.collectionId)}>
+                                      <button
+                                        class={getRequestBadgeClass(request)}
+                                        onClick={() =>
+                                          openRequestTab(
+                                            request.id,
+                                            request.collectionId,
+                                          )
+                                        }
+                                      >
                                         {getRequestKindLabel(request)}
                                       </button>
-                                      <button class="min-w-0 flex-1 text-left" onClick={() => openRequestTab(request.id, request.collectionId)}>
-                                        <p class="truncate text-[13px] font-medium" title={request.name}>{request.name}</p>
+                                      <button
+                                        class="min-w-0 flex-1 text-left"
+                                        onClick={() =>
+                                          openRequestTab(
+                                            request.id,
+                                            request.collectionId,
+                                          )
+                                        }
+                                      >
+                                        <p
+                                          class="truncate text-[13px] font-medium"
+                                          title={request.name}
+                                        >
+                                          {request.name}
+                                        </p>
                                       </button>
-                                    <div
-                                      class={`relative shrink-0 transition-opacity ${
-                                        requestMenuId() === request.id
-                                          ? "opacity-100"
-                                          : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-                                      }`}
-                                      data-rest-menu-root
-                                    >
+                                      <div
+                                        class={`relative shrink-0 transition-opacity ${
+                                          requestMenuId() === request.id
+                                            ? "opacity-100"
+                                            : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                                        }`}
+                                        data-rest-menu-root
+                                      >
                                         <button
                                           class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-[11px]"
                                           title="Request options"
-                                          onMouseDown={(event) => event.stopPropagation()}
-                                          onPointerDown={(event) => event.stopPropagation()}
+                                          onMouseDown={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                          onPointerDown={(event) =>
+                                            event.stopPropagation()
+                                          }
                                           onClick={(event) => {
                                             event.stopPropagation();
-                                            setRequestMenuId((current) => current === request.id ? null : request.id);
+                                            setRequestMenuId((current) =>
+                                              current === request.id
+                                                ? null
+                                                : request.id,
+                                            );
                                             setRequestOrderMenuId(null);
                                             setRequestMoveMenuId(null);
                                           }}
                                         >
                                           <ControlDot variant="menu" />
                                         </button>
-                                        <Show when={requestMenuId() === request.id}>
+                                        <Show
+                                          when={requestMenuId() === request.id}
+                                        >
                                           <div
                                             class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-10 min-w-[172px] border p-1"
                                             data-rest-menu-root
-                                            style={{ "border-color": "var(--app-border)" }}
+                                            style={{
+                                              "border-color":
+                                                "var(--app-border)",
+                                            }}
                                           >
-                                            <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => void copyRequestAsCurl(request.id)}>
+                                            <button
+                                              class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                              onClick={() =>
+                                                void copyRequestAsCurl(
+                                                  request.id,
+                                                )
+                                              }
+                                            >
                                               Copy cURL
                                             </button>
-                                            <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => renameRequest(request.id)}>
+                                            <button
+                                              class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                              onClick={() =>
+                                                renameRequest(request.id)
+                                              }
+                                            >
                                               Rename
                                             </button>
-                                            <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => duplicateRequest(request.id)}>
+                                            <button
+                                              class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                              onClick={() =>
+                                                duplicateRequest(request.id)
+                                              }
+                                            >
                                               Duplicate
                                             </button>
-                                            <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "up")}>
+                                            <button
+                                              class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                              onClick={() =>
+                                                orderRequest(request.id, "up")
+                                              }
+                                            >
                                               Move Up
                                             </button>
-                                            <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "down")}>
+                                            <button
+                                              class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                              onClick={() =>
+                                                orderRequest(request.id, "down")
+                                              }
+                                            >
                                               Move Down
                                             </button>
-                                            <div class="relative" data-rest-menu-root>
+                                            <div
+                                              class="relative"
+                                              data-rest-menu-root
+                                            >
                                               <button
                                                 class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
                                                 onClick={(event) => {
                                                   event.stopPropagation();
-                                                  setRequestMoveMenuId((current) => current === request.id ? null : request.id);
+                                                  setRequestMoveMenuId(
+                                                    (current) =>
+                                                      current === request.id
+                                                        ? null
+                                                        : request.id,
+                                                  );
                                                   setRequestOrderMenuId(null);
                                                 }}
                                               >
                                                 <span>Move to</span>
-                                                <span class="theme-text-soft text-[10px]">›</span>
+                                                <span class="theme-text-soft text-[10px]">
+                                                  ›
+                                                </span>
                                               </button>
-                                              <Show when={requestMoveMenuId() === request.id}>
+                                              <Show
+                                                when={
+                                                  requestMoveMenuId() ===
+                                                  request.id
+                                                }
+                                              >
                                                 <div
                                                   class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[188px] border p-1"
                                                   data-rest-menu-root
-                                                  style={{ "border-color": "var(--app-border)" }}
+                                                  style={{
+                                                    "border-color":
+                                                      "var(--app-border)",
+                                                  }}
                                                 >
-                                                  <For each={workspace.collections}>
+                                                  <For
+                                                    each={workspace.collections}
+                                                  >
                                                     {(collection) => (
                                                       <>
                                                         <button
                                                           class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                                          onClick={() => moveRequest(request.id, { collectionId: collection.id, folderId: null })}
+                                                          onClick={() =>
+                                                            moveRequest(
+                                                              request.id,
+                                                              {
+                                                                collectionId:
+                                                                  collection.id,
+                                                                folderId: null,
+                                                              },
+                                                            )
+                                                          }
                                                         >
-                                                          {getRequestMoveTargetLabel(collection, null)}
+                                                          {getRequestMoveTargetLabel(
+                                                            collection,
+                                                            null,
+                                                          )}
                                                         </button>
-                                                        <For each={collection.folders}>
+                                                        <For
+                                                          each={
+                                                            collection.folders
+                                                          }
+                                                        >
                                                           {(folder) => (
                                                             <button
                                                               class="theme-sidebar-item w-full rounded-xl px-3 py-2 pl-7 text-left text-sm"
-                                                              onClick={() => moveRequest(request.id, { collectionId: collection.id, folderId: folder.id })}
+                                                              onClick={() =>
+                                                                moveRequest(
+                                                                  request.id,
+                                                                  {
+                                                                    collectionId:
+                                                                      collection.id,
+                                                                    folderId:
+                                                                      folder.id,
+                                                                  },
+                                                                )
+                                                              }
                                                             >
-                                                              {getRequestMoveTargetLabel(collection, folder.id)}
+                                                              {getRequestMoveTargetLabel(
+                                                                collection,
+                                                                folder.id,
+                                                              )}
                                                             </button>
                                                           )}
                                                         </For>
@@ -2820,37 +3345,84 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                 </div>
                                               </Show>
                                             </div>
-                                            <div class="relative" data-rest-menu-root>
+                                            <div
+                                              class="relative"
+                                              data-rest-menu-root
+                                            >
                                               <button
                                                 class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
                                                 onClick={(event) => {
                                                   event.stopPropagation();
-                                                  setRequestOrderMenuId((current) => current === request.id ? null : request.id);
+                                                  setRequestOrderMenuId(
+                                                    (current) =>
+                                                      current === request.id
+                                                        ? null
+                                                        : request.id,
+                                                  );
                                                   setRequestMoveMenuId(null);
                                                 }}
                                               >
                                                 <span>Order</span>
-                                                <span class="theme-text-soft text-[10px]">›</span>
+                                                <span class="theme-text-soft text-[10px]">
+                                                  ›
+                                                </span>
                                               </button>
-                                              <Show when={requestOrderMenuId() === request.id}>
+                                              <Show
+                                                when={
+                                                  requestOrderMenuId() ===
+                                                  request.id
+                                                }
+                                              >
                                                 <div
                                                   class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[132px] border p-1"
                                                   data-rest-menu-root
-                                                  style={{ "border-color": "var(--app-border)" }}
+                                                  style={{
+                                                    "border-color":
+                                                      "var(--app-border)",
+                                                  }}
                                                 >
-                                                  <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "top")}>
+                                                  <button
+                                                    class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                    onClick={() =>
+                                                      orderRequest(
+                                                        request.id,
+                                                        "top",
+                                                      )
+                                                    }
+                                                  >
                                                     Pin to Top
                                                   </button>
-                                                  <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "up")}>
+                                                  <button
+                                                    class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                    onClick={() =>
+                                                      orderRequest(
+                                                        request.id,
+                                                        "up",
+                                                      )
+                                                    }
+                                                  >
                                                     Move Up
                                                   </button>
-                                                  <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "down")}>
+                                                  <button
+                                                    class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                    onClick={() =>
+                                                      orderRequest(
+                                                        request.id,
+                                                        "down",
+                                                      )
+                                                    }
+                                                  >
                                                     Move Down
                                                   </button>
                                                 </div>
                                               </Show>
                                             </div>
-                                            <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]" onClick={() => deleteRequest(request.id)}>
+                                            <button
+                                              class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
+                                              onClick={() =>
+                                                deleteRequest(request.id)
+                                              }
+                                            >
                                               Delete
                                             </button>
                                           </div>
@@ -2866,7 +3438,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                         class="group flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5"
                                         onContextMenu={(event) => {
                                           event.preventDefault();
-                                          setFolderMenuId(folderEntry.folder.id);
+                                          setFolderMenuId(
+                                            folderEntry.folder.id,
+                                          );
                                           setFolderOrderMenuId(null);
                                           setFolderMoveMenuId(null);
                                           setFolderAddMenuId(null);
@@ -2874,17 +3448,33 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                       >
                                         <button
                                           class="inline-flex h-5 w-5 items-center justify-center rounded-md text-[11px]"
-                                          title={isFolderExpanded(folderEntry.folder.id) ? "Collapse" : "Expand"}
-                                          onMouseDown={(event) => event.stopPropagation()}
-                                          onPointerDown={(event) => event.stopPropagation()}
+                                          title={
+                                            isFolderExpanded(
+                                              folderEntry.folder.id,
+                                            )
+                                              ? "Collapse"
+                                              : "Expand"
+                                          }
+                                          onMouseDown={(event) =>
+                                            event.stopPropagation()
+                                          }
+                                          onPointerDown={(event) =>
+                                            event.stopPropagation()
+                                          }
                                           onClick={(event) => {
                                             event.stopPropagation();
-                                            toggleFolderExpanded(folderEntry.folder.id);
+                                            toggleFolderExpanded(
+                                              folderEntry.folder.id,
+                                            );
                                           }}
                                         >
                                           <svg
                                             class={`h-3.5 w-3.5 transition-transform ${
-                                              isFolderExpanded(folderEntry.folder.id) ? "rotate-90" : ""
+                                              isFolderExpanded(
+                                                folderEntry.folder.id,
+                                              )
+                                                ? "rotate-90"
+                                                : ""
                                             }`}
                                             viewBox="0 0 16 16"
                                             fill="none"
@@ -2903,14 +3493,20 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                         <button
                                           class="min-w-0 flex-1 text-left"
                                           title={folderEntry.folder.name}
-                                          onMouseDown={(event) => event.stopPropagation()}
+                                          onMouseDown={(event) =>
+                                            event.stopPropagation()
+                                          }
                                           onClick={(event) => {
                                             event.stopPropagation();
-                                            toggleFolderExpanded(folderEntry.folder.id);
+                                            toggleFolderExpanded(
+                                              folderEntry.folder.id,
+                                            );
                                           }}
                                         >
                                           <div class="inline-flex max-w-full min-w-0 items-center gap-1.5 align-middle">
-                                            <p class="max-w-full truncate text-[13px] font-medium">{folderEntry.folder.name}</p>
+                                            <p class="max-w-full truncate text-[13px] font-medium">
+                                              {folderEntry.folder.name}
+                                            </p>
                                             <span class="theme-chip shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
                                               {folderEntry.requests.length}
                                             </span>
@@ -2918,7 +3514,10 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                         </button>
                                         <div
                                           class={`relative shrink-0 transition-opacity ${
-                                            folderMenuId() === folderEntry.folder.id || folderAddMenuId() === folderEntry.folder.id
+                                            folderMenuId() ===
+                                              folderEntry.folder.id ||
+                                            folderAddMenuId() ===
+                                              folderEntry.folder.id
                                               ? "opacity-100"
                                               : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                                           }`}
@@ -2927,58 +3526,143 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                           <button
                                             class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-[11px]"
                                             title="Folder options"
-                                            onMouseDown={(event) => event.stopPropagation()}
-                                            onPointerDown={(event) => event.stopPropagation()}
+                                            onMouseDown={(event) =>
+                                              event.stopPropagation()
+                                            }
+                                            onPointerDown={(event) =>
+                                              event.stopPropagation()
+                                            }
                                             onClick={(event) => {
                                               event.stopPropagation();
-                                              setFolderMenuId((current) => current === folderEntry.folder.id ? null : folderEntry.folder.id);
+                                              setFolderMenuId((current) =>
+                                                current ===
+                                                folderEntry.folder.id
+                                                  ? null
+                                                  : folderEntry.folder.id,
+                                              );
                                               setFolderOrderMenuId(null);
                                               setFolderMoveMenuId(null);
                                             }}
                                           >
                                             <ControlDot variant="menu" />
                                           </button>
-                                          <Show when={folderMenuId() === folderEntry.folder.id}>
+                                          <Show
+                                            when={
+                                              folderMenuId() ===
+                                              folderEntry.folder.id
+                                            }
+                                          >
                                             <div
                                               class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-10 min-w-[176px] border p-1"
                                               data-rest-menu-root
-                                              style={{ "border-color": "var(--app-border)" }}
+                                              style={{
+                                                "border-color":
+                                                  "var(--app-border)",
+                                              }}
                                             >
-                                              <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => renameFolder(entry.collection.id, folderEntry.folder.id)}>
+                                              <button
+                                                class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                onClick={() =>
+                                                  renameFolder(
+                                                    entry.collection.id,
+                                                    folderEntry.folder.id,
+                                                  )
+                                                }
+                                              >
                                                 Rename
                                               </button>
-                                              <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => duplicateFolder(entry.collection.id, folderEntry.folder.id)}>
+                                              <button
+                                                class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                onClick={() =>
+                                                  duplicateFolder(
+                                                    entry.collection.id,
+                                                    folderEntry.folder.id,
+                                                  )
+                                                }
+                                              >
                                                 Duplicate
                                               </button>
-                                              <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderFolder(entry.collection.id, folderEntry.folder.id, "up")}>
+                                              <button
+                                                class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                onClick={() =>
+                                                  orderFolder(
+                                                    entry.collection.id,
+                                                    folderEntry.folder.id,
+                                                    "up",
+                                                  )
+                                                }
+                                              >
                                                 Move Up
                                               </button>
-                                              <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderFolder(entry.collection.id, folderEntry.folder.id, "down")}>
+                                              <button
+                                                class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                onClick={() =>
+                                                  orderFolder(
+                                                    entry.collection.id,
+                                                    folderEntry.folder.id,
+                                                    "down",
+                                                  )
+                                                }
+                                              >
                                                 Move Down
                                               </button>
-                                              <div class="relative" data-rest-menu-root>
+                                              <div
+                                                class="relative"
+                                                data-rest-menu-root
+                                              >
                                                 <button
                                                   class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
                                                   onClick={(event) => {
                                                     event.stopPropagation();
-                                                    setFolderMoveMenuId((current) => current === folderEntry.folder.id ? null : folderEntry.folder.id);
+                                                    setFolderMoveMenuId(
+                                                      (current) =>
+                                                        current ===
+                                                        folderEntry.folder.id
+                                                          ? null
+                                                          : folderEntry.folder
+                                                              .id,
+                                                    );
                                                     setFolderOrderMenuId(null);
                                                   }}
                                                 >
                                                   <span>Move to</span>
-                                                  <span class="theme-text-soft text-[10px]">›</span>
+                                                  <span class="theme-text-soft text-[10px]">
+                                                    ›
+                                                  </span>
                                                 </button>
-                                                <Show when={folderMoveMenuId() === folderEntry.folder.id}>
+                                                <Show
+                                                  when={
+                                                    folderMoveMenuId() ===
+                                                    folderEntry.folder.id
+                                                  }
+                                                >
                                                   <div
                                                     class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[170px] border p-1"
                                                     data-rest-menu-root
-                                                    style={{ "border-color": "var(--app-border)" }}
+                                                    style={{
+                                                      "border-color":
+                                                        "var(--app-border)",
+                                                    }}
                                                   >
-                                                    <For each={workspace.collections.filter((collection) => collection.id !== entry.collection.id)}>
+                                                    <For
+                                                      each={workspace.collections.filter(
+                                                        (collection) =>
+                                                          collection.id !==
+                                                          entry.collection.id,
+                                                      )}
+                                                    >
                                                       {(collection) => (
                                                         <button
                                                           class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                                          onClick={() => moveFolderToCollection(entry.collection.id, folderEntry.folder.id, collection.id)}
+                                                          onClick={() =>
+                                                            moveFolderToCollection(
+                                                              entry.collection
+                                                                .id,
+                                                              folderEntry.folder
+                                                                .id,
+                                                              collection.id,
+                                                            )
+                                                          }
                                                         >
                                                           {collection.name}
                                                         </button>
@@ -2987,67 +3671,168 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                   </div>
                                                 </Show>
                                               </div>
-                                              <div class="relative" data-rest-menu-root>
+                                              <div
+                                                class="relative"
+                                                data-rest-menu-root
+                                              >
                                                 <button
                                                   class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
                                                   onClick={(event) => {
                                                     event.stopPropagation();
-                                                    setFolderOrderMenuId((current) => current === folderEntry.folder.id ? null : folderEntry.folder.id);
+                                                    setFolderOrderMenuId(
+                                                      (current) =>
+                                                        current ===
+                                                        folderEntry.folder.id
+                                                          ? null
+                                                          : folderEntry.folder
+                                                              .id,
+                                                    );
                                                     setFolderMoveMenuId(null);
                                                   }}
                                                 >
                                                   <span>Order</span>
-                                                  <span class="theme-text-soft text-[10px]">›</span>
+                                                  <span class="theme-text-soft text-[10px]">
+                                                    ›
+                                                  </span>
                                                 </button>
-                                                <Show when={folderOrderMenuId() === folderEntry.folder.id}>
+                                                <Show
+                                                  when={
+                                                    folderOrderMenuId() ===
+                                                    folderEntry.folder.id
+                                                  }
+                                                >
                                                   <div
                                                     class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[132px] border p-1"
                                                     data-rest-menu-root
-                                                    style={{ "border-color": "var(--app-border)" }}
+                                                    style={{
+                                                      "border-color":
+                                                        "var(--app-border)",
+                                                    }}
                                                   >
-                                                    <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderFolder(entry.collection.id, folderEntry.folder.id, "top")}>
+                                                    <button
+                                                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                      onClick={() =>
+                                                        orderFolder(
+                                                          entry.collection.id,
+                                                          folderEntry.folder.id,
+                                                          "top",
+                                                        )
+                                                      }
+                                                    >
                                                       Pin to Top
                                                     </button>
-                                                    <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderFolder(entry.collection.id, folderEntry.folder.id, "up")}>
+                                                    <button
+                                                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                      onClick={() =>
+                                                        orderFolder(
+                                                          entry.collection.id,
+                                                          folderEntry.folder.id,
+                                                          "up",
+                                                        )
+                                                      }
+                                                    >
                                                       Move Up
                                                     </button>
-                                                    <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderFolder(entry.collection.id, folderEntry.folder.id, "down")}>
+                                                    <button
+                                                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                      onClick={() =>
+                                                        orderFolder(
+                                                          entry.collection.id,
+                                                          folderEntry.folder.id,
+                                                          "down",
+                                                        )
+                                                      }
+                                                    >
                                                       Move Down
                                                     </button>
                                                   </div>
                                                 </Show>
                                               </div>
-                                              <div class="relative" data-rest-menu-root>
+                                              <div
+                                                class="relative"
+                                                data-rest-menu-root
+                                              >
                                                 <button
                                                   class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
                                                   onClick={(event) => {
                                                     event.stopPropagation();
-                                                    setFolderOrderMenuId((current) => current === `sort:${folderEntry.folder.id}` ? null : `sort:${folderEntry.folder.id}`);
+                                                    setFolderOrderMenuId(
+                                                      (current) =>
+                                                        current ===
+                                                        `sort:${folderEntry.folder.id}`
+                                                          ? null
+                                                          : `sort:${folderEntry.folder.id}`,
+                                                    );
                                                     setFolderMoveMenuId(null);
                                                   }}
                                                 >
                                                   <span>Sort</span>
-                                                  <span class="theme-text-soft text-[10px]">›</span>
+                                                  <span class="theme-text-soft text-[10px]">
+                                                    ›
+                                                  </span>
                                                 </button>
-                                                <Show when={folderOrderMenuId() === `sort:${folderEntry.folder.id}`}>
+                                                <Show
+                                                  when={
+                                                    folderOrderMenuId() ===
+                                                    `sort:${folderEntry.folder.id}`
+                                                  }
+                                                >
                                                   <div
                                                     class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[156px] border p-1"
                                                     data-rest-menu-root
-                                                    style={{ "border-color": "var(--app-border)" }}
+                                                    style={{
+                                                      "border-color":
+                                                        "var(--app-border)",
+                                                    }}
                                                   >
-                                                    <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => sortFolderRequests(entry.collection.id, folderEntry.folder.id, "alpha-asc")}>
+                                                    <button
+                                                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                      onClick={() =>
+                                                        sortFolderRequests(
+                                                          entry.collection.id,
+                                                          folderEntry.folder.id,
+                                                          "alpha-asc",
+                                                        )
+                                                      }
+                                                    >
                                                       A-Z
                                                     </button>
-                                                    <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => sortFolderRequests(entry.collection.id, folderEntry.folder.id, "alpha-desc")}>
+                                                    <button
+                                                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                      onClick={() =>
+                                                        sortFolderRequests(
+                                                          entry.collection.id,
+                                                          folderEntry.folder.id,
+                                                          "alpha-desc",
+                                                        )
+                                                      }
+                                                    >
                                                       Z-A
                                                     </button>
-                                                    <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => sortFolderRequests(entry.collection.id, folderEntry.folder.id, "time")}>
+                                                    <button
+                                                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                      onClick={() =>
+                                                        sortFolderRequests(
+                                                          entry.collection.id,
+                                                          folderEntry.folder.id,
+                                                          "time",
+                                                        )
+                                                      }
+                                                    >
                                                       By Time (Newest)
                                                     </button>
                                                   </div>
                                                 </Show>
                                               </div>
-                                              <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]" onClick={() => deleteFolder(entry.collection.id, folderEntry.folder.id)}>
+                                              <button
+                                                class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
+                                                onClick={() =>
+                                                  deleteFolder(
+                                                    entry.collection.id,
+                                                    folderEntry.folder.id,
+                                                  )
+                                                }
+                                              >
                                                 Delete
                                               </button>
                                             </div>
@@ -3055,7 +3840,10 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                         </div>
                                         <div
                                           class={`relative shrink-0 transition-opacity ${
-                                            folderMenuId() === folderEntry.folder.id || folderAddMenuId() === folderEntry.folder.id
+                                            folderMenuId() ===
+                                              folderEntry.folder.id ||
+                                            folderAddMenuId() ===
+                                              folderEntry.folder.id
                                               ? "opacity-100"
                                               : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                                           }`}
@@ -3064,48 +3852,95 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                           <button
                                             class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-xs"
                                             title="Add request"
-                                            onMouseDown={(event) => event.stopPropagation()}
-                                            onPointerDown={(event) => event.stopPropagation()}
+                                            onMouseDown={(event) =>
+                                              event.stopPropagation()
+                                            }
+                                            onPointerDown={(event) =>
+                                              event.stopPropagation()
+                                            }
                                             onClick={(event) => {
                                               event.stopPropagation();
-                                              openRequestCreationMenu(entry.collection.id, folderEntry.folder.id);
+                                              openRequestCreationMenu(
+                                                entry.collection.id,
+                                                folderEntry.folder.id,
+                                              );
                                             }}
                                           >
                                             <ControlDot variant="add" />
                                           </button>
-                                          <Show when={folderAddMenuId() === folderEntry.folder.id}>
-                                            {renderRequestCreateMenu(entry.collection.id, folderEntry.folder.id)}
+                                          <Show
+                                            when={
+                                              folderAddMenuId() ===
+                                              folderEntry.folder.id
+                                            }
+                                          >
+                                            {renderRequestCreateMenu(
+                                              entry.collection.id,
+                                              folderEntry.folder.id,
+                                            )}
                                           </Show>
                                         </div>
                                       </div>
 
-                                      <Show when={isFolderExpanded(folderEntry.folder.id)}>
+                                      <Show
+                                        when={isFolderExpanded(
+                                          folderEntry.folder.id,
+                                        )}
+                                      >
                                         <div class="grid gap-1">
                                           <For each={folderEntry.requests}>
                                             {(request) => (
                                               <div
                                                 class={`theme-sidebar-item group flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
-                                                  workspace.activeRequestId === request.id
+                                                  workspace.activeRequestId ===
+                                                  request.id
                                                     ? "theme-sidebar-item-active"
                                                     : ""
                                                 }`}
                                                 onContextMenu={(event) => {
                                                   event.preventDefault();
-                                                  openRequestTab(request.id, request.collectionId);
+                                                  openRequestTab(
+                                                    request.id,
+                                                    request.collectionId,
+                                                  );
                                                   setRequestMenuId(request.id);
                                                   setRequestOrderMenuId(null);
                                                   setRequestMoveMenuId(null);
                                                 }}
                                               >
-                                                <button class={getRequestBadgeClass(request)} onClick={() => openRequestTab(request.id, request.collectionId)}>
+                                                <button
+                                                  class={getRequestBadgeClass(
+                                                    request,
+                                                  )}
+                                                  onClick={() =>
+                                                    openRequestTab(
+                                                      request.id,
+                                                      request.collectionId,
+                                                    )
+                                                  }
+                                                >
                                                   {getRequestKindLabel(request)}
                                                 </button>
-                                                <button class="min-w-0 flex-1 text-left" onClick={() => openRequestTab(request.id, request.collectionId)}>
-                                                  <p class="truncate text-[13px] font-medium" title={request.name}>{request.name}</p>
+                                                <button
+                                                  class="min-w-0 flex-1 text-left"
+                                                  onClick={() =>
+                                                    openRequestTab(
+                                                      request.id,
+                                                      request.collectionId,
+                                                    )
+                                                  }
+                                                >
+                                                  <p
+                                                    class="truncate text-[13px] font-medium"
+                                                    title={request.name}
+                                                  >
+                                                    {request.name}
+                                                  </p>
                                                 </button>
                                                 <div
                                                   class={`relative shrink-0 transition-opacity ${
-                                                    requestMenuId() === request.id
+                                                    requestMenuId() ===
+                                                    request.id
                                                       ? "opacity-100"
                                                       : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                                                   }`}
@@ -3114,72 +3949,187 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                   <button
                                                     class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-[11px]"
                                                     title="Request options"
-                                                    onMouseDown={(event) => event.stopPropagation()}
-                                                    onPointerDown={(event) => event.stopPropagation()}
+                                                    onMouseDown={(event) =>
+                                                      event.stopPropagation()
+                                                    }
+                                                    onPointerDown={(event) =>
+                                                      event.stopPropagation()
+                                                    }
                                                     onClick={(event) => {
                                                       event.stopPropagation();
-                                                      setRequestMenuId((current) => current === request.id ? null : request.id);
-                                                      setRequestOrderMenuId(null);
-                                                      setRequestMoveMenuId(null);
+                                                      setRequestMenuId(
+                                                        (current) =>
+                                                          current === request.id
+                                                            ? null
+                                                            : request.id,
+                                                      );
+                                                      setRequestOrderMenuId(
+                                                        null,
+                                                      );
+                                                      setRequestMoveMenuId(
+                                                        null,
+                                                      );
                                                     }}
                                                   >
                                                     <ControlDot variant="menu" />
                                                   </button>
-                                                  <Show when={requestMenuId() === request.id}>
+                                                  <Show
+                                                    when={
+                                                      requestMenuId() ===
+                                                      request.id
+                                                    }
+                                                  >
                                                     <div
                                                       class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-10 min-w-[172px] border p-1"
                                                       data-rest-menu-root
-                                                      style={{ "border-color": "var(--app-border)" }}
+                                                      style={{
+                                                        "border-color":
+                                                          "var(--app-border)",
+                                                      }}
                                                     >
-                                                      <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => void copyRequestAsCurl(request.id)}>
+                                                      <button
+                                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                        onClick={() =>
+                                                          void copyRequestAsCurl(
+                                                            request.id,
+                                                          )
+                                                        }
+                                                      >
                                                         Copy cURL
                                                       </button>
-                                                      <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => renameRequest(request.id)}>
+                                                      <button
+                                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                        onClick={() =>
+                                                          renameRequest(
+                                                            request.id,
+                                                          )
+                                                        }
+                                                      >
                                                         Rename
                                                       </button>
-                                                      <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => duplicateRequest(request.id)}>
+                                                      <button
+                                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                        onClick={() =>
+                                                          duplicateRequest(
+                                                            request.id,
+                                                          )
+                                                        }
+                                                      >
                                                         Duplicate
                                                       </button>
-                                                      <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "up")}>
+                                                      <button
+                                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                        onClick={() =>
+                                                          orderRequest(
+                                                            request.id,
+                                                            "up",
+                                                          )
+                                                        }
+                                                      >
                                                         Move Up
                                                       </button>
-                                                      <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "down")}>
+                                                      <button
+                                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                        onClick={() =>
+                                                          orderRequest(
+                                                            request.id,
+                                                            "down",
+                                                          )
+                                                        }
+                                                      >
                                                         Move Down
                                                       </button>
-                                                      <div class="relative" data-rest-menu-root>
+                                                      <div
+                                                        class="relative"
+                                                        data-rest-menu-root
+                                                      >
                                                         <button
                                                           class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
                                                           onClick={(event) => {
                                                             event.stopPropagation();
-                                                            setRequestMoveMenuId((current) => current === request.id ? null : request.id);
-                                                            setRequestOrderMenuId(null);
+                                                            setRequestMoveMenuId(
+                                                              (current) =>
+                                                                current ===
+                                                                request.id
+                                                                  ? null
+                                                                  : request.id,
+                                                            );
+                                                            setRequestOrderMenuId(
+                                                              null,
+                                                            );
                                                           }}
                                                         >
                                                           <span>Move to</span>
-                                                          <span class="theme-text-soft text-[10px]">›</span>
+                                                          <span class="theme-text-soft text-[10px]">
+                                                            ›
+                                                          </span>
                                                         </button>
-                                                        <Show when={requestMoveMenuId() === request.id}>
+                                                        <Show
+                                                          when={
+                                                            requestMoveMenuId() ===
+                                                            request.id
+                                                          }
+                                                        >
                                                           <div
                                                             class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[188px] border p-1"
                                                             data-rest-menu-root
-                                                            style={{ "border-color": "var(--app-border)" }}
+                                                            style={{
+                                                              "border-color":
+                                                                "var(--app-border)",
+                                                            }}
                                                           >
-                                                            <For each={workspace.collections}>
+                                                            <For
+                                                              each={
+                                                                workspace.collections
+                                                              }
+                                                            >
                                                               {(collection) => (
                                                                 <>
                                                                   <button
                                                                     class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                                                    onClick={() => moveRequest(request.id, { collectionId: collection.id, folderId: null })}
+                                                                    onClick={() =>
+                                                                      moveRequest(
+                                                                        request.id,
+                                                                        {
+                                                                          collectionId:
+                                                                            collection.id,
+                                                                          folderId:
+                                                                            null,
+                                                                        },
+                                                                      )
+                                                                    }
                                                                   >
-                                                                    {getRequestMoveTargetLabel(collection, null)}
+                                                                    {getRequestMoveTargetLabel(
+                                                                      collection,
+                                                                      null,
+                                                                    )}
                                                                   </button>
-                                                                  <For each={collection.folders}>
-                                                                    {(folder) => (
+                                                                  <For
+                                                                    each={
+                                                                      collection.folders
+                                                                    }
+                                                                  >
+                                                                    {(
+                                                                      folder,
+                                                                    ) => (
                                                                       <button
                                                                         class="theme-sidebar-item w-full rounded-xl px-3 py-2 pl-7 text-left text-sm"
-                                                                        onClick={() => moveRequest(request.id, { collectionId: collection.id, folderId: folder.id })}
+                                                                        onClick={() =>
+                                                                          moveRequest(
+                                                                            request.id,
+                                                                            {
+                                                                              collectionId:
+                                                                                collection.id,
+                                                                              folderId:
+                                                                                folder.id,
+                                                                            },
+                                                                          )
+                                                                        }
                                                                       >
-                                                                        {getRequestMoveTargetLabel(collection, folder.id)}
+                                                                        {getRequestMoveTargetLabel(
+                                                                          collection,
+                                                                          folder.id,
+                                                                        )}
                                                                       </button>
                                                                     )}
                                                                   </For>
@@ -3189,37 +4139,89 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                           </div>
                                                         </Show>
                                                       </div>
-                                                      <div class="relative" data-rest-menu-root>
+                                                      <div
+                                                        class="relative"
+                                                        data-rest-menu-root
+                                                      >
                                                         <button
                                                           class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
                                                           onClick={(event) => {
                                                             event.stopPropagation();
-                                                            setRequestOrderMenuId((current) => current === request.id ? null : request.id);
-                                                            setRequestMoveMenuId(null);
+                                                            setRequestOrderMenuId(
+                                                              (current) =>
+                                                                current ===
+                                                                request.id
+                                                                  ? null
+                                                                  : request.id,
+                                                            );
+                                                            setRequestMoveMenuId(
+                                                              null,
+                                                            );
                                                           }}
                                                         >
                                                           <span>Order</span>
-                                                          <span class="theme-text-soft text-[10px]">›</span>
+                                                          <span class="theme-text-soft text-[10px]">
+                                                            ›
+                                                          </span>
                                                         </button>
-                                                        <Show when={requestOrderMenuId() === request.id}>
+                                                        <Show
+                                                          when={
+                                                            requestOrderMenuId() ===
+                                                            request.id
+                                                          }
+                                                        >
                                                           <div
                                                             class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[132px] border p-1"
                                                             data-rest-menu-root
-                                                            style={{ "border-color": "var(--app-border)" }}
+                                                            style={{
+                                                              "border-color":
+                                                                "var(--app-border)",
+                                                            }}
                                                           >
-                                                            <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "top")}>
+                                                            <button
+                                                              class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                              onClick={() =>
+                                                                orderRequest(
+                                                                  request.id,
+                                                                  "top",
+                                                                )
+                                                              }
+                                                            >
                                                               Pin to Top
                                                             </button>
-                                                            <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "up")}>
+                                                            <button
+                                                              class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                              onClick={() =>
+                                                                orderRequest(
+                                                                  request.id,
+                                                                  "up",
+                                                                )
+                                                              }
+                                                            >
                                                               Move Up
                                                             </button>
-                                                            <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "down")}>
+                                                            <button
+                                                              class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                              onClick={() =>
+                                                                orderRequest(
+                                                                  request.id,
+                                                                  "down",
+                                                                )
+                                                              }
+                                                            >
                                                               Move Down
                                                             </button>
                                                           </div>
                                                         </Show>
                                                       </div>
-                                                      <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]" onClick={() => deleteRequest(request.id)}>
+                                                      <button
+                                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
+                                                        onClick={() =>
+                                                          deleteRequest(
+                                                            request.id,
+                                                          )
+                                                        }
+                                                      >
                                                         Delete
                                                       </button>
                                                     </div>
@@ -3233,9 +4235,16 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                     </div>
                                   )}
                                 </For>
-                                <Show when={rootRequests().length === 0 && folders().length === 0}>
+                                <Show
+                                  when={
+                                    rootRequests().length === 0 &&
+                                    folders().length === 0
+                                  }
+                                >
                                   <div class="theme-text-soft px-2 py-1.5 text-xs">
-                                    {collectionFilter().trim() ? "No matches" : "No requests yet"}
+                                    {collectionFilter().trim()
+                                      ? "No matches"
+                                      : "No requests yet"}
                                   </div>
                                 </Show>
                               </div>
@@ -3245,7 +4254,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
                       }}
                     </For>
                     <Show when={filteredCollections().length === 0}>
-                      <div class="theme-text-soft px-2 py-2 text-xs">No matches</div>
+                      <div class="theme-text-soft px-2 py-2 text-xs">
+                        No matches
+                      </div>
                     </Show>
                   </div>
                 </div>
@@ -3254,7 +4265,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
               <Show when={sidebarPanel() === "environments"}>
                 <div class="space-y-2">
                   <div class="flex items-center justify-between gap-3">
-                    <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">Environments</p>
+                    <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">
+                      Environments
+                    </p>
                     <button
                       class="traffic-dot-button inline-flex h-6 w-6 items-center justify-center rounded-full p-0 leading-none transition"
                       title="New environment"
@@ -3278,8 +4291,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
                             })
                           }
                         >
-                          <p class="theme-text text-sm font-semibold">{environment.name}</p>
-                          <span class="theme-text-soft text-xs">{environment.variables.length}</span>
+                          <p class="theme-text text-sm font-semibold">
+                            {environment.name}
+                          </p>
+                          <span class="theme-text-soft text-xs">
+                            {environment.variables.length}
+                          </span>
                         </button>
                       )}
                     </For>
@@ -3287,14 +4304,19 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
                   <Show when={activeEnvironment()}>
                     {(environment) => (
-                      <div class="mt-3 space-y-2 border-t pt-3" style={{ "border-color": "var(--app-border)" }}>
+                      <div
+                        class="mt-3 space-y-2 border-t pt-3"
+                        style={{ "border-color": "var(--app-border)" }}
+                      >
                         <div class="flex items-center justify-between gap-2">
                           <input
                             class="theme-input h-8 min-w-0 flex-1 rounded-md px-2.5 py-1 text-sm font-medium"
                             value={environment().name}
                             onInput={(event) =>
                               commitWorkspace((next) => {
-                                const target = next.environments.find((item) => item.id === environment().id);
+                                const target = next.environments.find(
+                                  (item) => item.id === environment().id,
+                                );
                                 if (target) {
                                   target.name = event.currentTarget.value;
                                 }
@@ -3304,7 +4326,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
                           <button
                             class="theme-control inline-flex h-6 w-6 items-center justify-center rounded-full text-sm leading-none"
                             title="Duplicate environment"
-                            onClick={() => duplicateEnvironment(environment().id)}
+                            onClick={() =>
+                              duplicateEnvironment(environment().id)
+                            }
                           >
                             ⎘
                           </button>
@@ -3326,9 +4350,14 @@ export function RestPlayground(props: RestPlaygroundProps) {
                             title="Add variable"
                             onClick={() =>
                               commitWorkspace((next) => {
-                                const target = next.environments.find((item) => item.id === environment().id);
+                                const target = next.environments.find(
+                                  (item) => item.id === environment().id,
+                                );
                                 if (target) {
-                                  target.variables = [...target.variables, createKeyValueEntry()];
+                                  target.variables = [
+                                    ...target.variables,
+                                    createKeyValueEntry(),
+                                  ];
                                 }
                               })
                             }
@@ -3343,29 +4372,43 @@ export function RestPlayground(props: RestPlaygroundProps) {
                           valuePlaceholder="https://api.example.com"
                           onUpdate={(id, key, value) =>
                             commitWorkspace((next) => {
-                              const target = next.environments.find((item) => item.id === environment().id);
+                              const target = next.environments.find(
+                                (item) => item.id === environment().id,
+                              );
                               if (target) {
-                                target.variables = target.variables.map((entry) =>
-                                  entry.id === id ? { ...entry, [key]: value } : entry
+                                target.variables = target.variables.map(
+                                  (entry) =>
+                                    entry.id === id
+                                      ? { ...entry, [key]: value }
+                                      : entry,
                                 );
                               }
                             })
                           }
                           onToggle={(id) =>
                             commitWorkspace((next) => {
-                              const target = next.environments.find((item) => item.id === environment().id);
+                              const target = next.environments.find(
+                                (item) => item.id === environment().id,
+                              );
                               if (target) {
-                                target.variables = target.variables.map((entry) =>
-                                  entry.id === id ? { ...entry, enabled: !entry.enabled } : entry
+                                target.variables = target.variables.map(
+                                  (entry) =>
+                                    entry.id === id
+                                      ? { ...entry, enabled: !entry.enabled }
+                                      : entry,
                                 );
                               }
                             })
                           }
                           onRemove={(id) =>
                             commitWorkspace((next) => {
-                              const target = next.environments.find((item) => item.id === environment().id);
+                              const target = next.environments.find(
+                                (item) => item.id === environment().id,
+                              );
                               if (target) {
-                                target.variables = target.variables.filter((entry) => entry.id !== id);
+                                target.variables = target.variables.filter(
+                                  (entry) => entry.id !== id,
+                                );
                               }
                             })
                           }
@@ -3379,7 +4422,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
               <Show when={sidebarPanel() === "history"}>
                 <div class="space-y-2">
                   <div class="flex items-center justify-between gap-3">
-                    <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">History</p>
+                    <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">
+                      History
+                    </p>
                   </div>
                   <div class="grid gap-1">
                     <For each={workspace.history}>
@@ -3388,11 +4433,17 @@ export function RestPlayground(props: RestPlaygroundProps) {
                           class="theme-sidebar-item flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left"
                           onClick={() => openRequestTab(entry.requestId)}
                         >
-                          <span class={`theme-method-badge shrink-0 ${getMethodClass(entry.method)}`}>
+                          <span
+                            class={`theme-method-badge shrink-0 ${getMethodClass(entry.method)}`}
+                          >
                             {entry.method}
                           </span>
-                          <p class="min-w-0 flex-1 truncate text-[13px] font-medium">{entry.requestName}</p>
-                          <span class="theme-text-soft text-xs">{entry.status ? `${entry.status}` : "ERR"}</span>
+                          <p class="min-w-0 flex-1 truncate text-[13px] font-medium">
+                            {entry.requestName}
+                          </p>
+                          <span class="theme-text-soft text-xs">
+                            {entry.status ? `${entry.status}` : "ERR"}
+                          </span>
                         </button>
                       )}
                     </For>
@@ -3410,7 +4461,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
           <div class="border-b" style={{ "border-color": "var(--app-border)" }}>
             <div class="grid gap-1.5">
               <div class="overflow-visible">
-                <RequestTabsBar
+                <TabsBar
                   items={requestTabItems()}
                   draggedId={draggedTabId()}
                   dropTargetId={tabDropTargetId()}
@@ -3427,7 +4478,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                     setRequestTabMenuState({
                       id: requestId,
                       x: event.clientX,
-                      y: event.clientY
+                      y: event.clientY,
                     });
                   }}
                   onDragStart={(requestId, event) => {
@@ -3471,77 +4522,94 @@ export function RestPlayground(props: RestPlaygroundProps) {
               </div>
 
               <Show when={activeRequest()}>
-              {(request) => (
-                <div class="flex flex-wrap items-center gap-2 px-3 pb-1.5">
-                  <input
-                    class="theme-input h-8 min-w-[180px] rounded-md px-2.5 py-1 text-sm"
-                    value={request().name}
-                    onInput={(event) => updateActiveRequest((current) => {
-                      current.name = event.currentTarget.value;
-                    })}
-                  />
-                  <select
-                    class="theme-input h-8 rounded-md px-2.5 py-1 text-sm font-semibold"
-                    value={request().method}
-                    disabled={!canSendActiveRequest()}
-                    onInput={(event) => updateActiveRequest((current) => {
-                      current.method = event.currentTarget.value as RequestMethod;
-                    })}
-                  >
-                    <For each={requestMethods}>
-                      {(method) => <option value={method}>{method}</option>}
-                    </For>
-                  </select>
-                  <input
-                    class="theme-input h-8 min-w-[280px] flex-1 rounded-md px-2.5 py-1 text-sm transition"
-                    value={request().url}
-                    onInput={(event) => updateActiveRequest((current) => {
-                      current.url = event.currentTarget.value;
-                    })}
-                  />
-                  <select
-                    class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
-                    value={workspace.activeEnvironmentId}
-                    onInput={(event) => commitWorkspace((next) => {
-                      next.activeEnvironmentId = event.currentTarget.value;
-                    })}
-                  >
-                    <For each={workspace.environments}>
-                      {(environment) => <option value={environment.id}>{environment.name}</option>}
-                    </For>
-                  </select>
-                  <div class="flex items-center gap-2">
-                    <AppButton
-                      variant={
-                        saveState() === "saved"
-                          ? "success"
-                          : saveState() === "error"
-                            ? "danger"
-                            : "default"
+                {(request) => (
+                  <div class="flex flex-wrap items-center gap-2 px-3 pb-1.5">
+                    <input
+                      class="theme-input h-8 min-w-[180px] rounded-md px-2.5 py-1 text-sm"
+                      value={request().name}
+                      onInput={(event) =>
+                        updateActiveRequest((current) => {
+                          current.name = event.currentTarget.value;
+                        })
                       }
-                      size="sm"
-                      disabled={saveState() === "saving"}
-                      onClick={() => void manualSaveWorkspace()}
+                    />
+                    <select
+                      class="theme-input h-8 rounded-md px-2.5 py-1 text-sm font-semibold"
+                      value={request().method}
+                      disabled={!canSendActiveRequest()}
+                      onInput={(event) =>
+                        updateActiveRequest((current) => {
+                          current.method = event.currentTarget
+                            .value as RequestMethod;
+                        })
+                      }
                     >
-                      {saveState() === "saving"
-                        ? "Saving..."
-                        : saveState() === "saved"
-                          ? "Saved"
-                          : saveState() === "error"
-                            ? "Save failed"
-                            : "Save"}
+                      <For each={requestMethods}>
+                        {(method) => <option value={method}>{method}</option>}
+                      </For>
+                    </select>
+                    <input
+                      class="theme-input h-8 min-w-[280px] flex-1 rounded-md px-2.5 py-1 text-sm transition"
+                      value={request().url}
+                      onInput={(event) =>
+                        updateActiveRequest((current) => {
+                          current.url = event.currentTarget.value;
+                        })
+                      }
+                    />
+                    <select
+                      class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
+                      value={workspace.activeEnvironmentId}
+                      onInput={(event) =>
+                        commitWorkspace((next) => {
+                          next.activeEnvironmentId = event.currentTarget.value;
+                        })
+                      }
+                    >
+                      <For each={workspace.environments}>
+                        {(environment) => (
+                          <option value={environment.id}>
+                            {environment.name}
+                          </option>
+                        )}
+                      </For>
+                    </select>
+                    <div class="flex items-center gap-2">
+                      <AppButton
+                        variant={
+                          saveState() === "saved"
+                            ? "success"
+                            : saveState() === "error"
+                              ? "danger"
+                              : "default"
+                        }
+                        size="sm"
+                        disabled={saveState() === "saving"}
+                        onClick={() => void manualSaveWorkspace()}
+                      >
+                        {saveState() === "saving"
+                          ? "Saving..."
+                          : saveState() === "saved"
+                            ? "Saved"
+                            : saveState() === "error"
+                              ? "Save failed"
+                              : "Save"}
+                      </AppButton>
+                    </div>
+                    <AppButton
+                      variant="primary"
+                      size="sm"
+                      disabled={isSending() || !canSendActiveRequest()}
+                      onClick={() => void sendActiveRequest()}
+                    >
+                      {!canSendActiveRequest()
+                        ? "Coming Soon"
+                        : isSending()
+                          ? "Sending..."
+                          : "Send"}
                     </AppButton>
                   </div>
-                  <AppButton
-                    variant="primary"
-                    size="sm"
-                    disabled={isSending() || !canSendActiveRequest()}
-                    onClick={() => void sendActiveRequest()}
-                  >
-                    {!canSendActiveRequest() ? "Coming Soon" : isSending() ? "Sending..." : "Send"}
-                  </AppButton>
-                </div>
-              )}
+                )}
               </Show>
             </div>
           </div>
@@ -3551,488 +4619,791 @@ export function RestPlayground(props: RestPlaygroundProps) {
           <div
             class="grid min-h-0 flex-1"
             style={{
-              "grid-template-columns": `minmax(0, ${mainPaneSplit()}fr) 10px minmax(360px, ${100 - mainPaneSplit()}fr)`
+              "grid-template-columns": `minmax(0, ${mainPaneSplit()}fr) 10px minmax(360px, ${100 - mainPaneSplit()}fr)`,
             }}
           >
-            <div class="flex min-h-0 flex-col overflow-auto border-r" style={{ "border-color": "var(--app-border)" }}>
-            <div class="shrink-0 border-b px-3 py-2" style={{ "border-color": "var(--app-border)" }}>
-              <Show when={!canSendActiveRequest() && activeRequest()}>
-                {(request) => (
-                  <div class="mb-3 rounded-lg border px-3 py-2.5 text-sm" style={{ "border-color": "var(--app-border)", background: "var(--app-panel-soft)" }}>
-                    <span class="theme-text">
-                      {request().kind === "websocket" ? "WebSocket" : "Socket.IO"} workspace will be added next.
-                    </span>
-                  </div>
-                )}
-              </Show>
-
-              <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div class="flex flex-wrap items-center gap-1.5">
-                  <EditorToggle active={topEditorTab() === "headers"} label="Headers" onClick={() => setTopEditorTab("headers")} />
-                  <EditorToggle active={topEditorTab() === "auth"} label="Auth" onClick={() => setTopEditorTab("auth")} />
-                </div>
-                <Show when={topEditorTab() === "headers"}>
-                  <button
-                    class="inline-flex h-6 w-6 items-center justify-center rounded-full transition"
-                    title="Add header"
-                    onClick={() => updateActiveRequest((current) => {
-                      current.headers = [...current.headers, createKeyValueEntry()];
-                    })}
-                  >
-                    <ControlDot variant="add" />
-                  </button>
-                </Show>
-              </div>
-
-              <div class={topEditorTab() === "headers" ? "relative overflow-visible" : ""}>
-                <Show when={activeRequest()}>
+            <div
+              class="flex min-h-0 flex-col overflow-auto border-r"
+              style={{ "border-color": "var(--app-border)" }}
+            >
+              <div
+                class="shrink-0 border-b px-3 py-2"
+                style={{ "border-color": "var(--app-border)" }}
+              >
+                <Show when={!canSendActiveRequest() && activeRequest()}>
                   {(request) => (
-                    <Switch>
-                      <Match when={topEditorTab() === "headers"}>
-                        <KeyValueTableEditor
-                          rows={request().headers}
-                          resizeStorageKey="devx-kv-request-headers"
-                          valuePlaceholder=""
-                          keySuggestions={commonHeaderKeys}
-                          getValueSuggestions={(row) => commonHeaderValueMap[row.key.trim().toLowerCase()] ?? [
-                            "application/json",
-                            "application/json; charset=utf-8",
-                            "text/plain"
-                          ]}
-                          onUpdate={(id, key, value) => updateActiveRequest((current) => {
-                            current.headers = current.headers.map((entry) =>
-                              entry.id === id ? { ...entry, [key]: value } : entry
-                            );
-                          })}
-                          onToggle={(id) => updateActiveRequest((current) => {
-                            current.headers = current.headers.map((entry) =>
-                              entry.id === id ? { ...entry, enabled: !entry.enabled } : entry
-                            );
-                          })}
-                          onRemove={(id) => updateActiveRequest((current) => {
-                            current.headers = current.headers.filter((entry) => entry.id !== id);
-                          })}
-                          onAdd={() => updateActiveRequest((current) => {
-                            current.headers = [...current.headers, createKeyValueEntry()];
-                          })}
-                        />
-                      </Match>
-
-                      <Match when={topEditorTab() === "auth"}>
-                        <div class="flex flex-wrap content-start gap-3">
-                          <label class="theme-text-muted grid min-w-[220px] flex-1 gap-1.5 text-sm">
-                            <span class="theme-text font-medium">Auth Type</span>
-                            <select
-                              class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
-                              value={request().auth.type}
-                              onInput={(event) => updateActiveRequest((current) => {
-                                const nextType = event.currentTarget.value;
-                                if (nextType === "bearer") {
-                                  current.auth = { type: "bearer", token: "" };
-                                } else if (nextType === "basic") {
-                                  current.auth = { type: "basic", username: "", password: "" };
-                                } else if (nextType === "api-key") {
-                                  current.auth = { type: "api-key", key: "x-api-key", value: "", addTo: "header" };
-                                } else {
-                                  current.auth = { type: "none" };
-                                }
-                              })}
-                            >
-                              <option value="none">None</option>
-                              <option value="bearer">Bearer Token</option>
-                              <option value="basic">Basic Auth</option>
-                              <option value="api-key">API Key</option>
-                            </select>
-                          </label>
-
-                          <Show when={request().auth.type === "none"}>
-                            <div class="theme-text-soft flex min-h-[72px] min-w-[220px] flex-1 items-center rounded-md border px-3 text-sm" style={{ "border-color": "var(--app-border)", background: "var(--app-panel-soft)" }}>
-                              No authentication will be attached to this request.
-                            </div>
-                          </Show>
-
-                          <Show when={request().auth.type === "bearer"}>
-                            <label class="theme-text-muted grid min-w-[220px] flex-1 gap-1.5 text-sm">
-                              <span class="theme-text font-medium">Token</span>
-                              <input
-                                class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
-                                value={request().auth.type === "bearer" ? request().auth.token : ""}
-                                onInput={(event) => updateActiveRequest((current) => {
-                                  if (current.auth.type === "bearer") {
-                                    current.auth = { ...current.auth, token: event.currentTarget.value };
-                                  }
-                                })}
-                              />
-                            </label>
-                          </Show>
-
-                          <Show when={request().auth.type === "basic"}>
-                            <>
-                              <label class="theme-text-muted grid min-w-[220px] flex-1 gap-1.5 text-sm">
-                                <span class="theme-text font-medium">Username</span>
-                                <input
-                                  class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
-                                  value={request().auth.type === "basic" ? request().auth.username : ""}
-                                  onInput={(event) => updateActiveRequest((current) => {
-                                    if (current.auth.type === "basic") {
-                                      current.auth = { ...current.auth, username: event.currentTarget.value };
-                                    }
-                                  })}
-                                />
-                              </label>
-                              <label class="theme-text-muted grid min-w-[220px] flex-1 gap-1.5 text-sm">
-                                <span class="theme-text font-medium">Password</span>
-                                <input
-                                  class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
-                                  type="password"
-                                  value={request().auth.type === "basic" ? request().auth.password : ""}
-                                  onInput={(event) => updateActiveRequest((current) => {
-                                    if (current.auth.type === "basic") {
-                                      current.auth = { ...current.auth, password: event.currentTarget.value };
-                                    }
-                                  })}
-                                />
-                              </label>
-                            </>
-                          </Show>
-
-                          <Show when={request().auth.type === "api-key"}>
-                            <>
-                              <label class="theme-text-muted grid min-w-[200px] flex-1 gap-1.5 text-sm">
-                                <span class="theme-text font-medium">Key</span>
-                                <input
-                                  class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
-                                  value={request().auth.type === "api-key" ? request().auth.key : ""}
-                                  onInput={(event) => updateActiveRequest((current) => {
-                                    if (current.auth.type === "api-key") {
-                                      current.auth = { ...current.auth, key: event.currentTarget.value };
-                                    }
-                                  })}
-                                />
-                              </label>
-                              <label class="theme-text-muted grid min-w-[200px] flex-1 gap-1.5 text-sm">
-                                <span class="theme-text font-medium">Value</span>
-                                <input
-                                  class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
-                                  value={request().auth.type === "api-key" ? request().auth.value : ""}
-                                  onInput={(event) => updateActiveRequest((current) => {
-                                    if (current.auth.type === "api-key") {
-                                      current.auth = { ...current.auth, value: event.currentTarget.value };
-                                    }
-                                  })}
-                                />
-                              </label>
-                              <label class="theme-text-muted grid min-w-[160px] gap-1.5 text-sm">
-                                <span class="theme-text font-medium">Add To</span>
-                                <select
-                                  class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
-                                  value={request().auth.type === "api-key" ? request().auth.addTo : "header"}
-                                  onInput={(event) => updateActiveRequest((current) => {
-                                    if (current.auth.type === "api-key") {
-                                      current.auth = {
-                                        ...current.auth,
-                                        addTo: event.currentTarget.value as "header" | "query"
-                                      };
-                                    }
-                                  })}
-                                >
-                                  <option value="header">Header</option>
-                                  <option value="query">Query</option>
-                                </select>
-                              </label>
-                            </>
-                          </Show>
-                        </div>
-                      </Match>
-                    </Switch>
+                    <div
+                      class="mb-3 rounded-lg border px-3 py-2.5 text-sm"
+                      style={{
+                        "border-color": "var(--app-border)",
+                        background: "var(--app-panel-soft)",
+                      }}
+                    >
+                      <span class="theme-text">
+                        {request().kind === "websocket"
+                          ? "WebSocket"
+                          : "Socket.IO"}{" "}
+                        workspace will be added next.
+                      </span>
+                    </div>
                   )}
                 </Show>
-              </div>
-            </div>
 
-            <div class="shrink-0 px-3 py-2">
-              <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div class="flex flex-wrap items-center gap-1.5">
-                  <EditorToggle active={bottomEditorTab() === "body"} label="Body" onClick={() => setBottomEditorTab("body")} />
-                  <EditorToggle active={bottomEditorTab() === "script"} label="Script" onClick={() => setBottomEditorTab("script")} />
+                <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <EditorToggle
+                      active={topEditorTab() === "headers"}
+                      label="Headers"
+                      onClick={() => setTopEditorTab("headers")}
+                    />
+                    <EditorToggle
+                      active={topEditorTab() === "auth"}
+                      label="Auth"
+                      onClick={() => setTopEditorTab("auth")}
+                    />
+                  </div>
+                  <Show when={topEditorTab() === "headers"}>
+                    <button
+                      class="inline-flex h-6 w-6 items-center justify-center rounded-full transition"
+                      title="Add header"
+                      onClick={() =>
+                        updateActiveRequest((current) => {
+                          current.headers = [
+                            ...current.headers,
+                            createKeyValueEntry(),
+                          ];
+                        })
+                      }
+                    >
+                      <ControlDot variant="add" />
+                    </button>
+                  </Show>
                 </div>
-                <Show when={bottomEditorTab() === "script"}>
-                  <button
-                    class="inline-flex h-6 w-6 items-center justify-center rounded-full transition"
-                    title="Insert pre-request example"
-                    onClick={() => updateActiveRequest((current) => {
-                      current.scripts.preRequest = preRequestScriptExample;
-                    })}
-                  >
-                    <ControlDot variant="add" />
-                  </button>
-                </Show>
-              </div>
 
-              <div>
-                <Show when={activeRequest()}>
-                  {(request) => (
-                    <Switch>
-                      <Match when={bottomEditorTab() === "body"}>
-                        <div class="flex w-full flex-col gap-3">
-                          <div class="flex flex-wrap items-center justify-between gap-3">
-                            <div class="flex flex-wrap items-center gap-2">
+                <div
+                  class={
+                    topEditorTab() === "headers"
+                      ? "relative overflow-visible"
+                      : ""
+                  }
+                >
+                  <Show when={activeRequest()}>
+                    {(request) => (
+                      <Switch>
+                        <Match when={topEditorTab() === "headers"}>
+                          <KeyValueTableEditor
+                            rows={request().headers}
+                            resizeStorageKey="devx-kv-request-headers"
+                            valuePlaceholder=""
+                            keySuggestions={commonHeaderKeys}
+                            getValueSuggestions={(row) =>
+                              commonHeaderValueMap[
+                                row.key.trim().toLowerCase()
+                              ] ?? [
+                                "application/json",
+                                "application/json; charset=utf-8",
+                                "text/plain",
+                              ]
+                            }
+                            onUpdate={(id, key, value) =>
+                              updateActiveRequest((current) => {
+                                current.headers = current.headers.map(
+                                  (entry) =>
+                                    entry.id === id
+                                      ? { ...entry, [key]: value }
+                                      : entry,
+                                );
+                              })
+                            }
+                            onToggle={(id) =>
+                              updateActiveRequest((current) => {
+                                current.headers = current.headers.map(
+                                  (entry) =>
+                                    entry.id === id
+                                      ? { ...entry, enabled: !entry.enabled }
+                                      : entry,
+                                );
+                              })
+                            }
+                            onRemove={(id) =>
+                              updateActiveRequest((current) => {
+                                current.headers = current.headers.filter(
+                                  (entry) => entry.id !== id,
+                                );
+                              })
+                            }
+                            onAdd={() =>
+                              updateActiveRequest((current) => {
+                                current.headers = [
+                                  ...current.headers,
+                                  createKeyValueEntry(),
+                                ];
+                              })
+                            }
+                          />
+                        </Match>
+
+                        <Match when={topEditorTab() === "auth"}>
+                          <div class="flex flex-wrap content-start gap-3">
+                            <label class="theme-text-muted grid min-w-[220px] flex-1 gap-1.5 text-sm">
+                              <span class="theme-text font-medium">
+                                Auth Type
+                              </span>
                               <select
                                 class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
-                                value={request().body.type}
-                                onInput={(event) => {
-                                  const nextType = event.currentTarget.value as RequestBody["type"];
+                                value={request().auth.type}
+                                onInput={(event) =>
                                   updateActiveRequest((current) => {
-                                    switch (nextType) {
-                                      case "json":
-                                        current.body = { type: "json", value: "{\n  \n}" };
-                                        break;
-                                      case "form-data":
-                                        current.body = { type: "form-data", entries: [createKeyValueEntry()] };
-                                        break;
-                                      case "form-urlencoded":
-                                        current.body = { type: "form-urlencoded", entries: [createKeyValueEntry()] };
-                                        break;
-                                      case "raw":
-                                        current.body = { type: "raw", value: "", contentType: "text/plain" };
-                                        break;
-                                      case "binary":
-                                        current.body = { type: "binary", value: "" };
-                                        break;
-                                      default:
-                                        current.body = { type: "none" };
+                                    const nextType = event.currentTarget.value;
+                                    if (nextType === "bearer") {
+                                      current.auth = {
+                                        type: "bearer",
+                                        token: "",
+                                      };
+                                    } else if (nextType === "basic") {
+                                      current.auth = {
+                                        type: "basic",
+                                        username: "",
+                                        password: "",
+                                      };
+                                    } else if (nextType === "api-key") {
+                                      current.auth = {
+                                        type: "api-key",
+                                        key: "x-api-key",
+                                        value: "",
+                                        addTo: "header",
+                                      };
+                                    } else {
+                                      current.auth = { type: "none" };
                                     }
-                                  });
-                                }}
+                                  })
+                                }
                               >
                                 <option value="none">None</option>
-                                <option value="json">JSON</option>
-                                <option value="form-data">Form Data</option>
-                                <option value="form-urlencoded">x-www-form-urlencoded</option>
-                                <option value="raw">Raw</option>
-                                <option value="binary">Binary</option>
+                                <option value="bearer">Bearer Token</option>
+                                <option value="basic">Basic Auth</option>
+                                <option value="api-key">API Key</option>
                               </select>
+                            </label>
 
-                              <Show when={request().body.type === "json"}>
-                                <button
-                                  class="theme-control inline-flex h-8 w-8 items-center justify-center rounded-md"
-                                  title="Format JSON"
-                                  onClick={() => updateActiveRequest((current) => {
-                                    if (current.body.type === "json") {
-                                      current.body = {
-                                        ...current.body,
-                                        value: tryFormatJson(current.body.value)
-                                      };
+                            <Show when={request().auth.type === "none"}>
+                              <div
+                                class="theme-text-soft flex min-h-[72px] min-w-[220px] flex-1 items-center rounded-md border px-3 text-sm"
+                                style={{
+                                  "border-color": "var(--app-border)",
+                                  background: "var(--app-panel-soft)",
+                                }}
+                              >
+                                No authentication will be attached to this
+                                request.
+                              </div>
+                            </Show>
+
+                            <Show when={request().auth.type === "bearer"}>
+                              <label class="theme-text-muted grid min-w-[220px] flex-1 gap-1.5 text-sm">
+                                <span class="theme-text font-medium">
+                                  Token
+                                </span>
+                                <input
+                                  class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
+                                  value={
+                                    request().auth.type === "bearer"
+                                      ? request().auth.token
+                                      : ""
+                                  }
+                                  onInput={(event) =>
+                                    updateActiveRequest((current) => {
+                                      if (current.auth.type === "bearer") {
+                                        current.auth = {
+                                          ...current.auth,
+                                          token: event.currentTarget.value,
+                                        };
+                                      }
+                                    })
+                                  }
+                                />
+                              </label>
+                            </Show>
+
+                            <Show when={request().auth.type === "basic"}>
+                              <>
+                                <label class="theme-text-muted grid min-w-[220px] flex-1 gap-1.5 text-sm">
+                                  <span class="theme-text font-medium">
+                                    Username
+                                  </span>
+                                  <input
+                                    class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
+                                    value={
+                                      request().auth.type === "basic"
+                                        ? request().auth.username
+                                        : ""
                                     }
-                                  })}
+                                    onInput={(event) =>
+                                      updateActiveRequest((current) => {
+                                        if (current.auth.type === "basic") {
+                                          current.auth = {
+                                            ...current.auth,
+                                            username: event.currentTarget.value,
+                                          };
+                                        }
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <label class="theme-text-muted grid min-w-[220px] flex-1 gap-1.5 text-sm">
+                                  <span class="theme-text font-medium">
+                                    Password
+                                  </span>
+                                  <input
+                                    class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
+                                    type="password"
+                                    value={
+                                      request().auth.type === "basic"
+                                        ? request().auth.password
+                                        : ""
+                                    }
+                                    onInput={(event) =>
+                                      updateActiveRequest((current) => {
+                                        if (current.auth.type === "basic") {
+                                          current.auth = {
+                                            ...current.auth,
+                                            password: event.currentTarget.value,
+                                          };
+                                        }
+                                      })
+                                    }
+                                  />
+                                </label>
+                              </>
+                            </Show>
+
+                            <Show when={request().auth.type === "api-key"}>
+                              <>
+                                <label class="theme-text-muted grid min-w-[200px] flex-1 gap-1.5 text-sm">
+                                  <span class="theme-text font-medium">
+                                    Key
+                                  </span>
+                                  <input
+                                    class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
+                                    value={
+                                      request().auth.type === "api-key"
+                                        ? request().auth.key
+                                        : ""
+                                    }
+                                    onInput={(event) =>
+                                      updateActiveRequest((current) => {
+                                        if (current.auth.type === "api-key") {
+                                          current.auth = {
+                                            ...current.auth,
+                                            key: event.currentTarget.value,
+                                          };
+                                        }
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <label class="theme-text-muted grid min-w-[200px] flex-1 gap-1.5 text-sm">
+                                  <span class="theme-text font-medium">
+                                    Value
+                                  </span>
+                                  <input
+                                    class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
+                                    value={
+                                      request().auth.type === "api-key"
+                                        ? request().auth.value
+                                        : ""
+                                    }
+                                    onInput={(event) =>
+                                      updateActiveRequest((current) => {
+                                        if (current.auth.type === "api-key") {
+                                          current.auth = {
+                                            ...current.auth,
+                                            value: event.currentTarget.value,
+                                          };
+                                        }
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <label class="theme-text-muted grid min-w-[160px] gap-1.5 text-sm">
+                                  <span class="theme-text font-medium">
+                                    Add To
+                                  </span>
+                                  <select
+                                    class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
+                                    value={
+                                      request().auth.type === "api-key"
+                                        ? request().auth.addTo
+                                        : "header"
+                                    }
+                                    onInput={(event) =>
+                                      updateActiveRequest((current) => {
+                                        if (current.auth.type === "api-key") {
+                                          current.auth = {
+                                            ...current.auth,
+                                            addTo: event.currentTarget.value as
+                                              | "header"
+                                              | "query",
+                                          };
+                                        }
+                                      })
+                                    }
+                                  >
+                                    <option value="header">Header</option>
+                                    <option value="query">Query</option>
+                                  </select>
+                                </label>
+                              </>
+                            </Show>
+                          </div>
+                        </Match>
+                      </Switch>
+                    )}
+                  </Show>
+                </div>
+              </div>
+
+              <div class="shrink-0 px-3 py-2">
+                <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <EditorToggle
+                      active={bottomEditorTab() === "body"}
+                      label="Body"
+                      onClick={() => setBottomEditorTab("body")}
+                    />
+                    <EditorToggle
+                      active={bottomEditorTab() === "script"}
+                      label="Script"
+                      onClick={() => setBottomEditorTab("script")}
+                    />
+                  </div>
+                  <Show when={bottomEditorTab() === "script"}>
+                    <button
+                      class="inline-flex h-6 w-6 items-center justify-center rounded-full transition"
+                      title="Insert pre-request example"
+                      onClick={() =>
+                        updateActiveRequest((current) => {
+                          current.scripts.preRequest = preRequestScriptExample;
+                        })
+                      }
+                    >
+                      <ControlDot variant="add" />
+                    </button>
+                  </Show>
+                </div>
+
+                <div>
+                  <Show when={activeRequest()}>
+                    {(request) => (
+                      <Switch>
+                        <Match when={bottomEditorTab() === "body"}>
+                          <div class="flex w-full flex-col gap-3">
+                            <div class="flex flex-wrap items-center justify-between gap-3">
+                              <div class="flex flex-wrap items-center gap-2">
+                                <select
+                                  class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
+                                  value={request().body.type}
+                                  onInput={(event) => {
+                                    const nextType = event.currentTarget
+                                      .value as RequestBody["type"];
+                                    updateActiveRequest((current) => {
+                                      switch (nextType) {
+                                        case "json":
+                                          current.body = {
+                                            type: "json",
+                                            value: "{\n  \n}",
+                                          };
+                                          break;
+                                        case "form-data":
+                                          current.body = {
+                                            type: "form-data",
+                                            entries: [createKeyValueEntry()],
+                                          };
+                                          break;
+                                        case "form-urlencoded":
+                                          current.body = {
+                                            type: "form-urlencoded",
+                                            entries: [createKeyValueEntry()],
+                                          };
+                                          break;
+                                        case "raw":
+                                          current.body = {
+                                            type: "raw",
+                                            value: "",
+                                            contentType: "text/plain",
+                                          };
+                                          break;
+                                        case "binary":
+                                          current.body = {
+                                            type: "binary",
+                                            value: "",
+                                          };
+                                          break;
+                                        default:
+                                          current.body = { type: "none" };
+                                      }
+                                    });
+                                  }}
                                 >
-                                  <FormatJsonIcon />
+                                  <option value="none">None</option>
+                                  <option value="json">JSON</option>
+                                  <option value="form-data">Form Data</option>
+                                  <option value="form-urlencoded">
+                                    x-www-form-urlencoded
+                                  </option>
+                                  <option value="raw">Raw</option>
+                                  <option value="binary">Binary</option>
+                                </select>
+
+                                <Show when={request().body.type === "json"}>
+                                  <button
+                                    class="theme-control inline-flex h-8 w-8 items-center justify-center rounded-md"
+                                    title="Format JSON"
+                                    onClick={() =>
+                                      updateActiveRequest((current) => {
+                                        if (current.body.type === "json") {
+                                          current.body = {
+                                            ...current.body,
+                                            value: tryFormatJson(
+                                              current.body.value,
+                                            ),
+                                          };
+                                        }
+                                      })
+                                    }
+                                  >
+                                    <FormatJsonIcon />
+                                  </button>
+                                </Show>
+                              </div>
+                              <Show
+                                when={
+                                  request().body.type === "form-data" ||
+                                  request().body.type === "form-urlencoded"
+                                }
+                              >
+                                <button
+                                  class="inline-flex h-6 w-6 items-center justify-center rounded-full transition"
+                                  title="Add body row"
+                                  onClick={() =>
+                                    updateActiveRequest((current) => {
+                                      if (
+                                        current.body.type === "form-data" ||
+                                        current.body.type === "form-urlencoded"
+                                      ) {
+                                        current.body = {
+                                          ...current.body,
+                                          entries: [
+                                            ...current.body.entries,
+                                            createKeyValueEntry(),
+                                          ],
+                                        };
+                                      }
+                                    })
+                                  }
+                                >
+                                  <ControlDot variant="add" />
                                 </button>
                               </Show>
                             </div>
-                            <Show when={request().body.type === "form-data" || request().body.type === "form-urlencoded"}>
-                              <button
-                                class="inline-flex h-6 w-6 items-center justify-center rounded-full transition"
-                                title="Add body row"
-                                onClick={() => updateActiveRequest((current) => {
-                                  if (current.body.type === "form-data" || current.body.type === "form-urlencoded") {
-                                    current.body = {
-                                      ...current.body,
-                                      entries: [...current.body.entries, createKeyValueEntry()]
-                                    };
-                                  }
-                                })}
-                              >
-                                <ControlDot variant="add" />
-                              </button>
+
+                            <Show
+                              when={
+                                request().body.type === "json" ||
+                                request().body.type === "raw"
+                              }
+                            >
+                              <textarea
+                                class="theme-input w-full rounded-[18px] px-3 py-2.5 font-mono text-sm leading-6 transition"
+                                style={{ "min-height": "calc(100dvh - 320px)" }}
+                                value={
+                                  request().body.type === "json" ||
+                                  request().body.type === "raw"
+                                    ? request().body.value
+                                    : ""
+                                }
+                                onInput={(event) =>
+                                  updateActiveRequest((current) => {
+                                    if (
+                                      current.body.type === "json" ||
+                                      current.body.type === "raw"
+                                    ) {
+                                      current.body = {
+                                        ...current.body,
+                                        value: event.currentTarget.value,
+                                      };
+                                    }
+                                  })
+                                }
+                              />
+                            </Show>
+
+                            <Show when={request().body.type === "binary"}>
+                              <textarea
+                                class="theme-input w-full rounded-[18px] px-3 py-2.5 font-mono text-sm leading-6 transition"
+                                style={{ "min-height": "calc(100dvh - 320px)" }}
+                                placeholder="Paste base64 payload"
+                                value={
+                                  request().body.type === "binary"
+                                    ? request().body.value
+                                    : ""
+                                }
+                                onInput={(event) =>
+                                  updateActiveRequest((current) => {
+                                    if (current.body.type === "binary") {
+                                      current.body = {
+                                        ...current.body,
+                                        value: event.currentTarget.value,
+                                      };
+                                    }
+                                  })
+                                }
+                              />
+                            </Show>
+
+                            <Show when={request().body.type === "form-data"}>
+                              <FormDataTableEditor
+                                rows={
+                                  request().body.type === "form-data"
+                                    ? request().body.entries
+                                    : []
+                                }
+                                resizeStorageKey="devx-kv-body-form-data"
+                                onUpdate={(id, patch) =>
+                                  updateActiveRequest((current) => {
+                                    if (current.body.type === "form-data") {
+                                      current.body = {
+                                        ...current.body,
+                                        entries: current.body.entries.map(
+                                          (entry) =>
+                                            entry.id === id
+                                              ? { ...entry, ...patch }
+                                              : entry,
+                                        ),
+                                      };
+                                    }
+                                  })
+                                }
+                                onToggle={(id) =>
+                                  updateActiveRequest((current) => {
+                                    if (current.body.type === "form-data") {
+                                      current.body = {
+                                        ...current.body,
+                                        entries: current.body.entries.map(
+                                          (entry) =>
+                                            entry.id === id
+                                              ? {
+                                                  ...entry,
+                                                  enabled: !entry.enabled,
+                                                }
+                                              : entry,
+                                        ),
+                                      };
+                                    }
+                                  })
+                                }
+                                onRemove={(id) =>
+                                  updateActiveRequest((current) => {
+                                    if (current.body.type === "form-data") {
+                                      current.body = {
+                                        ...current.body,
+                                        entries: current.body.entries.filter(
+                                          (entry) => entry.id !== id,
+                                        ),
+                                      };
+                                    }
+                                  })
+                                }
+                              />
+                            </Show>
+
+                            <Show
+                              when={request().body.type === "form-urlencoded"}
+                            >
+                              <KeyValueTableEditor
+                                rows={
+                                  request().body.type === "form-urlencoded"
+                                    ? request().body.entries
+                                    : []
+                                }
+                                resizeStorageKey="devx-kv-body-form-urlencoded"
+                                onUpdate={(id, key, value) =>
+                                  updateActiveRequest((current) => {
+                                    if (
+                                      current.body.type === "form-urlencoded"
+                                    ) {
+                                      current.body = {
+                                        ...current.body,
+                                        entries: current.body.entries.map(
+                                          (entry) =>
+                                            entry.id === id
+                                              ? { ...entry, [key]: value }
+                                              : entry,
+                                        ),
+                                      };
+                                    }
+                                  })
+                                }
+                                onToggle={(id) =>
+                                  updateActiveRequest((current) => {
+                                    if (
+                                      current.body.type === "form-urlencoded"
+                                    ) {
+                                      current.body = {
+                                        ...current.body,
+                                        entries: current.body.entries.map(
+                                          (entry) =>
+                                            entry.id === id
+                                              ? {
+                                                  ...entry,
+                                                  enabled: !entry.enabled,
+                                                }
+                                              : entry,
+                                        ),
+                                      };
+                                    }
+                                  })
+                                }
+                                onRemove={(id) =>
+                                  updateActiveRequest((current) => {
+                                    if (
+                                      current.body.type === "form-urlencoded"
+                                    ) {
+                                      current.body = {
+                                        ...current.body,
+                                        entries: current.body.entries.filter(
+                                          (entry) => entry.id !== id,
+                                        ),
+                                      };
+                                    }
+                                  })
+                                }
+                              />
                             </Show>
                           </div>
+                        </Match>
 
-                          <Show when={request().body.type === "json" || request().body.type === "raw"}>
-                            <textarea
-                              class="theme-input w-full rounded-[18px] px-3 py-2.5 font-mono text-sm leading-6 transition"
-                              style={{ "min-height": "calc(100dvh - 320px)" }}
-                              value={request().body.type === "json" || request().body.type === "raw" ? request().body.value : ""}
-                              onInput={(event) => updateActiveRequest((current) => {
-                                if (current.body.type === "json" || current.body.type === "raw") {
-                                  current.body = { ...current.body, value: event.currentTarget.value };
-                                }
-                              })}
-                            />
-                          </Show>
-
-                          <Show when={request().body.type === "binary"}>
-                            <textarea
-                              class="theme-input w-full rounded-[18px] px-3 py-2.5 font-mono text-sm leading-6 transition"
-                              style={{ "min-height": "calc(100dvh - 320px)" }}
-                              placeholder="Paste base64 payload"
-                              value={request().body.type === "binary" ? request().body.value : ""}
-                              onInput={(event) => updateActiveRequest((current) => {
-                                if (current.body.type === "binary") {
-                                  current.body = { ...current.body, value: event.currentTarget.value };
-                                }
-                              })}
-                            />
-                          </Show>
-
-                          <Show when={request().body.type === "form-data"}>
-                            <FormDataTableEditor
-                              rows={request().body.type === "form-data" ? request().body.entries : []}
-                              resizeStorageKey="devx-kv-body-form-data"
-                              onUpdate={(id, patch) => updateActiveRequest((current) => {
-                                if (current.body.type === "form-data") {
-                                  current.body = {
-                                    ...current.body,
-                                    entries: current.body.entries.map((entry) =>
-                                      entry.id === id ? { ...entry, ...patch } : entry
-                                    )
-                                  };
-                                }
-                              })}
-                              onToggle={(id) => updateActiveRequest((current) => {
-                                if (current.body.type === "form-data") {
-                                  current.body = {
-                                    ...current.body,
-                                    entries: current.body.entries.map((entry) =>
-                                      entry.id === id ? { ...entry, enabled: !entry.enabled } : entry
-                                    )
-                                  };
-                                }
-                              })}
-                              onRemove={(id) => updateActiveRequest((current) => {
-                                if (current.body.type === "form-data") {
-                                  current.body = {
-                                    ...current.body,
-                                    entries: current.body.entries.filter((entry) => entry.id !== id)
-                                  };
-                                }
-                              })}
-                            />
-                          </Show>
-
-                          <Show when={request().body.type === "form-urlencoded"}>
-                            <KeyValueTableEditor
-                              rows={request().body.type === "form-urlencoded" ? request().body.entries : []}
-                              resizeStorageKey="devx-kv-body-form-urlencoded"
-                              onUpdate={(id, key, value) => updateActiveRequest((current) => {
-                                if (current.body.type === "form-urlencoded") {
-                                  current.body = {
-                                    ...current.body,
-                                    entries: current.body.entries.map((entry) =>
-                                      entry.id === id ? { ...entry, [key]: value } : entry
-                                    )
-                                  };
-                                }
-                              })}
-                              onToggle={(id) => updateActiveRequest((current) => {
-                                if (current.body.type === "form-urlencoded") {
-                                  current.body = {
-                                    ...current.body,
-                                    entries: current.body.entries.map((entry) =>
-                                      entry.id === id ? { ...entry, enabled: !entry.enabled } : entry
-                                    )
-                                  };
-                                }
-                              })}
-                              onRemove={(id) => updateActiveRequest((current) => {
-                                if (current.body.type === "form-urlencoded") {
-                                  current.body = {
-                                    ...current.body,
-                                    entries: current.body.entries.filter((entry) => entry.id !== id)
-                                  };
-                                }
-                              })}
-                            />
-                          </Show>
-                        </div>
-                      </Match>
-
-                      <Match when={bottomEditorTab() === "script"}>
-                        <div class="flex w-full flex-col gap-3">
-                          <div class="theme-panel-soft rounded-[18px] border px-3 py-3" style={{ "border-color": "var(--app-border)" }}>
-                            <div class="mb-2 flex items-center justify-between gap-2">
-                              <div>
-                                <p class="theme-text text-sm font-semibold">Pre-request Script</p>
-                                <p class="theme-text-soft text-xs">Run JavaScript before the request is sent.</p>
+                        <Match when={bottomEditorTab() === "script"}>
+                          <div class="flex w-full flex-col gap-3">
+                            <div
+                              class="theme-panel-soft rounded-[18px] border px-3 py-3"
+                              style={{ "border-color": "var(--app-border)" }}
+                            >
+                              <div class="mb-2 flex items-center justify-between gap-2">
+                                <div>
+                                  <p class="theme-text text-sm font-semibold">
+                                    Pre-request Script
+                                  </p>
+                                  <p class="theme-text-soft text-xs">
+                                    Run JavaScript before the request is sent.
+                                  </p>
+                                </div>
+                                <AppButton
+                                  variant="default"
+                                  class="rounded-md px-2.5 py-1 text-xs font-medium"
+                                  onClick={() =>
+                                    updateActiveRequest((current) => {
+                                      current.scripts.preRequest =
+                                        preRequestScriptExample;
+                                    })
+                                  }
+                                >
+                                  Use Example
+                                </AppButton>
                               </div>
-                              <AppButton
-                                variant="default"
-                                class="rounded-md px-2.5 py-1 text-xs font-medium"
-                                onClick={() => updateActiveRequest((current) => {
-                                  current.scripts.preRequest = preRequestScriptExample;
-                                })}
-                              >
-                                Use Example
-                              </AppButton>
+                              <textarea
+                                class="theme-input min-h-[280px] w-full rounded-[18px] px-3 py-2.5 font-mono text-sm leading-6 transition"
+                                placeholder={preRequestScriptExample}
+                                style={{
+                                  height: `${preRequestScriptHeight()}px`,
+                                }}
+                                value={request().scripts.preRequest}
+                                onInput={(event) =>
+                                  updateActiveRequest((current) => {
+                                    current.scripts.preRequest =
+                                      event.currentTarget.value;
+                                  })
+                                }
+                                onMouseUp={(event) =>
+                                  persistScriptEditorHeight(
+                                    event,
+                                    preRequestScriptHeightStorageKey,
+                                    setPreRequestScriptHeight,
+                                  )
+                                }
+                                onBlur={(event) =>
+                                  persistScriptEditorHeight(
+                                    event,
+                                    preRequestScriptHeightStorageKey,
+                                    setPreRequestScriptHeight,
+                                  )
+                                }
+                              />
                             </div>
-                            <textarea
-                              class="theme-input min-h-[280px] w-full rounded-[18px] px-3 py-2.5 font-mono text-sm leading-6 transition"
-                              placeholder={preRequestScriptExample}
-                              style={{ height: `${preRequestScriptHeight()}px` }}
-                              value={request().scripts.preRequest}
-                              onInput={(event) => updateActiveRequest((current) => {
-                                current.scripts.preRequest = event.currentTarget.value;
-                              })}
-                              onMouseUp={(event) =>
-                                persistScriptEditorHeight(
-                                  event,
-                                  preRequestScriptHeightStorageKey,
-                                  setPreRequestScriptHeight
-                                )}
-                              onBlur={(event) =>
-                                persistScriptEditorHeight(
-                                  event,
-                                  preRequestScriptHeightStorageKey,
-                                  setPreRequestScriptHeight
-                                )}
-                            />
-                          </div>
 
-                          <div class="theme-panel-soft rounded-[18px] border px-3 py-3" style={{ "border-color": "var(--app-border)" }}>
-                            <div class="mb-2 flex items-center justify-between gap-2">
-                              <div>
-                                <p class="theme-text text-sm font-semibold">Post-response Script</p>
-                                <p class="theme-text-soft text-xs">Run JavaScript after the response returns and persist useful values.</p>
+                            <div
+                              class="theme-panel-soft rounded-[18px] border px-3 py-3"
+                              style={{ "border-color": "var(--app-border)" }}
+                            >
+                              <div class="mb-2 flex items-center justify-between gap-2">
+                                <div>
+                                  <p class="theme-text text-sm font-semibold">
+                                    Post-response Script
+                                  </p>
+                                  <p class="theme-text-soft text-xs">
+                                    Run JavaScript after the response returns
+                                    and persist useful values.
+                                  </p>
+                                </div>
+                                <AppButton
+                                  variant="default"
+                                  class="rounded-md px-2.5 py-1 text-xs font-medium"
+                                  onClick={() =>
+                                    updateActiveRequest((current) => {
+                                      current.scripts.postResponse =
+                                        postResponseScriptExample;
+                                    })
+                                  }
+                                >
+                                  Use Example
+                                </AppButton>
                               </div>
-                              <AppButton
-                                variant="default"
-                                class="rounded-md px-2.5 py-1 text-xs font-medium"
-                                onClick={() => updateActiveRequest((current) => {
-                                  current.scripts.postResponse = postResponseScriptExample;
-                                })}
-                              >
-                                Use Example
-                              </AppButton>
+                              <textarea
+                                class="theme-input min-h-[280px] w-full rounded-[18px] px-3 py-2.5 font-mono text-sm leading-6 transition"
+                                placeholder={postResponseScriptExample}
+                                style={{
+                                  height: `${postResponseScriptHeight()}px`,
+                                }}
+                                value={request().scripts.postResponse}
+                                onInput={(event) =>
+                                  updateActiveRequest((current) => {
+                                    current.scripts.postResponse =
+                                      event.currentTarget.value;
+                                  })
+                                }
+                                onMouseUp={(event) =>
+                                  persistScriptEditorHeight(
+                                    event,
+                                    postResponseScriptHeightStorageKey,
+                                    setPostResponseScriptHeight,
+                                  )
+                                }
+                                onBlur={(event) =>
+                                  persistScriptEditorHeight(
+                                    event,
+                                    postResponseScriptHeightStorageKey,
+                                    setPostResponseScriptHeight,
+                                  )
+                                }
+                              />
                             </div>
-                            <textarea
-                              class="theme-input min-h-[280px] w-full rounded-[18px] px-3 py-2.5 font-mono text-sm leading-6 transition"
-                              placeholder={postResponseScriptExample}
-                              style={{ height: `${postResponseScriptHeight()}px` }}
-                              value={request().scripts.postResponse}
-                              onInput={(event) => updateActiveRequest((current) => {
-                                current.scripts.postResponse = event.currentTarget.value;
-                              })}
-                              onMouseUp={(event) =>
-                                persistScriptEditorHeight(
-                                  event,
-                                  postResponseScriptHeightStorageKey,
-                                  setPostResponseScriptHeight
-                                )}
-                              onBlur={(event) =>
-                                persistScriptEditorHeight(
-                                  event,
-                                  postResponseScriptHeightStorageKey,
-                                  setPostResponseScriptHeight
-                                )}
-                            />
                           </div>
-                        </div>
-                      </Match>
-                    </Switch>
-                  )}
-                </Show>
+                        </Match>
+                      </Switch>
+                    )}
+                  </Show>
+                </div>
               </div>
-            </div>
             </div>
 
             <div
@@ -4047,7 +5418,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                 style={{
                   background: mainPaneResizing()
                     ? "var(--app-accent)"
-                    : "color-mix(in srgb, var(--app-accent) 28%, var(--app-border))"
+                    : "color-mix(in srgb, var(--app-accent) 28%, var(--app-border))",
                 }}
               />
             </div>
@@ -4057,16 +5428,29 @@ export function RestPlayground(props: RestPlaygroundProps) {
               style={{ "min-height": "calc(100dvh - 128px)" }}
             >
               <Show when={responseError()}>
-                <div class="mb-3 border px-4 py-3 text-sm theme-warn" style={{ "border-color": "var(--app-border)" }}>
+                <div
+                  class="mb-3 border px-4 py-3 text-sm theme-warn"
+                  style={{ "border-color": "var(--app-border)" }}
+                >
                   {responseError()}
                 </div>
               </Show>
 
               <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div class="flex flex-wrap items-center gap-1.5">
-                  <EditorToggle active={responseTab() === "body"} label="Body" onClick={() => setResponseTab("body")} />
-                  <EditorToggle active={responseTab() === "headers"} label="Headers" onClick={() => setResponseTab("headers")} />
-                  <Show when={responseTab() === "body" && responsePreviewKind()}>
+                  <EditorToggle
+                    active={responseTab() === "body"}
+                    label="Body"
+                    onClick={() => setResponseTab("body")}
+                  />
+                  <EditorToggle
+                    active={responseTab() === "headers"}
+                    label="Headers"
+                    onClick={() => setResponseTab("headers")}
+                  />
+                  <Show
+                    when={responseTab() === "body" && responsePreviewKind()}
+                  >
                     <button
                       class={`rounded-lg px-2 py-1 text-[11px] font-medium transition ${
                         responseBodyView() === "preview"
@@ -4074,7 +5458,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
                           : "bg-[var(--app-method-get-bg)] text-[var(--app-method-get)]"
                       }`}
                       onClick={() =>
-                        setResponseBodyView((current) => current === "preview" ? "raw" : "preview")
+                        setResponseBodyView((current) =>
+                          current === "preview" ? "raw" : "preview",
+                        )
                       }
                     >
                       Preview
@@ -4084,7 +5470,9 @@ export function RestPlayground(props: RestPlaygroundProps) {
                 <Show when={responseSummary()}>
                   {(summary) => (
                     <div class="theme-text-soft flex flex-wrap items-center gap-2 text-sm">
-                      <span class={`font-semibold ${getResponseStatusClass(summary().status)}`}>
+                      <span
+                        class={`font-semibold ${getResponseStatusClass(summary().status)}`}
+                      >
                         {summary().status} {summary().statusText}
                       </span>
                       <span>|</span>
@@ -4097,51 +5485,94 @@ export function RestPlayground(props: RestPlaygroundProps) {
               </div>
 
               <div class="min-h-0 flex-1">
-              <Switch>
-                <Match when={responseTab() === "body"}>
-                  <Switch>
-                    <Match when={responseBodyView() === "preview" && responsePreviewKind() === "json" && responsePreviewJson() !== null}>
-                      <div class="theme-code flex h-full min-h-[240px] flex-col overflow-auto rounded-[20px] border px-3 py-3" style={{ "border-color": "var(--app-border)" }}>
-                        <JsonPreviewNode value={responsePreviewJson()} />
-                      </div>
-                    </Match>
-                    <Match when={responseBodyView() === "preview" && responsePreviewKind() === "html" && responseSummary()}>
-                      <div class="theme-code flex h-full min-h-[240px] flex-col overflow-hidden rounded-[20px] border" style={{ "border-color": "var(--app-border)" }}>
-                        <iframe
-                          class="h-full min-h-[240px] w-full border-0 bg-white"
-                          sandbox=""
-                          srcdoc={responseSummary()?.body ?? ""}
-                          title="HTML preview"
-                        />
-                      </div>
-                    </Match>
-                    <Match when={responseBodyView() === "preview" && responsePreviewKind() === "json" && responsePreviewJson() === null}>
-                      <div class="theme-code flex h-full min-h-[240px] items-center rounded-[20px] border px-4 text-sm theme-text-soft" style={{ "border-color": "var(--app-border)" }}>
-                        JSON preview is unavailable because the response body could not be parsed.
-                      </div>
-                    </Match>
-                    <Match when={true}>
-                      <div class="theme-code flex h-full min-h-[240px] flex-col overflow-hidden rounded-[20px] border" style={{ "border-color": "var(--app-border)" }}>
-                        <Show
-                          when={responseSummary() && isJsonContentType(responseSummary()!.contentType)}
-                          fallback={
-                            <pre class="theme-text-muted h-full flex-1 overflow-x-auto px-3 py-3 font-mono text-sm leading-7">
-                              <code>{responseSummary()?.body ?? "Send a request to inspect the response body."}</code>
-                            </pre>
-                          }
+                <Switch>
+                  <Match when={responseTab() === "body"}>
+                    <Switch>
+                      <Match
+                        when={
+                          responseBodyView() === "preview" &&
+                          responsePreviewKind() === "json" &&
+                          responsePreviewJson() !== null
+                        }
+                      >
+                        <div
+                          class="theme-code flex h-full min-h-[240px] flex-col overflow-auto rounded-[20px] border px-3 py-3"
+                          style={{ "border-color": "var(--app-border)" }}
                         >
-                          <JsonHighlightedCode value={responseSummary()?.body ?? ""} />
-                        </Show>
-                      </div>
-                    </Match>
-                  </Switch>
-                </Match>
-                <Match when={responseTab() === "headers"}>
-                  <div class="min-h-[240px]">
-                    <KeyValueTableEditor rows={responseSummary()?.headers ?? []} resizeStorageKey="devx-kv-response-headers" readOnly />
-                  </div>
-                </Match>
-              </Switch>
+                          <JsonPreviewNode value={responsePreviewJson()} />
+                        </div>
+                      </Match>
+                      <Match
+                        when={
+                          responseBodyView() === "preview" &&
+                          responsePreviewKind() === "html" &&
+                          responseSummary()
+                        }
+                      >
+                        <div
+                          class="theme-code flex h-full min-h-[240px] flex-col overflow-hidden rounded-[20px] border"
+                          style={{ "border-color": "var(--app-border)" }}
+                        >
+                          <iframe
+                            class="h-full min-h-[240px] w-full border-0 bg-white"
+                            sandbox=""
+                            srcdoc={responseSummary()?.body ?? ""}
+                            title="HTML preview"
+                          />
+                        </div>
+                      </Match>
+                      <Match
+                        when={
+                          responseBodyView() === "preview" &&
+                          responsePreviewKind() === "json" &&
+                          responsePreviewJson() === null
+                        }
+                      >
+                        <div
+                          class="theme-code flex h-full min-h-[240px] items-center rounded-[20px] border px-4 text-sm theme-text-soft"
+                          style={{ "border-color": "var(--app-border)" }}
+                        >
+                          JSON preview is unavailable because the response body
+                          could not be parsed.
+                        </div>
+                      </Match>
+                      <Match when={true}>
+                        <div
+                          class="theme-code flex h-full min-h-[240px] flex-col overflow-hidden rounded-[20px] border"
+                          style={{ "border-color": "var(--app-border)" }}
+                        >
+                          <Show
+                            when={
+                              responseSummary() &&
+                              isJsonContentType(responseSummary()!.contentType)
+                            }
+                            fallback={
+                              <pre class="theme-text-muted h-full flex-1 overflow-x-auto px-3 py-3 font-mono text-sm leading-7">
+                                <code>
+                                  {responseSummary()?.body ??
+                                    "Send a request to inspect the response body."}
+                                </code>
+                              </pre>
+                            }
+                          >
+                            <JsonHighlightedCode
+                              value={responseSummary()?.body ?? ""}
+                            />
+                          </Show>
+                        </div>
+                      </Match>
+                    </Switch>
+                  </Match>
+                  <Match when={responseTab() === "headers"}>
+                    <div class="min-h-[240px]">
+                      <KeyValueTableEditor
+                        rows={responseSummary()?.headers ?? []}
+                        resizeStorageKey="devx-kv-response-headers"
+                        readOnly
+                      />
+                    </div>
+                  </Match>
+                </Switch>
               </div>
             </div>
           </div>
@@ -4155,7 +5586,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
           style={{
             "border-color": "var(--app-border)",
             left: `${requestTabMenuState()!.x}px`,
-            top: `${requestTabMenuState()!.y}px`
+            top: `${requestTabMenuState()!.y}px`,
           }}
         >
           <button
@@ -4165,18 +5596,36 @@ export function RestPlayground(props: RestPlaygroundProps) {
               setRequestTabMenuState(null);
             }}
           >
-            {workspace.pinnedRequestIds.includes(currentTabMenuRequest()!.id) ? "UnPin" : "Pin"}
+            {workspace.pinnedRequestIds.includes(currentTabMenuRequest()!.id)
+              ? "UnPin"
+              : "Pin"}
           </button>
-          <button class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm" onClick={() => closeOtherTabs(currentTabMenuRequest()!.id)}>
+          <button
+            class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+            onClick={() => closeOtherTabs(currentTabMenuRequest()!.id)}
+          >
             Close Others
           </button>
-          <button class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm" onClick={closeAllTabs}>
+          <button
+            class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+            onClick={closeAllTabs}
+          >
             Close All
           </button>
-          <button class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm" onClick={() => closeTabsToDirection(currentTabMenuRequest()!.id, "right")}>
+          <button
+            class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+            onClick={() =>
+              closeTabsToDirection(currentTabMenuRequest()!.id, "right")
+            }
+          >
             Close Right
           </button>
-          <button class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm" onClick={() => closeTabsToDirection(currentTabMenuRequest()!.id, "left")}>
+          <button
+            class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+            onClick={() =>
+              closeTabsToDirection(currentTabMenuRequest()!.id, "left")
+            }
+          >
             Close Left
           </button>
         </div>
@@ -4184,12 +5633,22 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
       <Show when={curlImportCollectionId()}>
         <div class="fixed inset-0 z-40 flex items-center justify-center bg-[rgba(15,23,42,0.28)] px-4">
-          <div class="theme-panel-strong z-50 w-full max-w-2xl rounded-2xl border p-5" style={{ "border-color": "var(--app-border)" }}>
+          <div
+            class="theme-panel-strong z-50 w-full max-w-2xl rounded-2xl border p-5"
+            style={{ "border-color": "var(--app-border)" }}
+          >
             <div class="mb-4 flex items-start justify-between gap-4">
               <div class="space-y-1">
-                <p class="theme-eyebrow text-[10px] font-semibold uppercase tracking-[0.18em]">Import</p>
-                <h3 class="theme-text text-lg font-semibold">Parse cURL Into Request</h3>
-                <p class="theme-text-soft text-sm">Paste a cURL command and generate a new request in the selected collection.</p>
+                <p class="theme-eyebrow text-[10px] font-semibold uppercase tracking-[0.18em]">
+                  Import
+                </p>
+                <h3 class="theme-text text-lg font-semibold">
+                  Parse cURL Into Request
+                </h3>
+                <p class="theme-text-soft text-sm">
+                  Paste a cURL command and generate a new request in the
+                  selected collection.
+                </p>
               </div>
               <button
                 class="theme-control inline-flex h-8 w-8 items-center justify-center rounded-lg text-sm"
@@ -4227,7 +5686,10 @@ export function RestPlayground(props: RestPlaygroundProps) {
                 >
                   Cancel
                 </button>
-                <button class="theme-button-primary rounded-lg px-4 py-2 text-sm font-semibold" onClick={commitCurlImport}>
+                <button
+                  class="theme-button-primary rounded-lg px-4 py-2 text-sm font-semibold"
+                  onClick={commitCurlImport}
+                >
                   Parse & Create
                 </button>
               </div>

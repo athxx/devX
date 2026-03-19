@@ -1,47 +1,10 @@
 import { loadIndexedDbValue, saveIndexedDbValue } from "../../lib/indexed-db";
+import { withLegacyStore } from "../../lib/legacy-db";
 import type { WorkspaceSnapshot } from "./types";
 
 const SNAPSHOT_KEY = "workspace-snapshot";
 const LEGACY_DB_NAME = "devx-sync-db";
 const LEGACY_STORE_NAME = "snapshots";
-
-function openLegacyDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(LEGACY_DB_NAME, 1);
-
-    request.onupgradeneeded = () => {
-      const database = request.result;
-
-      if (!database.objectStoreNames.contains(LEGACY_STORE_NAME)) {
-        database.createObjectStore(LEGACY_STORE_NAME);
-      }
-    };
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("Failed to open IndexedDB."));
-  });
-}
-
-async function withLegacyStore<T>(
-  mode: IDBTransactionMode,
-  operation: (store: IDBObjectStore) => IDBRequest<T>
-): Promise<T> {
-  const database = await openLegacyDatabase();
-
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(LEGACY_STORE_NAME, mode);
-    const store = transaction.objectStore(LEGACY_STORE_NAME);
-    const request = operation(store);
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("IndexedDB request failed."));
-    transaction.oncomplete = () => database.close();
-    transaction.onerror = () => {
-      reject(transaction.error ?? new Error("IndexedDB transaction failed."));
-      database.close();
-    };
-  });
-}
 
 export async function loadWorkspaceSnapshot(): Promise<WorkspaceSnapshot | undefined> {
   const current = await loadIndexedDbValue<WorkspaceSnapshot>(SNAPSHOT_KEY);
@@ -51,7 +14,7 @@ export async function loadWorkspaceSnapshot(): Promise<WorkspaceSnapshot | undef
   }
 
   try {
-    const legacy = await withLegacyStore<WorkspaceSnapshot | undefined>("readonly", (store) =>
+    const legacy = await withLegacyStore<WorkspaceSnapshot | undefined>(LEGACY_DB_NAME, LEGACY_STORE_NAME, "readonly", (store) =>
       store.get(SNAPSHOT_KEY)
     );
 

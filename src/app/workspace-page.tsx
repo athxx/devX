@@ -7,11 +7,11 @@ import {
   onMount,
 } from "solid-js";
 import { AppShell } from "../components/app-shell";
+import { DbPanel } from "../features/db/components/db-panel";
+import { SshPanel } from "../features/ssh/components/ssh-panel";
 import {
-  DbWorkspace,
   HomeWorkspace,
   SettingsWorkspace,
-  SshWorkspace,
   ToolsWorkspace,
 } from "./workspace-sections";
 import {
@@ -319,7 +319,7 @@ export function WorkspacePage(_props: WorkspacePageProps) {
         />
       </div>
       <div style={tabPanelStyle("db")}>
-        <DbWorkspace
+        <DbPanel
           sidebarOpen={sidebarOpen()}
           sidebarWidth={sidebarWidth()}
           sidebarResizing={sidebarResizing()}
@@ -327,7 +327,7 @@ export function WorkspacePage(_props: WorkspacePageProps) {
         />
       </div>
       <div style={tabPanelStyle("ssh")}>
-        <SshWorkspace
+        <SshPanel
           sidebarOpen={sidebarOpen()}
           sidebarWidth={sidebarWidth()}
           sidebarResizing={sidebarResizing()}

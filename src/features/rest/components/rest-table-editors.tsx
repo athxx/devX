@@ -1,6 +1,15 @@
-import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import {
+  For,
+  Index,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
+import { ControlDot } from "../../../components/ui-primitives";
 import type { KeyValueEntry } from "../models";
-import { ControlDot } from "./rest-ui-primitives";
 
 function ColumnResizeHandle(props: {
   onMouseDown: (event: MouseEvent) => void;
@@ -50,41 +59,56 @@ export function KeyValueTableEditor(props: {
   onRemove?: (id: string) => void;
   onAdd?: () => void;
 }) {
-  const [suggestionField, setSuggestionField] = createSignal<{ rowId: string; field: "key" | "value" } | null>(null);
-  const [suggestionRect, setSuggestionRect] = createSignal<{ left: number; top: number; width: number } | null>(null);
+  const [suggestionField, setSuggestionField] = createSignal<{
+    rowId: string;
+    field: "key" | "value";
+  } | null>(null);
+  const [suggestionRect, setSuggestionRect] = createSignal<{
+    left: number;
+    top: number;
+    width: number;
+  } | null>(null);
   const [columnSplit, setColumnSplit] = createSignal(50);
   const isReadOnly = () => props.readOnly ?? false;
   let containerRef: HTMLDivElement | undefined;
 
-  const clampColumnSplit = (value: number) => Math.min(72, Math.max(28, Math.round(value)));
+  const clampColumnSplit = (value: number) =>
+    Math.min(72, Math.max(28, Math.round(value)));
   const resolvedStorageKey = () =>
     props.resizeStorageKey
       ? `${props.resizeStorageKey}:${isReadOnly() ? "readonly" : "editable"}`
       : null;
 
   function getSuggestions(row: KeyValueEntry, field: "key" | "value") {
-    const source = field === "key"
-      ? props.keySuggestions ?? []
-      : props.getValueSuggestions?.(row) ?? [];
-    const currentValue = (field === "key" ? row.key : row.value).trim().toLowerCase();
+    const source =
+      field === "key"
+        ? (props.keySuggestions ?? [])
+        : (props.getValueSuggestions?.(row) ?? []);
+    const currentValue = (field === "key" ? row.key : row.value)
+      .trim()
+      .toLowerCase();
 
     return source
       .filter((item, index, list) => list.indexOf(item) === index)
-      .filter((item) => currentValue.length === 0 || item.toLowerCase().includes(currentValue))
+      .filter(
+        (item) =>
+          currentValue.length === 0 ||
+          item.toLowerCase().includes(currentValue),
+      )
       .slice(0, 8);
   }
 
   function openSuggestions(
     rowId: string,
     field: "key" | "value",
-    element: HTMLInputElement
+    element: HTMLInputElement,
   ) {
     const rect = element.getBoundingClientRect();
     setSuggestionField({ rowId, field });
     setSuggestionRect({
       left: rect.left,
       top: rect.bottom + 4,
-      width: rect.width
+      width: rect.width,
     });
   }
 
@@ -173,19 +197,27 @@ export function KeyValueTableEditor(props: {
         style={{
           "grid-template-columns": isReadOnly()
             ? `minmax(180px, ${columnSplit()}fr) 1px minmax(0, ${100 - columnSplit()}fr)`
-            : `68px minmax(120px, ${columnSplit()}fr) 1px minmax(140px, ${100 - columnSplit()}fr) 44px`
+            : `68px minmax(120px, ${columnSplit()}fr) 1px minmax(140px, ${100 - columnSplit()}fr) 44px`,
         }}
       >
         <Show when={!isReadOnly()}>
-          <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">State</div>
+          <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">
+            State
+          </div>
         </Show>
-        <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">Key</div>
+        <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">
+          Key
+        </div>
         <div class="theme-kv-head px-0 py-0">
           <ColumnResizeHandle onMouseDown={startColumnResize} />
         </div>
-        <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">Value</div>
+        <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">
+          Value
+        </div>
         <Show when={!isReadOnly()}>
-          <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">Del</div>
+          <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">
+            Del
+          </div>
         </Show>
 
         <Index each={props.rows}>
@@ -207,18 +239,29 @@ export function KeyValueTableEditor(props: {
               </Show>
 
               <div class="theme-kv-cell px-2 py-2">
-                <Show when={!props.readOnly} fallback={<div class="px-3 py-2 text-sm">{row().key}</div>}>
+                <Show
+                  when={!props.readOnly}
+                  fallback={<div class="px-3 py-2 text-sm">{row().key}</div>}
+                >
                   <div class="relative">
                     <input
                       class="theme-input h-8 w-full rounded-md px-2.5 py-1 text-sm"
                       placeholder="key"
                       value={row().key}
-                      onFocus={(event) => openSuggestions(row().id, "key", event.currentTarget)}
-                      onClick={(event) => openSuggestions(row().id, "key", event.currentTarget)}
+                      onFocus={(event) =>
+                        openSuggestions(row().id, "key", event.currentTarget)
+                      }
+                      onClick={(event) =>
+                        openSuggestions(row().id, "key", event.currentTarget)
+                      }
                       onBlur={() => closeSuggestions(row().id, "key")}
                       onInput={(event) => {
                         openSuggestions(row().id, "key", event.currentTarget);
-                        props.onUpdate?.(row().id, "key", event.currentTarget.value);
+                        props.onUpdate?.(
+                          row().id,
+                          "key",
+                          event.currentTarget.value,
+                        );
                       }}
                     />
                   </div>
@@ -230,18 +273,31 @@ export function KeyValueTableEditor(props: {
               </div>
 
               <div class="theme-kv-cell-muted px-1.5 py-1.5">
-                <Show when={!props.readOnly} fallback={<div class="px-3 py-2 font-mono text-sm">{row().value}</div>}>
+                <Show
+                  when={!props.readOnly}
+                  fallback={
+                    <div class="px-3 py-2 font-mono text-sm">{row().value}</div>
+                  }
+                >
                   <div class="relative">
                     <input
                       class="theme-input h-8 w-full rounded-md px-2.5 py-1 font-mono text-sm"
                       placeholder={props.valuePlaceholder ?? "value"}
                       value={row().value}
-                      onFocus={(event) => openSuggestions(row().id, "value", event.currentTarget)}
-                      onClick={(event) => openSuggestions(row().id, "value", event.currentTarget)}
+                      onFocus={(event) =>
+                        openSuggestions(row().id, "value", event.currentTarget)
+                      }
+                      onClick={(event) =>
+                        openSuggestions(row().id, "value", event.currentTarget)
+                      }
                       onBlur={() => closeSuggestions(row().id, "value")}
                       onInput={(event) => {
                         openSuggestions(row().id, "value", event.currentTarget);
-                        props.onUpdate?.(row().id, "value", event.currentTarget.value);
+                        props.onUpdate?.(
+                          row().id,
+                          "value",
+                          event.currentTarget.value,
+                        );
                       }}
                     />
                   </div>
@@ -268,7 +324,8 @@ export function KeyValueTableEditor(props: {
           suggestionField() &&
           suggestionRect() &&
           activeSuggestionRow() &&
-          getSuggestions(activeSuggestionRow()!, suggestionField()!.field).length > 0
+          getSuggestions(activeSuggestionRow()!, suggestionField()!.field)
+            .length > 0
         }
       >
         <div
@@ -277,10 +334,15 @@ export function KeyValueTableEditor(props: {
             "border-color": "var(--app-border)",
             left: `${suggestionRect()!.left}px`,
             top: `${suggestionRect()!.top}px`,
-            width: `${suggestionRect()!.width}px`
+            width: `${suggestionRect()!.width}px`,
           }}
         >
-          <For each={getSuggestions(activeSuggestionRow()!, suggestionField()!.field)}>
+          <For
+            each={getSuggestions(
+              activeSuggestionRow()!,
+              suggestionField()!.field,
+            )}
+          >
             {(item) => (
               <button
                 class="theme-sidebar-item block w-full rounded-lg px-2.5 py-1.5 text-left text-sm"
@@ -313,7 +375,8 @@ export function FormDataTableEditor(props: {
 }) {
   const [columnSplit, setColumnSplit] = createSignal(48);
   let containerRef: HTMLDivElement | undefined;
-  const clampColumnSplit = (value: number) => Math.min(72, Math.max(28, Math.round(value)));
+  const clampColumnSplit = (value: number) =>
+    Math.min(72, Math.max(28, Math.round(value)));
 
   onMount(() => {
     if (!props.resizeStorageKey) {
@@ -328,7 +391,10 @@ export function FormDataTableEditor(props: {
 
   createEffect(() => {
     if (props.resizeStorageKey) {
-      window.localStorage.setItem(props.resizeStorageKey, String(columnSplit()));
+      window.localStorage.setItem(
+        props.resizeStorageKey,
+        String(columnSplit()),
+      );
     }
   });
 
@@ -369,17 +435,27 @@ export function FormDataTableEditor(props: {
       <div
         class="theme-kv-grid grid gap-px"
         style={{
-          "grid-template-columns": `68px 92px minmax(120px, ${columnSplit()}fr) 1px minmax(160px, ${100 - columnSplit()}fr) 44px`
+          "grid-template-columns": `68px 92px minmax(120px, ${columnSplit()}fr) 1px minmax(160px, ${100 - columnSplit()}fr) 44px`,
         }}
       >
-        <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">State</div>
-        <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">Type</div>
-        <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">Key</div>
+        <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">
+          State
+        </div>
+        <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">
+          Type
+        </div>
+        <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">
+          Key
+        </div>
         <div class="theme-kv-head px-0 py-0">
           <ColumnResizeHandle onMouseDown={startColumnResize} />
         </div>
-        <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">Value</div>
-        <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">Del</div>
+        <div class="theme-kv-head px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em]">
+          Value
+        </div>
+        <div class="theme-kv-head px-2.5 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em]">
+          Del
+        </div>
 
         <Index each={props.rows}>
           {(row) => (
@@ -402,10 +478,26 @@ export function FormDataTableEditor(props: {
                   class="theme-input h-8 w-full rounded-md px-2.5 py-1 text-sm"
                   value={row().valueType ?? "text"}
                   onInput={(event) => {
-                    const nextType = event.currentTarget.value as "text" | "file";
-                    props.onUpdate(row().id, nextType === "file"
-                      ? { valueType: "file", value: "", fileName: "", fileContent: "", fileContentType: "" }
-                      : { valueType: "text", fileName: "", fileContent: "", fileContentType: "" });
+                    const nextType = event.currentTarget.value as
+                      | "text"
+                      | "file";
+                    props.onUpdate(
+                      row().id,
+                      nextType === "file"
+                        ? {
+                            valueType: "file",
+                            value: "",
+                            fileName: "",
+                            fileContent: "",
+                            fileContentType: "",
+                          }
+                        : {
+                            valueType: "text",
+                            fileName: "",
+                            fileContent: "",
+                            fileContentType: "",
+                          },
+                    );
                   }}
                 >
                   <option value="text">Text</option>
@@ -418,7 +510,9 @@ export function FormDataTableEditor(props: {
                   class="theme-input h-8 w-full rounded-md px-2.5 py-1 text-sm"
                   placeholder="key"
                   value={row().key}
-                  onInput={(event) => props.onUpdate(row().id, { key: event.currentTarget.value })}
+                  onInput={(event) =>
+                    props.onUpdate(row().id, { key: event.currentTarget.value })
+                  }
                 />
               </div>
 
@@ -434,7 +528,11 @@ export function FormDataTableEditor(props: {
                       class="theme-input h-8 w-full rounded-md px-2.5 py-1 font-mono text-sm"
                       placeholder="value"
                       value={row().value}
-                      onInput={(event) => props.onUpdate(row().id, { value: event.currentTarget.value })}
+                      onInput={(event) =>
+                        props.onUpdate(row().id, {
+                          value: event.currentTarget.value,
+                        })
+                      }
                     />
                   }
                 >
@@ -461,7 +559,7 @@ export function FormDataTableEditor(props: {
                               fileName: "",
                               fileContent: "",
                               fileContentType: "",
-                              value: ""
+                              value: "",
                             });
                           }}
                         >
@@ -482,7 +580,7 @@ export function FormDataTableEditor(props: {
                             fileName: file.name,
                             fileContent,
                             fileContentType: file.type,
-                            value: file.name
+                            value: file.name,
                           });
                           event.currentTarget.value = "";
                         }}

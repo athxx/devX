@@ -1,4 +1,5 @@
 import { getStoredValue, setStoredValue } from "../../lib/platform-storage";
+import { cloneValue, makeId } from "../../lib/utils";
 import { loadProxySettings } from "../proxy/service";
 import { loadRestWorkspaceFromDb, saveRestWorkspaceToDb } from "./local-db";
 import type {
@@ -16,14 +17,6 @@ import type {
 } from "./models";
 
 const REST_WORKSPACE_KEY = "rest-workspace";
-
-function makeId(prefix: string) {
-  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function cloneRestValue<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
 
 export function createKeyValueEntry(
   partial: Partial<KeyValueEntry> = {}
@@ -575,6 +568,6 @@ export function createHistoryEntry(
     status: response?.status ?? null,
     timeMs: response?.timeMs ?? 0,
     createdAt: new Date().toISOString(),
-    requestSnapshot: cloneRestValue(request)
+    requestSnapshot: cloneValue(request)
   };
 }

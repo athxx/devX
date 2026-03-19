@@ -1,3 +1,4 @@
+import { makeId } from "../../lib/utils";
 import { loadProxySettings } from "../proxy/service";
 import { loadDbWorkspaceFromDb, saveDbWorkspaceToDb } from "./local-db";
 import type {
@@ -11,10 +12,6 @@ import type {
   DbTab,
   DbWorkspaceState
 } from "./models";
-
-function makeId(prefix: string) {
-  return `${prefix}-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
-}
 
 function defaultQueryForKind(kind: DbConnectionKind) {
   switch (kind) {

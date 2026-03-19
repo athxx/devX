@@ -5,20 +5,21 @@ import {
   createMemo,
   createSignal,
   onCleanup,
-  onMount
+  onMount,
 } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { TabsBar } from "../../../components/tabs-bar";
+import { ControlDot, PinIcon } from "../../../components/ui-primitives";
 import { WorkspaceSidebarLayout } from "../../../components/workspace-sidebar-layout";
-import { RequestTabsBar } from "../../rest/components/request-tabs-bar";
-import { ControlDot, PinIcon } from "../../rest/components/rest-ui-primitives";
+import { makeId, arrayMove, reorderByDirection } from "../../../lib/utils";
 import type {
   SshConnectPayload,
   SshFolder,
   SshProfile,
-  SshWorkspaceState
+  SshWorkspaceState,
 } from "../models";
 import {
   addSshFolder,
@@ -29,7 +30,7 @@ import {
   loadSshWorkspace,
   saveSshWorkspace,
   updateSshFolder,
-  updateSshProfile
+  updateSshProfile,
 } from "../service";
 
 type SshPanelProps = {
@@ -82,7 +83,7 @@ type TerminalTab = {
   id: string;
   root: TerminalLayoutNode;
   activePaneId: string;
-    };
+};
 
 type PaneRect = {
   left: number;
@@ -115,12 +116,8 @@ type PersistedSshUiState = {
   panesById: Record<string, TerminalPane>;
 };
 
-function newId() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
-
 const emptyProfile = (folderId: string | null = null): SshProfile => ({
-  id: newId(),
+  id: makeId(),
   name: "",
   folderId,
   target: "remote",
@@ -130,7 +127,7 @@ const emptyProfile = (folderId: string | null = null): SshProfile => ({
   authMethod: "password",
   password: "",
   privateKey: "",
-  passphrase: ""
+  passphrase: "",
 });
 
 function getProfileStatusDotClass(status: SessionState["status"]) {
@@ -154,7 +151,9 @@ function loadExpandedFolders() {
 
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
   } catch {
     return [];
   }
@@ -184,34 +183,6 @@ function loadPersistedSshUiState(): PersistedSshUiState | null {
   }
 }
 
-function arrayMove<T>(items: T[], fromIndex: number, toIndex: number) {
-  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
-    return items.slice();
-  }
-
-  const next = items.slice();
-  const [item] = next.splice(fromIndex, 1);
-  next.splice(Math.max(0, Math.min(next.length, toIndex)), 0, item);
-  return next;
-}
-
-function reorderByDirection(ids: string[], id: string, direction: "up" | "down") {
-  const index = ids.indexOf(id);
-  if (index < 0) {
-    return ids.slice();
-  }
-
-  if (direction === "up" && index > 0) {
-    return arrayMove(ids, index, index - 1);
-  }
-
-  if (direction === "down" && index < ids.length - 1) {
-    return arrayMove(ids, index, index + 1);
-  }
-
-  return ids.slice();
-}
-
 function cloneLayoutNode(node: TerminalLayoutNode): TerminalLayoutNode {
   if (node.type === "leaf") {
     return { ...node };
@@ -219,7 +190,7 @@ function cloneLayoutNode(node: TerminalLayoutNode): TerminalLayoutNode {
   return {
     ...node,
     first: cloneLayoutNode(node.first),
-    second: cloneLayoutNode(node.second)
+    second: cloneLayoutNode(node.second),
   };
 }
 
@@ -238,13 +209,16 @@ function findPaneInLayout(node: TerminalLayoutNode, paneId: string): boolean {
   if (node.type === "leaf") {
     return node.paneId === paneId;
   }
-  return findPaneInLayout(node.first, paneId) || findPaneInLayout(node.second, paneId);
+  return (
+    findPaneInLayout(node.first, paneId) ||
+    findPaneInLayout(node.second, paneId)
+  );
 }
 
 function findPaneForProfileInLayout(
   node: TerminalLayoutNode,
   panesById: Record<string, TerminalPane>,
-  profileId: string
+  profileId: string,
 ): string | null {
   if (node.type === "leaf") {
     return panesById[node.paneId]?.profileId === profileId ? node.paneId : null;
@@ -259,7 +233,7 @@ function splitLayoutAtPane(
   node: TerminalLayoutNode,
   targetPaneId: string,
   direction: "columns" | "rows",
-  newPaneId: string
+  newPaneId: string,
 ): TerminalLayoutNode {
   if (node.type === "leaf") {
     if (node.paneId !== targetPaneId) {
@@ -267,22 +241,25 @@ function splitLayoutAtPane(
     }
     return {
       type: "split",
-      id: newId(),
+      id: makeId(),
       direction,
       ratio: 0.5,
       first: { type: "leaf", paneId: targetPaneId },
-      second: { type: "leaf", paneId: newPaneId }
+      second: { type: "leaf", paneId: newPaneId },
     };
   }
 
   return {
     ...node,
     first: splitLayoutAtPane(node.first, targetPaneId, direction, newPaneId),
-    second: splitLayoutAtPane(node.second, targetPaneId, direction, newPaneId)
+    second: splitLayoutAtPane(node.second, targetPaneId, direction, newPaneId),
   };
 }
 
-function removePaneFromLayout(node: TerminalLayoutNode, targetPaneId: string): TerminalLayoutNode | null {
+function removePaneFromLayout(
+  node: TerminalLayoutNode,
+  targetPaneId: string,
+): TerminalLayoutNode | null {
   if (node.type === "leaf") {
     return node.paneId === targetPaneId ? null : node;
   }
@@ -303,14 +280,14 @@ function removePaneFromLayout(node: TerminalLayoutNode, targetPaneId: string): T
   return {
     ...node,
     first: nextFirst,
-    second: nextSecond
+    second: nextSecond,
   };
 }
 
 function updateSplitRatioInLayout(
   node: TerminalLayoutNode,
   splitId: string,
-  ratio: number
+  ratio: number,
 ): TerminalLayoutNode {
   if (node.type === "leaf") {
     return node;
@@ -318,13 +295,13 @@ function updateSplitRatioInLayout(
   if (node.id === splitId) {
     return {
       ...node,
-      ratio
+      ratio,
     };
   }
   return {
     ...node,
     first: updateSplitRatioInLayout(node.first, splitId, ratio),
-    second: updateSplitRatioInLayout(node.second, splitId, ratio)
+    second: updateSplitRatioInLayout(node.second, splitId, ratio),
   };
 }
 
@@ -335,7 +312,7 @@ function computeLayoutRects(
   width: number,
   height: number,
   paneRects: Map<string, PaneRect>,
-  splitRects: Map<string, SplitHandleRect>
+  splitRects: Map<string, SplitHandleRect>,
 ) {
   if (node.type === "leaf") {
     paneRects.set(node.paneId, { left, top, width, height });
@@ -345,8 +322,24 @@ function computeLayoutRects(
   if (node.direction === "columns") {
     const firstWidth = width * node.ratio;
     const secondWidth = width - firstWidth;
-    computeLayoutRects(node.first, left, top, firstWidth, height, paneRects, splitRects);
-    computeLayoutRects(node.second, left + firstWidth, top, secondWidth, height, paneRects, splitRects);
+    computeLayoutRects(
+      node.first,
+      left,
+      top,
+      firstWidth,
+      height,
+      paneRects,
+      splitRects,
+    );
+    computeLayoutRects(
+      node.second,
+      left + firstWidth,
+      top,
+      secondWidth,
+      height,
+      paneRects,
+      splitRects,
+    );
     splitRects.set(node.id, {
       id: node.id,
       direction: "columns",
@@ -357,15 +350,31 @@ function computeLayoutRects(
       containerLeft: left,
       containerTop: top,
       containerWidth: width,
-      containerHeight: height
+      containerHeight: height,
     });
     return;
   }
 
   const firstHeight = height * node.ratio;
   const secondHeight = height - firstHeight;
-  computeLayoutRects(node.first, left, top, width, firstHeight, paneRects, splitRects);
-  computeLayoutRects(node.second, left, top + firstHeight, width, secondHeight, paneRects, splitRects);
+  computeLayoutRects(
+    node.first,
+    left,
+    top,
+    width,
+    firstHeight,
+    paneRects,
+    splitRects,
+  );
+  computeLayoutRects(
+    node.second,
+    left,
+    top + firstHeight,
+    width,
+    secondHeight,
+    paneRects,
+    splitRects,
+  );
   splitRects.set(node.id, {
     id: node.id,
     direction: "rows",
@@ -376,20 +385,22 @@ function computeLayoutRects(
     containerLeft: left,
     containerTop: top,
     containerWidth: width,
-    containerHeight: height
+    containerHeight: height,
   });
 }
 
 function sanitizeLayoutNode(
   node: TerminalLayoutNode | null | undefined,
-  panesById: Record<string, TerminalPane>
+  panesById: Record<string, TerminalPane>,
 ): TerminalLayoutNode | null {
   if (!node) {
     return null;
   }
 
   if (node.type === "leaf") {
-    return panesById[node.paneId] ? { type: "leaf", paneId: node.paneId } : null;
+    return panesById[node.paneId]
+      ? { type: "leaf", paneId: node.paneId }
+      : null;
   }
 
   const first = sanitizeLayoutNode(node.first, panesById);
@@ -407,40 +418,61 @@ function sanitizeLayoutNode(
 
   return {
     type: "split",
-    id: node.id || newId(),
+    id: node.id || makeId(),
     direction: node.direction === "rows" ? "rows" : "columns",
-    ratio: Math.max(0.18, Math.min(0.82, typeof node.ratio === "number" ? node.ratio : 0.5)),
+    ratio: Math.max(
+      0.18,
+      Math.min(0.82, typeof node.ratio === "number" ? node.ratio : 0.5),
+    ),
     first,
-    second
+    second,
   };
 }
 
 export function SshPanel(props: SshPanelProps) {
   const [workspace, setWorkspace] = createSignal<SshWorkspaceState>({
     folders: [],
-    profiles: []
+    profiles: [],
   });
-  const [editingProfile, setEditingProfile] = createSignal<SshProfile | null>(null);
+  const [editingProfile, setEditingProfile] = createSignal<SshProfile | null>(
+    null,
+  );
   const [tabsById, setTabsById] = createStore<Record<string, TerminalTab>>({});
-  const [panesById, setPanesById] = createStore<Record<string, TerminalPane>>({});
-  const [sessionByPaneId, setSessionByPaneId] = createStore<Record<string, SessionState>>({});
-  const [relayErrorByPaneId, setRelayErrorByPaneId] = createStore<Record<string, string | null>>({});
+  const [panesById, setPanesById] = createStore<Record<string, TerminalPane>>(
+    {},
+  );
+  const [sessionByPaneId, setSessionByPaneId] = createStore<
+    Record<string, SessionState>
+  >({});
+  const [relayErrorByPaneId, setRelayErrorByPaneId] = createStore<
+    Record<string, string | null>
+  >({});
   const [headerMenuOpen, setHeaderMenuOpen] = createSignal(false);
   const [folderMenuId, setFolderMenuId] = createSignal<string | null>(null);
   const [profileMenuId, setProfileMenuId] = createSignal<string | null>(null);
-  const [profileMoveMenuId, setProfileMoveMenuId] = createSignal<string | null>(null);
+  const [profileMoveMenuId, setProfileMoveMenuId] = createSignal<string | null>(
+    null,
+  );
   const [expandedFolderIds, setExpandedFolderIds] = createSignal<string[]>([]);
   const [openTabIds, setOpenTabIds] = createSignal<string[]>([]);
   const [pinnedTabIds, setPinnedTabIds] = createSignal<string[]>([]);
   const [draggedTabId, setDraggedTabId] = createSignal<string | null>(null);
-  const [tabDropTargetId, setTabDropTargetId] = createSignal<string | null>(null);
+  const [tabDropTargetId, setTabDropTargetId] = createSignal<string | null>(
+    null,
+  );
   const [activeTabId, setActiveTabId] = createSignal<string | null>(null);
-  const [profileTabMenuState, setProfileTabMenuState] = createSignal<ProfileTabMenuState | null>(null);
-  const [paneMenuState, setPaneMenuState] = createSignal<PaneContextMenuState | null>(null);
-  const [connectionSwitcherPaneId, setConnectionSwitcherPaneId] = createSignal<string | null>(null);
+  const [profileTabMenuState, setProfileTabMenuState] =
+    createSignal<ProfileTabMenuState | null>(null);
+  const [paneMenuState, setPaneMenuState] =
+    createSignal<PaneContextMenuState | null>(null);
+  const [connectionSwitcherPaneId, setConnectionSwitcherPaneId] = createSignal<
+    string | null
+  >(null);
   const [uiStateReady, setUiStateReady] = createSignal(false);
   const [profileFilter, setProfileFilter] = createSignal("");
-  const normalizedProfileFilter = createMemo(() => profileFilter().trim().toLowerCase());
+  const normalizedProfileFilter = createMemo(() =>
+    profileFilter().trim().toLowerCase(),
+  );
 
   const termViewportRefs = new Map<string, HTMLDivElement>();
   const termMountRefs = new Map<string, HTMLDivElement>();
@@ -451,27 +483,33 @@ export function SshPanel(props: SshPanelProps) {
   const termDataDisposers = new Map<string, { dispose: () => void }>();
 
   const rootProfiles = createMemo(() =>
-    workspace().profiles.filter((profile) => !profile.folderId)
+    workspace().profiles.filter((profile) => !profile.folderId),
   );
   const folderEntries = createMemo(() =>
     workspace().folders.map((folder) => ({
       folder,
-      profiles: workspace().profiles.filter((profile) => profile.folderId === folder.id)
-    }))
+      profiles: workspace().profiles.filter(
+        (profile) => profile.folderId === folder.id,
+      ),
+    })),
   );
   const filteredRootProfiles = createMemo(() => {
     const filter = normalizedProfileFilter();
     if (!filter) {
       return rootProfiles();
     }
-    return rootProfiles().filter((profile) => profile.name.toLowerCase().includes(filter));
+    return rootProfiles().filter((profile) =>
+      profile.name.toLowerCase().includes(filter),
+    );
   });
   const filteredProfilesFlat = createMemo(() => {
     const filter = normalizedProfileFilter();
     if (!filter) {
       return [];
     }
-    return workspace().profiles.filter((profile) => profile.name.toLowerCase().includes(filter));
+    return workspace().profiles.filter((profile) =>
+      profile.name.toLowerCase().includes(filter),
+    );
   });
   const filteredFolderEntries = createMemo(() => {
     const filter = normalizedProfileFilter();
@@ -484,7 +522,9 @@ export function SshPanel(props: SshPanelProps) {
         const folderMatches = entry.folder.name.toLowerCase().includes(filter);
         const profiles = folderMatches
           ? entry.profiles
-          : entry.profiles.filter((profile) => profile.name.toLowerCase().includes(filter));
+          : entry.profiles.filter((profile) =>
+              profile.name.toLowerCase().includes(filter),
+            );
 
         if (!folderMatches && profiles.length === 0) {
           return null;
@@ -492,23 +532,31 @@ export function SshPanel(props: SshPanelProps) {
 
         return {
           folder: entry.folder,
-          profiles
+          profiles,
         };
       })
       .filter(
         (
-          entry
+          entry,
         ): entry is {
           folder: SshFolder;
           profiles: SshProfile[];
-        } => Boolean(entry)
+        } => Boolean(entry),
       );
   });
-  const hasProfileFilter = createMemo(() => normalizedProfileFilter().length > 0);
-  const profileMap = createMemo(() => new Map(workspace().profiles.map((profile) => [profile.id, profile])));
-  const activeTab = createMemo(() => (activeTabId() ? tabsById[activeTabId()!] ?? null : null));
+  const hasProfileFilter = createMemo(
+    () => normalizedProfileFilter().length > 0,
+  );
+  const profileMap = createMemo(
+    () => new Map(workspace().profiles.map((profile) => [profile.id, profile])),
+  );
+  const activeTab = createMemo(() =>
+    activeTabId() ? (tabsById[activeTabId()!] ?? null) : null,
+  );
   const activePaneId = createMemo(() => activeTab()?.activePaneId ?? null);
-  const activePane = createMemo(() => (activePaneId() ? panesById[activePaneId()!] ?? null : null));
+  const activePane = createMemo(() =>
+    activePaneId() ? (panesById[activePaneId()!] ?? null) : null,
+  );
   const activePaneProfile = createMemo(() => {
     const pane = activePane();
     if (!pane) {
@@ -517,7 +565,9 @@ export function SshPanel(props: SshPanelProps) {
     return profileMap().get(pane.profileId) ?? null;
   });
   const currentTabMenuTab = createMemo(() =>
-    profileTabMenuState() ? tabsById[profileTabMenuState()!.id] ?? null : null
+    profileTabMenuState()
+      ? (tabsById[profileTabMenuState()!.id] ?? null)
+      : null,
   );
   const paneContext = createMemo(() => {
     const state = paneMenuState();
@@ -526,7 +576,7 @@ export function SshPanel(props: SshPanelProps) {
     }
     return {
       tab: tabsById[state.tabId] ?? null,
-      pane: panesById[state.paneId] ?? null
+      pane: panesById[state.paneId] ?? null,
     };
   });
 
@@ -536,7 +586,7 @@ export function SshPanel(props: SshPanelProps) {
     const pinnedIds = new Set(pinnedTabIds().filter((id) => validIds.has(id)));
     const orderedIds = [
       ...openIds.filter((id) => pinnedIds.has(id)),
-      ...openIds.filter((id) => !pinnedIds.has(id))
+      ...openIds.filter((id) => !pinnedIds.has(id)),
     ];
 
     return orderedIds
@@ -556,18 +606,20 @@ export function SshPanel(props: SshPanelProps) {
               ? "theme-method-badge theme-method-get"
               : "theme-method-badge theme-method-default",
           active: activeTabId() === tab.id,
-          pinned: pinnedTabIds().includes(tab.id)
+          pinned: pinnedTabIds().includes(tab.id),
         };
       })
       .filter((item): item is NonNullable<typeof item> => Boolean(item));
   });
 
   const openConnectionProfiles = createMemo(() =>
-    workspace().profiles.slice().sort((a, b) => a.name.localeCompare(b.name))
+    workspace()
+      .profiles.slice()
+      .sort((a, b) => a.name.localeCompare(b.name)),
   );
 
   const activeRelayError = createMemo(() =>
-    activePaneId() ? relayErrorByPaneId[activePaneId()!] ?? null : null
+    activePaneId() ? (relayErrorByPaneId[activePaneId()!] ?? null) : null,
   );
 
   function getPaneConnectionLabel(paneId: string) {
@@ -582,7 +634,9 @@ export function SshPanel(props: SshPanelProps) {
     return sessionByPaneId[paneId] ?? { status: "idle" };
   }
 
-  function getProfileAggregateStatus(profileId: string): SessionState["status"] {
+  function getProfileAggregateStatus(
+    profileId: string,
+  ): SessionState["status"] {
     const statuses = Object.values(panesById)
       .filter((pane) => pane.profileId === profileId)
       .map((pane) => getPaneSession(pane.id).status);
@@ -601,13 +655,19 @@ export function SshPanel(props: SshPanelProps) {
     return "connect";
   }
 
-  function setTabState(tabId: string, updater: (tab: TerminalTab) => TerminalTab) {
+  function setTabState(
+    tabId: string,
+    updater: (tab: TerminalTab) => TerminalTab,
+  ) {
     setTabsById(
       produce((draft) => {
         const current = draft[tabId];
         if (!current) return;
-        draft[tabId] = updater({ ...current, root: cloneLayoutNode(current.root) });
-      })
+        draft[tabId] = updater({
+          ...current,
+          root: cloneLayoutNode(current.root),
+        });
+      }),
     );
   }
 
@@ -615,7 +675,7 @@ export function SshPanel(props: SshPanelProps) {
     setTabsById(
       produce((draft) => {
         delete draft[tabId];
-      })
+      }),
     );
   }
 
@@ -623,7 +683,7 @@ export function SshPanel(props: SshPanelProps) {
     setPanesById(
       produce((draft) => {
         draft[paneId] = { id: paneId, profileId };
-      })
+      }),
     );
   }
 
@@ -631,25 +691,29 @@ export function SshPanel(props: SshPanelProps) {
     setPanesById(
       produce((draft) => {
         delete draft[paneId];
-      })
+      }),
     );
     setSessionByPaneId(
       produce((draft) => {
         delete draft[paneId];
-      })
+      }),
     );
     setRelayErrorByPaneId(
       produce((draft) => {
         delete draft[paneId];
-      })
+      }),
     );
   }
 
   function findOpenTabForProfile(profileId: string) {
-    return openTabIds().find((tabId) => {
-      const tab = tabsById[tabId];
-      return tab ? Boolean(findPaneForProfileInLayout(tab.root, panesById, profileId)) : false;
-    }) ?? null;
+    return (
+      openTabIds().find((tabId) => {
+        const tab = tabsById[tabId];
+        return tab
+          ? Boolean(findPaneForProfileInLayout(tab.root, panesById, profileId))
+          : false;
+      }) ?? null
+    );
   }
 
   function findPaneForProfileInTab(tabId: string, profileId: string) {
@@ -663,9 +727,13 @@ export function SshPanel(props: SshPanelProps) {
     void loadSshWorkspace().then((loaded) => {
       setWorkspace(loaded);
       const persisted = loadPersistedSshUiState();
-      const validProfileIds = new Set(loaded.profiles.map((profile) => profile.id));
+      const validProfileIds = new Set(
+        loaded.profiles.map((profile) => profile.id),
+      );
       const persistedPanes = Object.fromEntries(
-        Object.entries(persisted?.panesById ?? {}).filter(([, pane]) => validProfileIds.has(pane.profileId))
+        Object.entries(persisted?.panesById ?? {}).filter(([, pane]) =>
+          validProfileIds.has(pane.profileId),
+        ),
       ) as Record<string, TerminalPane>;
       const restoredTabs: Record<string, TerminalTab> = {};
 
@@ -681,34 +749,42 @@ export function SshPanel(props: SshPanelProps) {
         restoredTabs[tabId] = {
           id: tabId,
           root,
-          activePaneId: paneIds.includes(tab.activePaneId) ? tab.activePaneId : getFirstPaneId(root)
+          activePaneId: paneIds.includes(tab.activePaneId)
+            ? tab.activePaneId
+            : getFirstPaneId(root),
         };
       }
 
       const usedPaneIds = new Set(
-        Object.values(restoredTabs).flatMap((tab) => collectPaneIds(tab.root))
+        Object.values(restoredTabs).flatMap((tab) => collectPaneIds(tab.root)),
       );
       const restoredPanes = Object.fromEntries(
-        Object.entries(persistedPanes).filter(([paneId]) => usedPaneIds.has(paneId))
+        Object.entries(persistedPanes).filter(([paneId]) =>
+          usedPaneIds.has(paneId),
+        ),
       ) as Record<string, TerminalPane>;
-      const restoredOpenTabIds = (persisted?.openTabIds ?? []).filter((tabId) => restoredTabs[tabId]);
-      const restoredPinnedTabIds = (persisted?.pinnedTabIds ?? []).filter((tabId) => restoredTabs[tabId]);
+      const restoredOpenTabIds = (persisted?.openTabIds ?? []).filter(
+        (tabId) => restoredTabs[tabId],
+      );
+      const restoredPinnedTabIds = (persisted?.pinnedTabIds ?? []).filter(
+        (tabId) => restoredTabs[tabId],
+      );
       const restoredActiveTabId =
         persisted?.activeTabId && restoredTabs[persisted.activeTabId]
           ? persisted.activeTabId
-          : restoredOpenTabIds.at(-1) ?? null;
+          : (restoredOpenTabIds.at(-1) ?? null);
 
       setTabsById(
         produce((draft) => {
           Object.keys(draft).forEach((key) => delete draft[key]);
           Object.assign(draft, restoredTabs);
-        })
+        }),
       );
       setPanesById(
         produce((draft) => {
           Object.keys(draft).forEach((key) => delete draft[key]);
           Object.assign(draft, restoredPanes);
-        })
+        }),
       );
       setOpenTabIds(restoredOpenTabIds);
       setPinnedTabIds(restoredPinnedTabIds);
@@ -718,7 +794,10 @@ export function SshPanel(props: SshPanelProps) {
   });
 
   createEffect(() => {
-    window.localStorage.setItem(expandedFoldersStorageKey, JSON.stringify(expandedFolderIds()));
+    window.localStorage.setItem(
+      expandedFoldersStorageKey,
+      JSON.stringify(expandedFolderIds()),
+    );
   });
 
   createEffect(() => {
@@ -732,17 +811,20 @@ export function SshPanel(props: SshPanelProps) {
         {
           id: tab.id,
           root: cloneLayoutNode(tab.root),
-          activePaneId: tab.activePaneId
-        }
-      ])
+          activePaneId: tab.activePaneId,
+        },
+      ]),
     ) as Record<string, TerminalTab>;
     const usedPaneIds = new Set(
-      Object.values(serializedTabs).flatMap((tab) => collectPaneIds(tab.root))
+      Object.values(serializedTabs).flatMap((tab) => collectPaneIds(tab.root)),
     );
     const serializedPanes = Object.fromEntries(
       Object.entries(panesById)
         .filter(([paneId]) => usedPaneIds.has(paneId))
-        .map(([paneId, pane]) => [paneId, { id: pane.id, profileId: pane.profileId }])
+        .map(([paneId, pane]) => [
+          paneId,
+          { id: pane.id, profileId: pane.profileId },
+        ]),
     ) as Record<string, TerminalPane>;
 
     window.localStorage.setItem(
@@ -752,14 +834,16 @@ export function SshPanel(props: SshPanelProps) {
         pinnedTabIds: pinnedTabIds(),
         activeTabId: activeTabId(),
         tabsById: serializedTabs,
-        panesById: serializedPanes
-      } satisfies PersistedSshUiState)
+        panesById: serializedPanes,
+      } satisfies PersistedSshUiState),
     );
   });
 
   createEffect(() => {
     const folderIds = new Set(workspace().folders.map((folder) => folder.id));
-    setExpandedFolderIds((current) => current.filter((id) => folderIds.has(id)));
+    setExpandedFolderIds((current) =>
+      current.filter((id) => folderIds.has(id)),
+    );
   });
 
   createEffect(() => {
@@ -793,7 +877,9 @@ export function SshPanel(props: SshPanelProps) {
       setConnectionSwitcherPaneId(null);
     };
     document.addEventListener("pointerdown", handlePointerDown);
-    onCleanup(() => document.removeEventListener("pointerdown", handlePointerDown));
+    onCleanup(() =>
+      document.removeEventListener("pointerdown", handlePointerDown),
+    );
   });
 
   onCleanup(() => {
@@ -842,8 +928,8 @@ export function SshPanel(props: SshPanelProps) {
         brightBlue: "#7fc0ff",
         brightMagenta: "#e79cff",
         brightCyan: "#74e7ff",
-        brightWhite: "#ffffff"
-      }
+        brightWhite: "#ffffff",
+      },
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
@@ -855,7 +941,9 @@ export function SshPanel(props: SshPanelProps) {
       const dims = fitAddon.proposeDimensions();
       const currentWs = wsByPaneId.get(paneId);
       if (currentWs?.readyState === WebSocket.OPEN && dims) {
-        currentWs.send(JSON.stringify({ type: "resize", cols: dims.cols, rows: dims.rows }));
+        currentWs.send(
+          JSON.stringify({ type: "resize", cols: dims.cols, rows: dims.rows }),
+        );
       }
     });
     resizeObserver.observe(viewportEl);
@@ -871,7 +959,9 @@ export function SshPanel(props: SshPanelProps) {
       if (termMountRefs.get(paneId) && termViewportRefs.get(paneId)) {
         return true;
       }
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
     }
     return false;
   }
@@ -883,7 +973,9 @@ export function SshPanel(props: SshPanelProps) {
       const dims = fitAddon?.proposeDimensions();
       const currentWs = wsByPaneId.get(paneId);
       if (currentWs?.readyState === WebSocket.OPEN && dims) {
-        currentWs.send(JSON.stringify({ type: "resize", cols: dims.cols, rows: dims.rows }));
+        currentWs.send(
+          JSON.stringify({ type: "resize", cols: dims.cols, rows: dims.rows }),
+        );
       }
     });
   }
@@ -925,17 +1017,17 @@ export function SshPanel(props: SshPanelProps) {
   }
 
   function createTabForProfile(profile: SshProfile) {
-    const tabId = newId();
-    const paneId = newId();
+    const tabId = makeId();
+    const paneId = makeId();
     setPaneState(paneId, profile.id);
     setTabsById(
       produce((draft) => {
         draft[tabId] = {
           id: tabId,
           root: { type: "leaf", paneId },
-          activePaneId: paneId
+          activePaneId: paneId,
         };
-      })
+      }),
     );
     setOpenTabIds((current) => [...current, tabId]);
     setActiveTabId(tabId);
@@ -973,9 +1065,10 @@ export function SshPanel(props: SshPanelProps) {
       ...current,
       root: nextRoot,
       activePaneId:
-        current.activePaneId === paneId || !findPaneInLayout(nextRoot, current.activePaneId)
+        current.activePaneId === paneId ||
+        !findPaneInLayout(nextRoot, current.activePaneId)
           ? getFirstPaneId(nextRoot)
-          : current.activePaneId
+          : current.activePaneId,
     }));
     setPaneMenuState(null);
   }
@@ -999,13 +1092,15 @@ export function SshPanel(props: SshPanelProps) {
     setPinnedTabIds((current) =>
       current.includes(tabId)
         ? current.filter((id) => id !== tabId)
-        : [tabId, ...current.filter((id) => id !== tabId)]
+        : [tabId, ...current.filter((id) => id !== tabId)],
     );
     setProfileTabMenuState(null);
   }
 
   function closeOtherTabs(tabId: string) {
-    const keepIds = openTabIds().filter((id) => id === tabId || pinnedTabIds().includes(id));
+    const keepIds = openTabIds().filter(
+      (id) => id === tabId || pinnedTabIds().includes(id),
+    );
     openTabIds()
       .filter((id) => !keepIds.includes(id))
       .forEach((id) => closeTab(id));
@@ -1038,7 +1133,9 @@ export function SshPanel(props: SshPanelProps) {
       }
       return direction === "left" ? currentIndex > index : currentIndex < index;
     });
-    currentIds.filter((id) => !keepIds.includes(id)).forEach((id) => closeTab(id));
+    currentIds
+      .filter((id) => !keepIds.includes(id))
+      .forEach((id) => closeTab(id));
     setOpenTabIds(keepIds);
     if (!keepIds.includes(activeTabId() ?? "")) {
       setActiveTabId(tabId);
@@ -1058,7 +1155,11 @@ export function SshPanel(props: SshPanelProps) {
   function handleTabDrop(tabId: string, event: DragEvent) {
     event.preventDefault();
     const draggedId = draggedTabId();
-    if (!draggedId || draggedId === tabId || pinnedTabIds().includes(draggedId)) {
+    if (
+      !draggedId ||
+      draggedId === tabId ||
+      pinnedTabIds().includes(draggedId)
+    ) {
       setDraggedTabId(null);
       setTabDropTargetId(null);
       return;
@@ -1109,14 +1210,23 @@ export function SshPanel(props: SshPanelProps) {
 
     const relayUrl = await buildSshRelayUrl();
     if (!relayUrl) {
-      setRelayErrorByPaneId(paneId, "未配置 SSH Proxy，请先到 Settings → Proxy 填写地址。");
-      setSessionByPaneId(paneId, { status: "error", message: "relay not configured" });
+      setRelayErrorByPaneId(
+        paneId,
+        "未配置 SSH Proxy，请先到 Settings → Proxy 填写地址。",
+      );
+      setSessionByPaneId(paneId, {
+        status: "error",
+        message: "relay not configured",
+      });
       return;
     }
 
     const mounted = await waitForPaneMount(paneId);
     if (!mounted) {
-      setSessionByPaneId(paneId, { status: "error", message: "terminal element not ready" });
+      setSessionByPaneId(paneId, {
+        status: "error",
+        message: "terminal element not ready",
+      });
       setRelayErrorByPaneId(paneId, "终端挂载失败，请重试。");
       return;
     }
@@ -1124,7 +1234,10 @@ export function SshPanel(props: SshPanelProps) {
     const terminal = initTerminal(paneId);
     const fitAddon = fitAddons.get(paneId);
     if (!terminal || !fitAddon) {
-      setSessionByPaneId(paneId, { status: "error", message: "terminal element not ready" });
+      setSessionByPaneId(paneId, {
+        status: "error",
+        message: "terminal element not ready",
+      });
       return;
     }
 
@@ -1144,7 +1257,7 @@ export function SshPanel(props: SshPanelProps) {
         type: "connect",
         target: profile.target,
         cols,
-        rows
+        rows,
       };
 
       if (profile.target === "remote") {
@@ -1194,11 +1307,11 @@ export function SshPanel(props: SshPanelProps) {
         }
         if (msg.type === "error") {
           terminal.writeln(
-            `\r\n\x1b[1;31mError: ${String(msg.data ?? msg.error ?? "unknown")}\x1b[0m`
+            `\r\n\x1b[1;31mError: ${String(msg.data ?? msg.error ?? "unknown")}\x1b[0m`,
           );
           setSessionByPaneId(paneId, {
             status: "error",
-            message: String(msg.data ?? msg.error ?? "unknown")
+            message: String(msg.data ?? msg.error ?? "unknown"),
           });
           return;
         }
@@ -1210,8 +1323,13 @@ export function SshPanel(props: SshPanelProps) {
     };
 
     ws.onerror = () => {
-      terminal.writeln(`\r\n\x1b[1;31mWebSocket error — check SSH proxy address and server.\x1b[0m`);
-      setSessionByPaneId(paneId, { status: "error", message: "websocket error" });
+      terminal.writeln(
+        `\r\n\x1b[1;31mWebSocket error — check SSH proxy address and server.\x1b[0m`,
+      );
+      setSessionByPaneId(paneId, {
+        status: "error",
+        message: "websocket error",
+      });
     };
 
     ws.onclose = () => {
@@ -1249,12 +1367,12 @@ export function SshPanel(props: SshPanelProps) {
     const tab = activeTab();
     const pane = activePane();
     if (!tab || !pane) return;
-    const newPaneId = newId();
+    const newPaneId = makeId();
     setPaneState(newPaneId, pane.profileId);
     setTabState(tab.id, (current) => ({
       ...current,
       root: splitLayoutAtPane(current.root, pane.id, direction, newPaneId),
-      activePaneId: newPaneId
+      activePaneId: newPaneId,
     }));
     const profile = profileMap().get(pane.profileId);
     if (profile) {
@@ -1273,12 +1391,12 @@ export function SshPanel(props: SshPanelProps) {
     const profile = profileMap().get(pane.profileId);
     if (!profile) return;
 
-    const newPaneId = newId();
+    const newPaneId = makeId();
     setPaneState(newPaneId, profile.id);
     setTabState(tabId, (current) => ({
       ...current,
       root: splitLayoutAtPane(current.root, paneId, "columns", newPaneId),
-      activePaneId: newPaneId
+      activePaneId: newPaneId,
     }));
     setActiveTabId(tabId);
     setPaneMenuState(null);
@@ -1310,7 +1428,7 @@ export function SshPanel(props: SshPanelProps) {
     setExpandedFolderIds((current) =>
       current.includes(folderId)
         ? current.filter((id) => id !== folderId)
-        : [...current, folderId]
+        : [...current, folderId],
     );
   }
 
@@ -1346,15 +1464,20 @@ export function SshPanel(props: SshPanelProps) {
       name: profile.name.trim(),
       folderId: profile.folderId ?? null,
       target: profile.target,
-      port: profile.port || 22
+      port: profile.port || 22,
     };
 
     if (!nextProfile.name) return;
 
     if (nextProfile.target === "remote") {
       if (!nextProfile.host?.trim() || !nextProfile.username?.trim()) return;
-      if (nextProfile.authMethod === "password" && !nextProfile.password?.trim()) return;
-      if (nextProfile.authMethod === "key" && !nextProfile.privateKey?.trim()) return;
+      if (
+        nextProfile.authMethod === "password" &&
+        !nextProfile.password?.trim()
+      )
+        return;
+      if (nextProfile.authMethod === "key" && !nextProfile.privateKey?.trim())
+        return;
     } else {
       nextProfile.host = "";
       nextProfile.username = "";
@@ -1365,12 +1488,18 @@ export function SshPanel(props: SshPanelProps) {
       nextProfile.port = 22;
     }
 
-    const exists = workspace().profiles.some((item) => item.id === nextProfile.id);
-    const next = exists ? await updateSshProfile(nextProfile) : await addSshProfile(nextProfile);
+    const exists = workspace().profiles.some(
+      (item) => item.id === nextProfile.id,
+    );
+    const next = exists
+      ? await updateSshProfile(nextProfile)
+      : await addSshProfile(nextProfile);
     setWorkspace(next);
     if (nextProfile.folderId) {
       setExpandedFolderIds((current) =>
-        current.includes(nextProfile.folderId!) ? current : [...current, nextProfile.folderId!]
+        current.includes(nextProfile.folderId!)
+          ? current
+          : [...current, nextProfile.folderId!],
       );
     }
     setEditingProfile(null);
@@ -1398,7 +1527,7 @@ export function SshPanel(props: SshPanelProps) {
   async function handleAddFolder() {
     const name = window.prompt("Folder name");
     if (!name?.trim()) return;
-    const next = await addSshFolder({ id: newId(), name: name.trim() });
+    const next = await addSshFolder({ id: makeId(), name: name.trim() });
     setWorkspace(next);
     const created = next.folders[next.folders.length - 1];
     if (created) {
@@ -1422,38 +1551,63 @@ export function SshPanel(props: SshPanelProps) {
     setFolderMenuId(null);
   }
 
-  async function moveProfileToFolder(profile: SshProfile, folderId: string | null) {
+  async function moveProfileToFolder(
+    profile: SshProfile,
+    folderId: string | null,
+  ) {
     const next = await updateSshProfile({ ...profile, folderId });
     setWorkspace(next);
     setProfileMenuId(null);
     setProfileMoveMenuId(null);
     if (folderId) {
-      setExpandedFolderIds((current) => (current.includes(folderId) ? current : [...current, folderId]));
+      setExpandedFolderIds((current) =>
+        current.includes(folderId) ? current : [...current, folderId],
+      );
     }
   }
 
-  async function moveFolderDirection(folderId: string, direction: "up" | "down") {
+  async function moveFolderDirection(
+    folderId: string,
+    direction: "up" | "down",
+  ) {
     const current = workspace();
-    const nextFolderIds = reorderByDirection(current.folders.map((folder) => folder.id), folderId, direction);
+    const nextFolderIds = reorderByDirection(
+      current.folders.map((folder) => folder.id),
+      folderId,
+      direction,
+    );
     const order = new Map(nextFolderIds.map((id, index) => [id, index]));
     const next = {
       ...current,
-      folders: current.folders.slice().sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+      folders: current.folders
+        .slice()
+        .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)),
     };
     await saveSshWorkspace(next);
     setWorkspace(next);
     setFolderMenuId(null);
   }
 
-  async function moveProfileDirection(profile: SshProfile, direction: "up" | "down") {
+  async function moveProfileDirection(
+    profile: SshProfile,
+    direction: "up" | "down",
+  ) {
     const current = workspace();
     const siblingFolderId = profile.folderId ?? null;
     const siblingIds = current.profiles
       .filter((item) => (item.folderId ?? null) === siblingFolderId)
       .map((item) => item.id);
-    const nextSiblingIds = reorderByDirection(siblingIds, profile.id, direction);
-    const siblingOrder = new Map(nextSiblingIds.map((id, index) => [id, index]));
-    const originalOrder = new Map(current.profiles.map((item, index) => [item.id, index]));
+    const nextSiblingIds = reorderByDirection(
+      siblingIds,
+      profile.id,
+      direction,
+    );
+    const siblingOrder = new Map(
+      nextSiblingIds.map((id, index) => [id, index]),
+    );
+    const originalOrder = new Map(
+      current.profiles.map((item, index) => [item.id, index]),
+    );
     const next = {
       ...current,
       profiles: current.profiles.slice().sort((a, b) => {
@@ -1463,7 +1617,7 @@ export function SshPanel(props: SshPanelProps) {
           return (siblingOrder.get(a.id) ?? 0) - (siblingOrder.get(b.id) ?? 0);
         }
         return (originalOrder.get(a.id) ?? 0) - (originalOrder.get(b.id) ?? 0);
-      })
+      }),
     };
     await saveSshWorkspace(next);
     setWorkspace(next);
@@ -1475,8 +1629,11 @@ export function SshPanel(props: SshPanelProps) {
     tabId: string,
     splitId: string,
     direction: "columns" | "rows",
-    bounds: Pick<SplitHandleRect, "containerLeft" | "containerTop" | "containerWidth" | "containerHeight">,
-    event: PointerEvent
+    bounds: Pick<
+      SplitHandleRect,
+      "containerLeft" | "containerTop" | "containerWidth" | "containerHeight"
+    >,
+    event: PointerEvent,
   ) {
     event.preventDefault();
     event.stopPropagation();
@@ -1486,8 +1643,10 @@ export function SshPanel(props: SshPanelProps) {
     if (!rootRect) return;
 
     const updateRatio = (clientX: number, clientY: number) => {
-      const containerLeft = rootRect.left + (rootRect.width * bounds.containerLeft) / 100;
-      const containerTop = rootRect.top + (rootRect.height * bounds.containerTop) / 100;
+      const containerLeft =
+        rootRect.left + (rootRect.width * bounds.containerLeft) / 100;
+      const containerTop =
+        rootRect.top + (rootRect.height * bounds.containerTop) / 100;
       const containerWidth = (rootRect.width * bounds.containerWidth) / 100;
       const containerHeight = (rootRect.height * bounds.containerHeight) / 100;
       const rawRatio =
@@ -1497,7 +1656,7 @@ export function SshPanel(props: SshPanelProps) {
       const ratio = Math.max(0.18, Math.min(0.82, rawRatio));
       setTabState(tabId, (current) => ({
         ...current,
-        root: updateSplitRatioInLayout(current.root, splitId, ratio)
+        root: updateSplitRatioInLayout(current.root, splitId, ratio),
       }));
     };
 
@@ -1532,7 +1691,7 @@ export function SshPanel(props: SshPanelProps) {
             tabId,
             paneId,
             x: event.clientX,
-            y: event.clientY
+            y: event.clientY,
           });
           setConnectionSwitcherPaneId(null);
           setProfileTabMenuState(null);
@@ -1544,14 +1703,16 @@ export function SshPanel(props: SshPanelProps) {
               class="theme-control inline-flex h-7 max-w-[220px] items-center gap-2 rounded-lg px-2.5 text-xs font-medium shadow-[0_8px_20px_rgba(15,23,42,0.14)]"
               onClick={() => {
                 activatePane(tabId, paneId);
-                setConnectionSwitcherPaneId((current) => (current === paneId ? null : paneId));
+                setConnectionSwitcherPaneId((current) =>
+                  current === paneId ? null : paneId,
+                );
                 setProfileTabMenuState(null);
                 setPaneMenuState(null);
               }}
             >
               <span
                 class={`inline-block h-2 w-2 shrink-0 rounded-full ${getProfileStatusDotClass(
-                  getPaneSession(paneId).status
+                  getPaneSession(paneId).status,
                 )}`}
               />
               <span class="truncate">{getPaneConnectionLabel(paneId)}</span>
@@ -1567,16 +1728,22 @@ export function SshPanel(props: SshPanelProps) {
                   {(profile) => (
                     <button
                       class={`theme-sidebar-item flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm ${
-                        panesById[paneId]?.profileId === profile.id ? "theme-sidebar-item-active" : ""
+                        panesById[paneId]?.profileId === profile.id
+                          ? "theme-sidebar-item-active"
+                          : ""
                       }`}
-                      onClick={() => void reconnectPaneToProfile(paneId, profile)}
+                      onClick={() =>
+                        void reconnectPaneToProfile(paneId, profile)
+                      }
                     >
                       <span
                         class={`inline-block h-2 w-2 shrink-0 rounded-full ${getProfileStatusDotClass(
-                          getProfileAggregateStatus(profile.id)
+                          getProfileAggregateStatus(profile.id),
                         )}`}
                       />
-                      <span class="min-w-0 flex-1 truncate">{profile.name}</span>
+                      <span class="min-w-0 flex-1 truncate">
+                        {profile.name}
+                      </span>
                     </button>
                   )}
                 </For>
@@ -1606,14 +1773,19 @@ export function SshPanel(props: SshPanelProps) {
     const paneRects = new Map<string, PaneRect>();
     const splitRects = new Map<string, SplitHandleRect>();
     if (!tab) {
-      return { paneRects, splitRects, paneIds: [] as string[], splitIds: [] as string[] };
+      return {
+        paneRects,
+        splitRects,
+        paneIds: [] as string[],
+        splitIds: [] as string[],
+      };
     }
     computeLayoutRects(tab.root, 0, 0, 100, 100, paneRects, splitRects);
     return {
       paneRects,
       splitRects,
       paneIds: collectPaneIds(tab.root),
-      splitIds: Array.from(splitRects.keys())
+      splitIds: Array.from(splitRects.keys()),
     };
   }
 
@@ -1632,7 +1804,9 @@ export function SshPanel(props: SshPanelProps) {
               class="mb-4 flex items-center justify-between border-b pb-3"
               style={{ "border-color": "var(--app-border)" }}
             >
-              <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">Profiles</p>
+              <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">
+                Profiles
+              </p>
               <div class="flex items-center gap-1">
                 <div class="relative" data-ssh-menu-root>
                   <button
@@ -1687,7 +1861,9 @@ export function SshPanel(props: SshPanelProps) {
                   {(profile) => (
                     <div
                       class={`theme-sidebar-item group flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
-                        activePaneProfile()?.id === profile.id ? "theme-sidebar-item-active" : ""
+                        activePaneProfile()?.id === profile.id
+                          ? "theme-sidebar-item-active"
+                          : ""
                       }`}
                       onClick={() => handleSelectProfile(profile)}
                       onDblClick={() => void connectToProfile(profile)}
@@ -1701,11 +1877,19 @@ export function SshPanel(props: SshPanelProps) {
                     >
                       <span
                         class={`inline-block h-2 w-2 shrink-0 rounded-full ${getProfileStatusDotClass(
-                          getProfileAggregateStatus(profile.id)
+                          getProfileAggregateStatus(profile.id),
                         )}`}
                       />
-                      <button class="min-w-0 flex-1 text-left" onClick={() => handleSelectProfile(profile)}>
-                        <p class="truncate text-[13px] font-medium" title={profile.name}>{profile.name}</p>
+                      <button
+                        class="min-w-0 flex-1 text-left"
+                        onClick={() => handleSelectProfile(profile)}
+                      >
+                        <p
+                          class="truncate text-[13px] font-medium"
+                          title={profile.name}
+                        >
+                          {profile.name}
+                        </p>
                       </button>
                       <div
                         class={`relative shrink-0 transition-opacity ${
@@ -1716,7 +1900,9 @@ export function SshPanel(props: SshPanelProps) {
                         data-ssh-menu-root
                       >
                         <Show
-                          when={getProfileHoverAction(profile.id) === "disconnect"}
+                          when={
+                            getProfileHoverAction(profile.id) === "disconnect"
+                          }
                           fallback={
                             <button
                               class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
@@ -1752,7 +1938,9 @@ export function SshPanel(props: SshPanelProps) {
                   {(profile) => (
                     <div
                       class={`theme-sidebar-item group flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
-                        activePaneProfile()?.id === profile.id ? "theme-sidebar-item-active" : ""
+                        activePaneProfile()?.id === profile.id
+                          ? "theme-sidebar-item-active"
+                          : ""
                       }`}
                       onClick={() => handleSelectProfile(profile)}
                       onDblClick={() => void connectToProfile(profile)}
@@ -1766,11 +1954,19 @@ export function SshPanel(props: SshPanelProps) {
                     >
                       <span
                         class={`inline-block h-2 w-2 shrink-0 rounded-full ${getProfileStatusDotClass(
-                          getProfileAggregateStatus(profile.id)
+                          getProfileAggregateStatus(profile.id),
                         )}`}
                       />
-                      <button class="min-w-0 flex-1 text-left" onClick={() => handleSelectProfile(profile)}>
-                        <p class="truncate text-[13px] font-medium" title={profile.name}>{profile.name}</p>
+                      <button
+                        class="min-w-0 flex-1 text-left"
+                        onClick={() => handleSelectProfile(profile)}
+                      >
+                        <p
+                          class="truncate text-[13px] font-medium"
+                          title={profile.name}
+                        >
+                          {profile.name}
+                        </p>
                       </button>
                       <div
                         class={`relative shrink-0 transition-opacity ${
@@ -1781,7 +1977,9 @@ export function SshPanel(props: SshPanelProps) {
                         data-ssh-menu-root
                       >
                         <Show
-                          when={getProfileHoverAction(profile.id) === "disconnect"}
+                          when={
+                            getProfileHoverAction(profile.id) === "disconnect"
+                          }
                           fallback={
                             <button
                               class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
@@ -1830,13 +2028,17 @@ export function SshPanel(props: SshPanelProps) {
                             </button>
                             <button
                               class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                              onClick={() => void moveProfileDirection(profile, "up")}
+                              onClick={() =>
+                                void moveProfileDirection(profile, "up")
+                              }
                             >
                               Move Up
                             </button>
                             <button
                               class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                              onClick={() => void moveProfileDirection(profile, "down")}
+                              onClick={() =>
+                                void moveProfileDirection(profile, "down")
+                              }
                             >
                               Move Down
                             </button>
@@ -1845,21 +2047,29 @@ export function SshPanel(props: SshPanelProps) {
                                 class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  setProfileMoveMenuId((current) => (current === profile.id ? null : profile.id));
+                                  setProfileMoveMenuId((current) =>
+                                    current === profile.id ? null : profile.id,
+                                  );
                                 }}
                               >
                                 <span>Move to</span>
-                                <span class="theme-text-soft text-[10px]">›</span>
+                                <span class="theme-text-soft text-[10px]">
+                                  ›
+                                </span>
                               </button>
                               <Show when={profileMoveMenuId() === profile.id}>
                                 <div
                                   class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[160px] border p-1"
                                   data-ssh-menu-root
-                                  style={{ "border-color": "var(--app-border)" }}
+                                  style={{
+                                    "border-color": "var(--app-border)",
+                                  }}
                                 >
                                   <button
                                     class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                    onClick={() => void moveProfileToFolder(profile, null)}
+                                    onClick={() =>
+                                      void moveProfileToFolder(profile, null)
+                                    }
                                   >
                                     Root
                                   </button>
@@ -1867,7 +2077,12 @@ export function SshPanel(props: SshPanelProps) {
                                     {(folder) => (
                                       <button
                                         class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                        onClick={() => void moveProfileToFolder(profile, folder.id)}
+                                        onClick={() =>
+                                          void moveProfileToFolder(
+                                            profile,
+                                            folder.id,
+                                          )
+                                        }
                                       >
                                         {folder.name}
                                       </button>
@@ -1878,7 +2093,9 @@ export function SshPanel(props: SshPanelProps) {
                             </div>
                             <button
                               class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
-                              onClick={() => void handleDeleteProfile(profile.id)}
+                              onClick={() =>
+                                void handleDeleteProfile(profile.id)
+                              }
                             >
                               Delete
                             </button>
@@ -1904,7 +2121,11 @@ export function SshPanel(props: SshPanelProps) {
                       >
                         <button
                           class="-ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-md text-[11px]"
-                          title={isFolderExpanded(entry.folder.id) ? "Collapse" : "Expand"}
+                          title={
+                            isFolderExpanded(entry.folder.id)
+                              ? "Collapse"
+                              : "Expand"
+                          }
                           onClick={(event) => {
                             event.stopPropagation();
                             toggleFolderExpanded(entry.folder.id);
@@ -1932,7 +2153,9 @@ export function SshPanel(props: SshPanelProps) {
                           onClick={() => toggleFolderExpanded(entry.folder.id)}
                         >
                           <div class="inline-flex max-w-full min-w-0 items-center gap-1.5 align-middle">
-                            <p class="max-w-full truncate text-[13px] font-medium">{entry.folder.name}</p>
+                            <p class="max-w-full truncate text-[13px] font-medium">
+                              {entry.folder.name}
+                            </p>
                             <span class="theme-chip shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
                               {entry.profiles.length}
                             </span>
@@ -1951,7 +2174,11 @@ export function SshPanel(props: SshPanelProps) {
                             title="Folder options"
                             onClick={(event) => {
                               event.stopPropagation();
-                              setFolderMenuId((current) => (current === entry.folder.id ? null : entry.folder.id));
+                              setFolderMenuId((current) =>
+                                current === entry.folder.id
+                                  ? null
+                                  : entry.folder.id,
+                              );
                               setHeaderMenuOpen(false);
                               setProfileMenuId(null);
                               setProfileMoveMenuId(null);
@@ -1967,25 +2194,39 @@ export function SshPanel(props: SshPanelProps) {
                             >
                               <button
                                 class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                onClick={() => void handleRenameFolder(entry.folder)}
+                                onClick={() =>
+                                  void handleRenameFolder(entry.folder)
+                                }
                               >
                                 Rename
                               </button>
                               <button
                                 class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                onClick={() => void moveFolderDirection(entry.folder.id, "up")}
+                                onClick={() =>
+                                  void moveFolderDirection(
+                                    entry.folder.id,
+                                    "up",
+                                  )
+                                }
                               >
                                 Move Up
                               </button>
                               <button
                                 class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                onClick={() => void moveFolderDirection(entry.folder.id, "down")}
+                                onClick={() =>
+                                  void moveFolderDirection(
+                                    entry.folder.id,
+                                    "down",
+                                  )
+                                }
                               >
                                 Move Down
                               </button>
                               <button
                                 class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
-                                onClick={() => void handleDeleteFolder(entry.folder.id)}
+                                onClick={() =>
+                                  void handleDeleteFolder(entry.folder.id)
+                                }
                               >
                                 Delete
                               </button>
@@ -2015,10 +2256,14 @@ export function SshPanel(props: SshPanelProps) {
                             {(profile) => (
                               <div
                                 class={`theme-sidebar-item group flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
-                                  activePaneProfile()?.id === profile.id ? "theme-sidebar-item-active" : ""
+                                  activePaneProfile()?.id === profile.id
+                                    ? "theme-sidebar-item-active"
+                                    : ""
                                 }`}
                                 onClick={() => handleSelectProfile(profile)}
-                                onDblClick={() => void connectToProfile(profile)}
+                                onDblClick={() =>
+                                  void connectToProfile(profile)
+                                }
                                 onContextMenu={(event) => {
                                   event.preventDefault();
                                   setProfileMenuId(profile.id);
@@ -2029,11 +2274,19 @@ export function SshPanel(props: SshPanelProps) {
                               >
                                 <span
                                   class={`inline-block h-2 w-2 shrink-0 rounded-full ${getProfileStatusDotClass(
-                                    getProfileAggregateStatus(profile.id)
+                                    getProfileAggregateStatus(profile.id),
                                   )}`}
                                 />
-                                <button class="min-w-0 flex-1 text-left" onClick={() => handleSelectProfile(profile)}>
-                                  <p class="truncate text-[13px] font-medium" title={profile.name}>{profile.name}</p>
+                                <button
+                                  class="min-w-0 flex-1 text-left"
+                                  onClick={() => handleSelectProfile(profile)}
+                                >
+                                  <p
+                                    class="truncate text-[13px] font-medium"
+                                    title={profile.name}
+                                  >
+                                    {profile.name}
+                                  </p>
                                 </button>
                                 <div
                                   class={`relative shrink-0 transition-opacity ${
@@ -2044,7 +2297,10 @@ export function SshPanel(props: SshPanelProps) {
                                   data-ssh-menu-root
                                 >
                                   <Show
-                                    when={getProfileHoverAction(profile.id) === "disconnect"}
+                                    when={
+                                      getProfileHoverAction(profile.id) ===
+                                      "disconnect"
+                                    }
                                     fallback={
                                       <button
                                         class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
@@ -2073,7 +2329,9 @@ export function SshPanel(props: SshPanelProps) {
                                     <div
                                       class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-20 min-w-[172px] border p-1"
                                       data-ssh-menu-root
-                                      style={{ "border-color": "var(--app-border)" }}
+                                      style={{
+                                        "border-color": "var(--app-border)",
+                                      }}
                                     >
                                       <button
                                         class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
@@ -2093,13 +2351,23 @@ export function SshPanel(props: SshPanelProps) {
                                       </button>
                                       <button
                                         class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                        onClick={() => void moveProfileDirection(profile, "up")}
+                                        onClick={() =>
+                                          void moveProfileDirection(
+                                            profile,
+                                            "up",
+                                          )
+                                        }
                                       >
                                         Move Up
                                       </button>
                                       <button
                                         class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                        onClick={() => void moveProfileDirection(profile, "down")}
+                                        onClick={() =>
+                                          void moveProfileDirection(
+                                            profile,
+                                            "down",
+                                          )
+                                        }
                                       >
                                         Move Down
                                       </button>
@@ -2108,21 +2376,39 @@ export function SshPanel(props: SshPanelProps) {
                                           class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
                                           onClick={(event) => {
                                             event.stopPropagation();
-                                            setProfileMoveMenuId((current) => (current === profile.id ? null : profile.id));
+                                            setProfileMoveMenuId((current) =>
+                                              current === profile.id
+                                                ? null
+                                                : profile.id,
+                                            );
                                           }}
                                         >
                                           <span>Move to</span>
-                                          <span class="theme-text-soft text-[10px]">›</span>
+                                          <span class="theme-text-soft text-[10px]">
+                                            ›
+                                          </span>
                                         </button>
-                                        <Show when={profileMoveMenuId() === profile.id}>
+                                        <Show
+                                          when={
+                                            profileMoveMenuId() === profile.id
+                                          }
+                                        >
                                           <div
                                             class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[160px] border p-1"
                                             data-ssh-menu-root
-                                            style={{ "border-color": "var(--app-border)" }}
+                                            style={{
+                                              "border-color":
+                                                "var(--app-border)",
+                                            }}
                                           >
                                             <button
                                               class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                              onClick={() => void moveProfileToFolder(profile, null)}
+                                              onClick={() =>
+                                                void moveProfileToFolder(
+                                                  profile,
+                                                  null,
+                                                )
+                                              }
                                             >
                                               Root
                                             </button>
@@ -2130,7 +2416,12 @@ export function SshPanel(props: SshPanelProps) {
                                               {(folder) => (
                                                 <button
                                                   class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                                  onClick={() => void moveProfileToFolder(profile, folder.id)}
+                                                  onClick={() =>
+                                                    void moveProfileToFolder(
+                                                      profile,
+                                                      folder.id,
+                                                    )
+                                                  }
                                                 >
                                                   {folder.name}
                                                 </button>
@@ -2141,7 +2432,9 @@ export function SshPanel(props: SshPanelProps) {
                                       </div>
                                       <button
                                         class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
-                                        onClick={() => void handleDeleteProfile(profile.id)}
+                                        onClick={() =>
+                                          void handleDeleteProfile(profile.id)
+                                        }
                                       >
                                         Delete
                                       </button>
@@ -2158,7 +2451,14 @@ export function SshPanel(props: SshPanelProps) {
                 </For>
               </Show>
 
-              <Show when={hasProfileFilter() ? filteredProfilesFlat().length === 0 : filteredRootProfiles().length === 0 && filteredFolderEntries().length === 0}>
+              <Show
+                when={
+                  hasProfileFilter()
+                    ? filteredProfilesFlat().length === 0
+                    : filteredRootProfiles().length === 0 &&
+                      filteredFolderEntries().length === 0
+                }
+              >
                 <div class="theme-text-soft px-2 py-2 text-xs">No matches</div>
               </Show>
             </div>
@@ -2166,9 +2466,15 @@ export function SshPanel(props: SshPanelProps) {
         }
       >
         <div class="flex min-h-0 flex-1 flex-col">
-          <Show when={tabItems().length > 0} fallback={<div class="flex-1 min-h-0" />}>
-            <div class="border-b" style={{ "border-color": "var(--app-border)" }}>
-              <RequestTabsBar
+          <Show
+            when={tabItems().length > 0}
+            fallback={<div class="flex-1 min-h-0" />}
+          >
+            <div
+              class="border-b"
+              style={{ "border-color": "var(--app-border)" }}
+            >
+              <TabsBar
                 items={tabItems()}
                 draggedId={draggedTabId()}
                 dropTargetId={tabDropTargetId()}
@@ -2180,7 +2486,7 @@ export function SshPanel(props: SshPanelProps) {
                   setProfileTabMenuState({
                     id: tabId,
                     x: event.clientX,
-                    y: event.clientY
+                    y: event.clientY,
                   });
                 }}
                 onDragStart={(tabId, event) => {
@@ -2194,7 +2500,9 @@ export function SshPanel(props: SshPanelProps) {
                   setDraggedTabId(null);
                   setTabDropTargetId(null);
                 }}
-                onTabDragOver={(tabId, event) => handleTabDragOver(tabId, event)}
+                onTabDragOver={(tabId, event) =>
+                  handleTabDragOver(tabId, event)
+                }
                 onTabDrop={(tabId, event) => handleTabDrop(tabId, event)}
                 onStripDragOver={(event) => event.preventDefault()}
                 onStripDrop={(event) => handleStripDrop(event)}
@@ -2211,7 +2519,9 @@ export function SshPanel(props: SshPanelProps) {
             </Show>
 
             <div class="relative flex-1 min-h-0 overflow-hidden">
-              <For each={openTabIds().filter((tabId) => Boolean(tabsById[tabId]))}>
+              <For
+                each={openTabIds().filter((tabId) => Boolean(tabsById[tabId]))}
+              >
                 {(tabId) => {
                   const layout = createMemo(() => getTabLayout(tabId));
                   return (
@@ -2229,7 +2539,7 @@ export function SshPanel(props: SshPanelProps) {
                                 left: `${rect()?.left ?? 0}%`,
                                 top: `${rect()?.top ?? 0}%`,
                                 width: `${rect()?.width ?? 100}%`,
-                                height: `${rect()?.height ?? 100}%`
+                                height: `${rect()?.height ?? 100}%`,
                               }}
                             >
                               {renderPaneLeaf(tabId, paneId)}
@@ -2250,23 +2560,38 @@ export function SshPanel(props: SshPanelProps) {
                               style={{
                                 left: `${rect()?.left ?? 0}%`,
                                 top: `${rect()?.top ?? 0}%`,
-                                width: rect()?.direction === "columns" ? "9px" : `${rect()?.width ?? 100}%`,
-                                height: rect()?.direction === "columns" ? `${rect()?.height ?? 100}%` : "9px"
+                                width:
+                                  rect()?.direction === "columns"
+                                    ? "9px"
+                                    : `${rect()?.width ?? 100}%`,
+                                height:
+                                  rect()?.direction === "columns"
+                                    ? `${rect()?.height ?? 100}%`
+                                    : "9px",
                               }}
-                              title={rect()?.direction === "columns" ? "Resize columns" : "Resize rows"}
+                              title={
+                                rect()?.direction === "columns"
+                                  ? "Resize columns"
+                                  : "Resize rows"
+                              }
                               onPointerDown={(event) =>
                                 startResizeSplit(
                                   tabId,
                                   splitId,
-                                  rect()?.direction === "rows" ? "rows" : "columns",
+                                  rect()?.direction === "rows"
+                                    ? "rows"
+                                    : "columns",
                                   {
                                     containerLeft: rect()?.containerLeft ?? 0,
                                     containerTop: rect()?.containerTop ?? 0,
-                                    containerWidth: rect()?.containerWidth ?? 100,
-                                    containerHeight: rect()?.containerHeight ?? 100
+                                    containerWidth:
+                                      rect()?.containerWidth ?? 100,
+                                    containerHeight:
+                                      rect()?.containerHeight ?? 100,
                                   },
-                                  event
-                                )}
+                                  event,
+                                )
+                              }
                             >
                               <span
                                 class={`absolute rounded-full ${
@@ -2296,7 +2621,7 @@ export function SshPanel(props: SshPanelProps) {
           style={{
             "border-color": "var(--app-border)",
             left: `${profileTabMenuState()!.x}px`,
-            top: `${profileTabMenuState()!.y}px`
+            top: `${profileTabMenuState()!.y}px`,
           }}
         >
           <button
@@ -2311,18 +2636,25 @@ export function SshPanel(props: SshPanelProps) {
           >
             Close Others
           </button>
-          <button class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm" onClick={closeAllTabs}>
+          <button
+            class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+            onClick={closeAllTabs}
+          >
             Close All
           </button>
           <button
             class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-            onClick={() => closeTabsToDirection(currentTabMenuTab()!.id, "right")}
+            onClick={() =>
+              closeTabsToDirection(currentTabMenuTab()!.id, "right")
+            }
           >
             Close Right
           </button>
           <button
             class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-            onClick={() => closeTabsToDirection(currentTabMenuTab()!.id, "left")}
+            onClick={() =>
+              closeTabsToDirection(currentTabMenuTab()!.id, "left")
+            }
           >
             Close Left
           </button>
@@ -2336,7 +2668,7 @@ export function SshPanel(props: SshPanelProps) {
           style={{
             "border-color": "var(--app-border)",
             left: `${paneMenuState()!.x}px`,
-            top: `${paneMenuState()!.y}px`
+            top: `${paneMenuState()!.y}px`,
           }}
         >
           <button
@@ -2353,19 +2685,31 @@ export function SshPanel(props: SshPanelProps) {
           </button>
           <button
             class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-            onClick={() => void duplicatePane(paneContext()!.tab!.id, paneContext()!.pane!.id)}
+            onClick={() =>
+              void duplicatePane(
+                paneContext()!.tab!.id,
+                paneContext()!.pane!.id,
+              )
+            }
           >
             Duplicate Pane
           </button>
           <button
             class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-            onClick={() => void movePaneToNewTab(paneContext()!.tab!.id, paneContext()!.pane!.id)}
+            onClick={() =>
+              void movePaneToNewTab(
+                paneContext()!.tab!.id,
+                paneContext()!.pane!.id,
+              )
+            }
           >
             Move to New Tab
           </button>
           <button
             class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-            onClick={() => closePaneInTab(paneContext()!.tab!.id, paneContext()!.pane!.id)}
+            onClick={() =>
+              closePaneInTab(paneContext()!.tab!.id, paneContext()!.pane!.id)
+            }
           >
             Close Pane
           </button>
@@ -2375,7 +2719,10 @@ export function SshPanel(props: SshPanelProps) {
       <Show when={editingProfile()}>
         {(editing) => (
           <div class="fixed inset-0 z-[180]">
-            <div class="absolute inset-0 bg-black/28 backdrop-blur-[6px]" onClick={() => setEditingProfile(null)} />
+            <div
+              class="absolute inset-0 bg-black/28 backdrop-blur-[6px]"
+              onClick={() => setEditingProfile(null)}
+            />
             <div class="absolute inset-0 flex items-center justify-center p-6">
               <form
                 class="theme-panel-strong theme-menu-popover relative z-[181] w-full max-w-xl rounded-[24px] p-5"
@@ -2387,7 +2734,9 @@ export function SshPanel(props: SshPanelProps) {
               >
                 <div class="mb-4 flex items-center justify-between">
                   <div>
-                    <p class="theme-text text-base font-semibold">SSH Profile</p>
+                    <p class="theme-text text-base font-semibold">
+                      SSH Profile
+                    </p>
                     <p class="theme-text-soft mt-1 text-sm">
                       {editing().target === "local"
                         ? "本地 shell 会通过 SSH proxy 建立 PTY 会话。"
@@ -2415,15 +2764,17 @@ export function SshPanel(props: SshPanelProps) {
                           current
                             ? {
                                 ...current,
-                                folderId: event.currentTarget.value || null
+                                folderId: event.currentTarget.value || null,
                               }
-                            : current
+                            : current,
                         )
                       }
                     >
                       <option value="">Root</option>
                       <For each={workspace().folders}>
-                        {(folder) => <option value={folder.id}>{folder.name}</option>}
+                        {(folder) => (
+                          <option value={folder.id}>{folder.name}</option>
+                        )}
                       </For>
                     </select>
                   </label>
@@ -2436,7 +2787,9 @@ export function SshPanel(props: SshPanelProps) {
                       value={editing().name}
                       onInput={(event) =>
                         setEditingProfile((current) =>
-                          current ? { ...current, name: event.currentTarget.value } : current
+                          current
+                            ? { ...current, name: event.currentTarget.value }
+                            : current,
                         )
                       }
                     />
@@ -2452,9 +2805,11 @@ export function SshPanel(props: SshPanelProps) {
                           current
                             ? {
                                 ...current,
-                                target: event.currentTarget.value as "local" | "remote"
+                                target: event.currentTarget.value as
+                                  | "local"
+                                  | "remote",
                               }
-                            : current
+                            : current,
                         )
                       }
                     >
@@ -2473,7 +2828,12 @@ export function SshPanel(props: SshPanelProps) {
                           value={editing().host ?? ""}
                           onInput={(event) =>
                             setEditingProfile((current) =>
-                              current ? { ...current, host: event.currentTarget.value } : current
+                              current
+                                ? {
+                                    ...current,
+                                    host: event.currentTarget.value,
+                                  }
+                                : current,
                             )
                           }
                         />
@@ -2490,9 +2850,13 @@ export function SshPanel(props: SshPanelProps) {
                               current
                                 ? {
                                     ...current,
-                                    port: Number.parseInt(event.currentTarget.value, 10) || 22
+                                    port:
+                                      Number.parseInt(
+                                        event.currentTarget.value,
+                                        10,
+                                      ) || 22,
                                   }
-                                : current
+                                : current,
                             )
                           }
                         />
@@ -2505,7 +2869,12 @@ export function SshPanel(props: SshPanelProps) {
                           value={editing().username ?? ""}
                           onInput={(event) =>
                             setEditingProfile((current) =>
-                              current ? { ...current, username: event.currentTarget.value } : current
+                              current
+                                ? {
+                                    ...current,
+                                    username: event.currentTarget.value,
+                                  }
+                                : current,
                             )
                           }
                         />
@@ -2520,9 +2889,11 @@ export function SshPanel(props: SshPanelProps) {
                               current
                                 ? {
                                     ...current,
-                                    authMethod: event.currentTarget.value as "password" | "key"
+                                    authMethod: event.currentTarget.value as
+                                      | "password"
+                                      | "key",
                                   }
-                                : current
+                                : current,
                             )
                           }
                         >
@@ -2537,20 +2908,29 @@ export function SshPanel(props: SshPanelProps) {
                       fallback={
                         <>
                           <label class="grid gap-1">
-                            <span class="theme-text-soft text-xs">Private Key</span>
+                            <span class="theme-text-soft text-xs">
+                              Private Key
+                            </span>
                             <textarea
                               class="theme-input min-h-[160px] rounded-[18px] px-3 py-2 text-sm"
                               placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
                               value={editing().privateKey ?? ""}
                               onInput={(event) =>
                                 setEditingProfile((current) =>
-                                  current ? { ...current, privateKey: event.currentTarget.value } : current
+                                  current
+                                    ? {
+                                        ...current,
+                                        privateKey: event.currentTarget.value,
+                                      }
+                                    : current,
                                 )
                               }
                             />
                           </label>
                           <label class="grid gap-1">
-                            <span class="theme-text-soft text-xs">Passphrase</span>
+                            <span class="theme-text-soft text-xs">
+                              Passphrase
+                            </span>
                             <input
                               class="theme-input h-8 rounded-md px-2.5 text-sm"
                               type="password"
@@ -2558,7 +2938,12 @@ export function SshPanel(props: SshPanelProps) {
                               value={editing().passphrase ?? ""}
                               onInput={(event) =>
                                 setEditingProfile((current) =>
-                                  current ? { ...current, passphrase: event.currentTarget.value } : current
+                                  current
+                                    ? {
+                                        ...current,
+                                        passphrase: event.currentTarget.value,
+                                      }
+                                    : current,
                                 )
                               }
                             />
@@ -2575,7 +2960,12 @@ export function SshPanel(props: SshPanelProps) {
                           value={editing().password ?? ""}
                           onInput={(event) =>
                             setEditingProfile((current) =>
-                              current ? { ...current, password: event.currentTarget.value } : current
+                              current
+                                ? {
+                                    ...current,
+                                    password: event.currentTarget.value,
+                                  }
+                                : current,
                             )
                           }
                         />
@@ -2592,7 +2982,10 @@ export function SshPanel(props: SshPanelProps) {
                   >
                     Cancel
                   </button>
-                  <button type="submit" class="theme-control rounded-xl px-3 py-1.5 text-sm font-semibold">
+                  <button
+                    type="submit"
+                    class="theme-control rounded-xl px-3 py-1.5 text-sm font-semibold"
+                  >
                     Save Profile
                   </button>
                 </div>

@@ -1,11 +1,12 @@
 import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { FieldLabel } from "../../../components/ui-primitives";
 import { defaultSettings, type AppSettings } from "../../../lib/storage";
 import {
   getDefaultProxyAddress,
   loadProxySettings,
   saveProxySettings,
   testProxyConnection,
-  type ProxyTarget
+  type ProxyTarget,
 } from "../service";
 
 type ProxySettings = AppSettings["proxy"];
@@ -20,36 +21,26 @@ const proxyItems: Array<{
     key: "api",
     title: "API Proxy",
     summary: "填写完整代理接口地址，例如 http://127.0.0.1:8787/api。",
-    placeholder: "http://127.0.0.1:8787/api"
+    placeholder: "http://127.0.0.1:8787/api",
   },
   {
     key: "db",
     title: "DB Proxy",
     summary: "填写数据库 WebSocket 中转地址，例如 ws://127.0.0.1:8787/db。",
-    placeholder: "ws://127.0.0.1:8787/db"
+    placeholder: "ws://127.0.0.1:8787/db",
   },
   {
     key: "ssh",
     title: "SSH Proxy",
     summary: "填写 SSH WebSocket 中转地址，例如 ws://127.0.0.1:8787/ssh。",
-    placeholder: "ws://127.0.0.1:8787/ssh"
-  }
+    placeholder: "ws://127.0.0.1:8787/ssh",
+  },
 ];
 
-function FieldLabel(props: { label: string; hint?: string; children: any }) {
-  return (
-    <label class="grid gap-2">
-      <span class="theme-text text-sm font-medium">{props.label}</span>
-      <Show when={props.hint}>
-        <span class="theme-text-soft text-xs leading-5">{props.hint}</span>
-      </Show>
-      {props.children}
-    </label>
-  );
-}
-
 export function ProxyPanel() {
-  const [settings, setSettings] = createSignal<ProxySettings>(defaultSettings.proxy);
+  const [settings, setSettings] = createSignal<ProxySettings>(
+    defaultSettings.proxy,
+  );
   const [busy, setBusy] = createSignal(false);
   const [notice, setNotice] = createSignal<string>();
   const [testingTarget, setTestingTarget] = createSignal<ProxyTarget>();
@@ -57,7 +48,9 @@ export function ProxyPanel() {
     Partial<Record<ProxyTarget, { ok: boolean; message: string }>>
   >({});
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
-  let testingMessageTimers: Partial<Record<ProxyTarget, ReturnType<typeof setTimeout>>> = {};
+  let testingMessageTimers: Partial<
+    Record<ProxyTarget, ReturnType<typeof setTimeout>>
+  > = {};
 
   onMount(() => {
     void loadProxySettings().then(setSettings);
@@ -89,13 +82,15 @@ export function ProxyPanel() {
 
   const updateItem = (
     target: ProxyTarget,
-    updater: (current: ProxySettings[ProxyTarget]) => ProxySettings[ProxyTarget]
+    updater: (
+      current: ProxySettings[ProxyTarget],
+    ) => ProxySettings[ProxyTarget],
   ) => {
     setNotice(undefined);
     setSettings((current) => {
       const nextSettings = {
         ...current,
-        [target]: updater(current[target])
+        [target]: updater(current[target]),
       };
 
       queuePersist(nextSettings);
@@ -113,7 +108,11 @@ export function ProxyPanel() {
       setSettings(saved);
       setNotice("Proxy settings saved.");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Failed to save proxy settings.");
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "Failed to save proxy settings.",
+      );
     } finally {
       setBusy(false);
     }
@@ -130,8 +129,8 @@ export function ProxyPanel() {
         ...current,
         [target]: {
           ok: true,
-          message: `Connected (${result.status})`
-        }
+          message: `Connected (${result.status})`,
+        },
       }));
 
       if (testingMessageTimers[target]) {
@@ -141,7 +140,7 @@ export function ProxyPanel() {
       testingMessageTimers[target] = setTimeout(() => {
         setTestingState((current) => ({
           ...current,
-          [target]: undefined
+          [target]: undefined,
         }));
         testingMessageTimers[target] = undefined;
       }, 3000);
@@ -155,8 +154,9 @@ export function ProxyPanel() {
         ...current,
         [target]: {
           ok: false,
-          message: error instanceof Error ? error.message : "Connection failed."
-        }
+          message:
+            error instanceof Error ? error.message : "Connection failed.",
+        },
       }));
     } finally {
       setTestingTarget(undefined);
@@ -175,7 +175,16 @@ export function ProxyPanel() {
               <div class="grid gap-4 xl:grid-cols-[180px_minmax(0,1fr)_auto] xl:items-end">
                 <Show
                   when={item.key === "api"}
-                  fallback={<div class="min-w-0"><div class="theme-text text-sm font-medium">{item.title}</div><div class="theme-text-soft mt-2 text-xs leading-5">{item.summary}</div></div>}
+                  fallback={
+                    <div class="min-w-0">
+                      <div class="theme-text text-sm font-medium">
+                        {item.title}
+                      </div>
+                      <div class="theme-text-soft mt-2 text-xs leading-5">
+                        {item.summary}
+                      </div>
+                    </div>
+                  }
                 >
                   <FieldLabel label={item.title} hint={item.summary}>
                     <select
@@ -183,7 +192,9 @@ export function ProxyPanel() {
                       value={current().mode}
                       onChange={(event) =>
                         updateItem(item.key, (value) => {
-                          const nextMode = event.currentTarget.value as "none" | "proxy";
+                          const nextMode = event.currentTarget.value as
+                            | "none"
+                            | "proxy";
 
                           return {
                             ...value,
@@ -191,7 +202,7 @@ export function ProxyPanel() {
                             address:
                               nextMode === "proxy" && !value.address.trim()
                                 ? getDefaultProxyAddress(item.key)
-                                : value.address
+                                : value.address,
                           };
                         })
                       }
@@ -212,7 +223,7 @@ export function ProxyPanel() {
                       updateItem(item.key, (value) => ({
                         ...value,
                         mode: item.key === "api" ? value.mode : "proxy",
-                        address: event.currentTarget.value
+                        address: event.currentTarget.value,
                       }))
                     }
                   />
@@ -221,7 +232,10 @@ export function ProxyPanel() {
                 <button
                   class="theme-control rounded-2xl px-4 py-3 text-sm font-semibold transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
                   type="button"
-                  disabled={(item.key === "api" && current().mode === "none") || testingTarget() === item.key}
+                  disabled={
+                    (item.key === "api" && current().mode === "none") ||
+                    testingTarget() === item.key
+                  }
                   onClick={() => void handleTest(item.key)}
                 >
                   {testingTarget() === item.key ? "Testing..." : "Test"}
