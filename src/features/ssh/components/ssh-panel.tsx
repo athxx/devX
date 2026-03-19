@@ -439,6 +439,8 @@ export function SshPanel(props: SshPanelProps) {
   const [paneMenuState, setPaneMenuState] = createSignal<PaneContextMenuState | null>(null);
   const [connectionSwitcherPaneId, setConnectionSwitcherPaneId] = createSignal<string | null>(null);
   const [uiStateReady, setUiStateReady] = createSignal(false);
+  const [profileFilter, setProfileFilter] = createSignal("");
+  const normalizedProfileFilter = createMemo(() => profileFilter().trim().toLowerCase());
 
   const termViewportRefs = new Map<string, HTMLDivElement>();
   const termMountRefs = new Map<string, HTMLDivElement>();
@@ -457,6 +459,52 @@ export function SshPanel(props: SshPanelProps) {
       profiles: workspace().profiles.filter((profile) => profile.folderId === folder.id)
     }))
   );
+  const filteredRootProfiles = createMemo(() => {
+    const filter = normalizedProfileFilter();
+    if (!filter) {
+      return rootProfiles();
+    }
+    return rootProfiles().filter((profile) => profile.name.toLowerCase().includes(filter));
+  });
+  const filteredProfilesFlat = createMemo(() => {
+    const filter = normalizedProfileFilter();
+    if (!filter) {
+      return [];
+    }
+    return workspace().profiles.filter((profile) => profile.name.toLowerCase().includes(filter));
+  });
+  const filteredFolderEntries = createMemo(() => {
+    const filter = normalizedProfileFilter();
+    if (!filter) {
+      return folderEntries();
+    }
+
+    return folderEntries()
+      .map((entry) => {
+        const folderMatches = entry.folder.name.toLowerCase().includes(filter);
+        const profiles = folderMatches
+          ? entry.profiles
+          : entry.profiles.filter((profile) => profile.name.toLowerCase().includes(filter));
+
+        if (!folderMatches && profiles.length === 0) {
+          return null;
+        }
+
+        return {
+          folder: entry.folder,
+          profiles
+        };
+      })
+      .filter(
+        (
+          entry
+        ): entry is {
+          folder: SshFolder;
+          profiles: SshProfile[];
+        } => Boolean(entry)
+      );
+  });
+  const hasProfileFilter = createMemo(() => normalizedProfileFilter().length > 0);
   const profileMap = createMemo(() => new Map(workspace().profiles.map((profile) => [profile.id, profile])));
   const activeTab = createMemo(() => (activeTabId() ? tabsById[activeTabId()!] ?? null : null));
   const activePaneId = createMemo(() => activeTab()?.activePaneId ?? null);
@@ -1624,415 +1672,495 @@ export function SshPanel(props: SshPanelProps) {
               </div>
             </div>
 
-            <div class="grid gap-0.5">
-              <For each={rootProfiles()}>
-                {(profile) => (
-                  <div
-                    class={`theme-sidebar-item group flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
-                      activePaneProfile()?.id === profile.id ? "theme-sidebar-item-active" : ""
-                    }`}
-                    onClick={() => handleSelectProfile(profile)}
-                    onDblClick={() => void connectToProfile(profile)}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      setProfileMenuId(profile.id);
-                      setProfileMoveMenuId(null);
-                      setHeaderMenuOpen(false);
-                      setFolderMenuId(null);
-                    }}
-                  >
-                    <span
-                      class={`inline-block h-2 w-2 shrink-0 rounded-full ${getProfileStatusDotClass(
-                        getProfileAggregateStatus(profile.id)
-                      )}`}
-                    />
-                    <button class="min-w-0 flex-1 text-left" onClick={() => handleSelectProfile(profile)}>
-                      <p class="truncate text-[13px] font-medium" title={profile.name}>{profile.name}</p>
-                    </button>
-                    <div
-                      class={`relative shrink-0 transition-opacity ${
-                        profileMenuId() === profile.id
-                          ? "opacity-100"
-                          : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-                      }`}
-                      data-ssh-menu-root
-                    >
-                      <Show
-                        when={getProfileHoverAction(profile.id) === "disconnect"}
-                        fallback={
-                          <button
-                            class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
-                            title="Connect"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void connectToProfile(profile);
-                            }}
-                          >
-                            <ControlDot variant="warn" />
-                          </button>
-                        }
-                      >
-                        <button
-                          class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
-                          title="Disconnect"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void disconnectProfile(profile.id);
-                          }}
-                        >
-                          <ControlDot variant="delete" />
-                        </button>
-                      </Show>
-                      <Show when={profileMenuId() === profile.id}>
-                        <div
-                          class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-20 min-w-[172px] border p-1"
-                          data-ssh-menu-root
-                          style={{ "border-color": "var(--app-border)" }}
-                        >
-                          <button
-                            class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                            onClick={() => {
-                              void connectToProfile(profile);
-                              setProfileMenuId(null);
-                              setProfileMoveMenuId(null);
-                            }}
-                          >
-                            Connect
-                          </button>
-                          <button
-                            class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                            onClick={() => openEditModal(profile)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                            onClick={() => void moveProfileDirection(profile, "up")}
-                          >
-                            Move Up
-                          </button>
-                          <button
-                            class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                            onClick={() => void moveProfileDirection(profile, "down")}
-                          >
-                            Move Down
-                          </button>
-                          <div class="relative" data-ssh-menu-root>
-                            <button
-                              class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setProfileMoveMenuId((current) => (current === profile.id ? null : profile.id));
-                              }}
-                            >
-                              <span>Move to</span>
-                              <span class="theme-text-soft text-[10px]">›</span>
-                            </button>
-                            <Show when={profileMoveMenuId() === profile.id}>
-                              <div
-                                class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[160px] border p-1"
-                                data-ssh-menu-root
-                                style={{ "border-color": "var(--app-border)" }}
-                              >
-                                <button
-                                  class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                  onClick={() => void moveProfileToFolder(profile, null)}
-                                >
-                                  Root
-                                </button>
-                                <For each={workspace().folders}>
-                                  {(folder) => (
-                                    <button
-                                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                      onClick={() => void moveProfileToFolder(profile, folder.id)}
-                                    >
-                                      {folder.name}
-                                    </button>
-                                  )}
-                                </For>
-                              </div>
-                            </Show>
-                          </div>
-                          <button
-                            class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
-                            onClick={() => void handleDeleteProfile(profile.id)}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </Show>
-                    </div>
-                  </div>
-                )}
-              </For>
+            <div class="mb-3">
+              <input
+                class="theme-input h-8 w-full rounded-md px-2.5 text-sm"
+                placeholder="Filter folders / profiles"
+                value={profileFilter()}
+                onInput={(event) => setProfileFilter(event.currentTarget.value)}
+              />
+            </div>
 
-              <For each={folderEntries()}>
-                {(entry) => (
-                  <div class="grid gap-1">
+            <div class="grid gap-0.5">
+              <Show when={hasProfileFilter()}>
+                <For each={filteredProfilesFlat()}>
+                  {(profile) => (
                     <div
-                      class="group flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5"
+                      class={`theme-sidebar-item group flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
+                        activePaneProfile()?.id === profile.id ? "theme-sidebar-item-active" : ""
+                      }`}
+                      onClick={() => handleSelectProfile(profile)}
+                      onDblClick={() => void connectToProfile(profile)}
                       onContextMenu={(event) => {
                         event.preventDefault();
-                        setFolderMenuId(entry.folder.id);
-                        setHeaderMenuOpen(false);
-                        setProfileMenuId(null);
+                        setProfileMenuId(profile.id);
                         setProfileMoveMenuId(null);
+                        setHeaderMenuOpen(false);
+                        setFolderMenuId(null);
                       }}
                     >
-                      <button
-                        class="-ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-md text-[11px]"
-                        title={isFolderExpanded(entry.folder.id) ? "Collapse" : "Expand"}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          toggleFolderExpanded(entry.folder.id);
-                        }}
-                      >
-                        <svg
-                          class={`h-3 w-3 transition-transform ${isFolderExpanded(entry.folder.id) ? "rotate-90" : ""}`}
-                          viewBox="0 0 16 16"
-                          fill="none"
-                          xmlns="http://www.w3.org/2000/svg"
-                          aria-hidden="true"
-                        >
-                          <path
-                            d="M6 4.5L9.5 8L6 11.5"
-                            stroke="currentColor"
-                            stroke-width="1.6"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                          />
-                        </svg>
-                      </button>
-                      <button
-                        class="min-w-0 flex-1 text-left"
-                        title={entry.folder.name}
-                        onClick={() => toggleFolderExpanded(entry.folder.id)}
-                      >
-                        <div class="inline-flex max-w-full min-w-0 items-center gap-1.5 align-middle">
-                          <p class="max-w-full truncate text-[13px] font-medium">{entry.folder.name}</p>
-                          <span class="theme-chip shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
-                            {entry.profiles.length}
-                          </span>
-                        </div>
+                      <span
+                        class={`inline-block h-2 w-2 shrink-0 rounded-full ${getProfileStatusDotClass(
+                          getProfileAggregateStatus(profile.id)
+                        )}`}
+                      />
+                      <button class="min-w-0 flex-1 text-left" onClick={() => handleSelectProfile(profile)}>
+                        <p class="truncate text-[13px] font-medium" title={profile.name}>{profile.name}</p>
                       </button>
                       <div
                         class={`relative shrink-0 transition-opacity ${
-                          folderMenuId() === entry.folder.id
+                          profileMenuId() === profile.id
                             ? "opacity-100"
                             : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                         }`}
                         data-ssh-menu-root
                       >
-                        <button
-                          class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
-                          title="Folder options"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setFolderMenuId((current) => (current === entry.folder.id ? null : entry.folder.id));
-                            setHeaderMenuOpen(false);
-                            setProfileMenuId(null);
-                            setProfileMoveMenuId(null);
-                          }}
+                        <Show
+                          when={getProfileHoverAction(profile.id) === "disconnect"}
+                          fallback={
+                            <button
+                              class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
+                              title="Connect"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void connectToProfile(profile);
+                              }}
+                            >
+                              <ControlDot variant="warn" />
+                            </button>
+                          }
                         >
-                          <ControlDot variant="menu" />
-                        </button>
-                        <Show when={folderMenuId() === entry.folder.id}>
+                          <button
+                            class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
+                            title="Disconnect"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void disconnectProfile(profile.id);
+                            }}
+                          >
+                            <ControlDot variant="delete" />
+                          </button>
+                        </Show>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </Show>
+
+              <Show when={!hasProfileFilter()}>
+                <For each={filteredRootProfiles()}>
+                  {(profile) => (
+                    <div
+                      class={`theme-sidebar-item group flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
+                        activePaneProfile()?.id === profile.id ? "theme-sidebar-item-active" : ""
+                      }`}
+                      onClick={() => handleSelectProfile(profile)}
+                      onDblClick={() => void connectToProfile(profile)}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        setProfileMenuId(profile.id);
+                        setProfileMoveMenuId(null);
+                        setHeaderMenuOpen(false);
+                        setFolderMenuId(null);
+                      }}
+                    >
+                      <span
+                        class={`inline-block h-2 w-2 shrink-0 rounded-full ${getProfileStatusDotClass(
+                          getProfileAggregateStatus(profile.id)
+                        )}`}
+                      />
+                      <button class="min-w-0 flex-1 text-left" onClick={() => handleSelectProfile(profile)}>
+                        <p class="truncate text-[13px] font-medium" title={profile.name}>{profile.name}</p>
+                      </button>
+                      <div
+                        class={`relative shrink-0 transition-opacity ${
+                          profileMenuId() === profile.id
+                            ? "opacity-100"
+                            : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                        }`}
+                        data-ssh-menu-root
+                      >
+                        <Show
+                          when={getProfileHoverAction(profile.id) === "disconnect"}
+                          fallback={
+                            <button
+                              class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
+                              title="Connect"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void connectToProfile(profile);
+                              }}
+                            >
+                              <ControlDot variant="warn" />
+                            </button>
+                          }
+                        >
+                          <button
+                            class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
+                            title="Disconnect"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void disconnectProfile(profile.id);
+                            }}
+                          >
+                            <ControlDot variant="delete" />
+                          </button>
+                        </Show>
+                        <Show when={profileMenuId() === profile.id}>
                           <div
-                            class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-20 min-w-[160px] border p-1"
+                            class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-20 min-w-[172px] border p-1"
                             data-ssh-menu-root
                             style={{ "border-color": "var(--app-border)" }}
                           >
                             <button
                               class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                              onClick={() => void handleRenameFolder(entry.folder)}
+                              onClick={() => {
+                                void connectToProfile(profile);
+                                setProfileMenuId(null);
+                                setProfileMoveMenuId(null);
+                              }}
                             >
-                              Rename
+                              Connect
                             </button>
                             <button
                               class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                              onClick={() => void moveFolderDirection(entry.folder.id, "up")}
+                              onClick={() => openEditModal(profile)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                              onClick={() => void moveProfileDirection(profile, "up")}
                             >
                               Move Up
                             </button>
                             <button
                               class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                              onClick={() => void moveFolderDirection(entry.folder.id, "down")}
+                              onClick={() => void moveProfileDirection(profile, "down")}
                             >
                               Move Down
                             </button>
+                            <div class="relative" data-ssh-menu-root>
+                              <button
+                                class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setProfileMoveMenuId((current) => (current === profile.id ? null : profile.id));
+                                }}
+                              >
+                                <span>Move to</span>
+                                <span class="theme-text-soft text-[10px]">›</span>
+                              </button>
+                              <Show when={profileMoveMenuId() === profile.id}>
+                                <div
+                                  class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[160px] border p-1"
+                                  data-ssh-menu-root
+                                  style={{ "border-color": "var(--app-border)" }}
+                                >
+                                  <button
+                                    class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                    onClick={() => void moveProfileToFolder(profile, null)}
+                                  >
+                                    Root
+                                  </button>
+                                  <For each={workspace().folders}>
+                                    {(folder) => (
+                                      <button
+                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                        onClick={() => void moveProfileToFolder(profile, folder.id)}
+                                      >
+                                        {folder.name}
+                                      </button>
+                                    )}
+                                  </For>
+                                </div>
+                              </Show>
+                            </div>
                             <button
                               class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
-                              onClick={() => void handleDeleteFolder(entry.folder.id)}
+                              onClick={() => void handleDeleteProfile(profile.id)}
                             >
                               Delete
                             </button>
                           </div>
                         </Show>
                       </div>
+                    </div>
+                  )}
+                </For>
+
+                <For each={filteredFolderEntries()}>
+                  {(entry) => (
+                    <div class="grid gap-1">
                       <div
-                        class={`shrink-0 transition-opacity ${
-                          folderMenuId() === entry.folder.id
-                            ? "opacity-100"
-                            : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-                        }`}
+                        class="group flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5"
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          setFolderMenuId(entry.folder.id);
+                          setHeaderMenuOpen(false);
+                          setProfileMenuId(null);
+                          setProfileMoveMenuId(null);
+                        }}
                       >
                         <button
-                          class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
-                          title="Add profile"
-                          onClick={() => openCreateModal(entry.folder.id)}
+                          class="-ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-md text-[11px]"
+                          title={isFolderExpanded(entry.folder.id) ? "Collapse" : "Expand"}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleFolderExpanded(entry.folder.id);
+                          }}
                         >
-                          <ControlDot variant="add" />
+                          <svg
+                            class={`h-3 w-3 transition-transform ${isFolderExpanded(entry.folder.id) ? "rotate-90" : ""}`}
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M6 4.5L9.5 8L6 11.5"
+                              stroke="currentColor"
+                              stroke-width="1.6"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                            />
+                          </svg>
                         </button>
-                      </div>
-                    </div>
-
-                    <Show when={isFolderExpanded(entry.folder.id)}>
-                      <div class="grid gap-0.5">
-                        <For each={entry.profiles}>
-                          {(profile) => (
+                        <button
+                          class="min-w-0 flex-1 text-left"
+                          title={entry.folder.name}
+                          onClick={() => toggleFolderExpanded(entry.folder.id)}
+                        >
+                          <div class="inline-flex max-w-full min-w-0 items-center gap-1.5 align-middle">
+                            <p class="max-w-full truncate text-[13px] font-medium">{entry.folder.name}</p>
+                            <span class="theme-chip shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
+                              {entry.profiles.length}
+                            </span>
+                          </div>
+                        </button>
+                        <div
+                          class={`relative shrink-0 transition-opacity ${
+                            folderMenuId() === entry.folder.id
+                              ? "opacity-100"
+                              : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                          }`}
+                          data-ssh-menu-root
+                        >
+                          <button
+                            class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
+                            title="Folder options"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setFolderMenuId((current) => (current === entry.folder.id ? null : entry.folder.id));
+                              setHeaderMenuOpen(false);
+                              setProfileMenuId(null);
+                              setProfileMoveMenuId(null);
+                            }}
+                          >
+                            <ControlDot variant="menu" />
+                          </button>
+                          <Show when={folderMenuId() === entry.folder.id}>
                             <div
-                              class={`theme-sidebar-item group flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
-                                activePaneProfile()?.id === profile.id ? "theme-sidebar-item-active" : ""
-                              }`}
-                              onClick={() => handleSelectProfile(profile)}
-                              onDblClick={() => void connectToProfile(profile)}
-                              onContextMenu={(event) => {
-                                event.preventDefault();
-                                setProfileMenuId(profile.id);
-                                setProfileMoveMenuId(null);
-                                setHeaderMenuOpen(false);
-                                setFolderMenuId(null);
-                              }}
+                              class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-20 min-w-[160px] border p-1"
+                              data-ssh-menu-root
+                              style={{ "border-color": "var(--app-border)" }}
                             >
-                              <span
-                                class={`inline-block h-2 w-2 shrink-0 rounded-full ${getProfileStatusDotClass(
-                                  getProfileAggregateStatus(profile.id)
-                                )}`}
-                              />
-                              <button class="min-w-0 flex-1 text-left" onClick={() => handleSelectProfile(profile)}>
-                                <p class="truncate text-[13px] font-medium" title={profile.name}>{profile.name}</p>
-                              </button>
-                              <div
-                                class={`relative shrink-0 transition-opacity ${
-                                  profileMenuId() === profile.id
-                                    ? "opacity-100"
-                                    : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-                                }`}
-                                data-ssh-menu-root
+                              <button
+                                class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                onClick={() => void handleRenameFolder(entry.folder)}
                               >
-                                <Show
-                                  when={getProfileHoverAction(profile.id) === "disconnect"}
-                                  fallback={
-                                    <button
-                                      class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
-                                      title="Connect"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        void connectToProfile(profile);
-                                      }}
-                                    >
-                                      <ControlDot variant="warn" />
-                                    </button>
-                                  }
+                                Rename
+                              </button>
+                              <button
+                                class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                onClick={() => void moveFolderDirection(entry.folder.id, "up")}
+                              >
+                                Move Up
+                              </button>
+                              <button
+                                class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                onClick={() => void moveFolderDirection(entry.folder.id, "down")}
+                              >
+                                Move Down
+                              </button>
+                              <button
+                                class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
+                                onClick={() => void handleDeleteFolder(entry.folder.id)}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </Show>
+                        </div>
+                        <div
+                          class={`shrink-0 transition-opacity ${
+                            folderMenuId() === entry.folder.id
+                              ? "opacity-100"
+                              : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                          }`}
+                        >
+                          <button
+                            class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
+                            title="Add profile"
+                            onClick={() => openCreateModal(entry.folder.id)}
+                          >
+                            <ControlDot variant="add" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <Show when={isFolderExpanded(entry.folder.id)}>
+                        <div class="grid gap-0.5">
+                          <For each={entry.profiles}>
+                            {(profile) => (
+                              <div
+                                class={`theme-sidebar-item group flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
+                                  activePaneProfile()?.id === profile.id ? "theme-sidebar-item-active" : ""
+                                }`}
+                                onClick={() => handleSelectProfile(profile)}
+                                onDblClick={() => void connectToProfile(profile)}
+                                onContextMenu={(event) => {
+                                  event.preventDefault();
+                                  setProfileMenuId(profile.id);
+                                  setProfileMoveMenuId(null);
+                                  setHeaderMenuOpen(false);
+                                  setFolderMenuId(null);
+                                }}
+                              >
+                                <span
+                                  class={`inline-block h-2 w-2 shrink-0 rounded-full ${getProfileStatusDotClass(
+                                    getProfileAggregateStatus(profile.id)
+                                  )}`}
+                                />
+                                <button class="min-w-0 flex-1 text-left" onClick={() => handleSelectProfile(profile)}>
+                                  <p class="truncate text-[13px] font-medium" title={profile.name}>{profile.name}</p>
+                                </button>
+                                <div
+                                  class={`relative shrink-0 transition-opacity ${
+                                    profileMenuId() === profile.id
+                                      ? "opacity-100"
+                                      : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                                  }`}
+                                  data-ssh-menu-root
                                 >
-                                  <button
-                                    class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
-                                    title="Disconnect"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      void disconnectProfile(profile.id);
-                                    }}
-                                  >
-                                    <ControlDot variant="delete" />
-                                  </button>
-                                </Show>
-                                <Show when={profileMenuId() === profile.id}>
-                                  <div
-                                    class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-20 min-w-[172px] border p-1"
-                                    data-ssh-menu-root
-                                    style={{ "border-color": "var(--app-border)" }}
-                                  >
-                                    <button
-                                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                      onClick={() => {
-                                        void connectToProfile(profile);
-                                        setProfileMenuId(null);
-                                        setProfileMoveMenuId(null);
-                                      }}
-                                    >
-                                      Connect
-                                    </button>
-                                    <button
-                                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                      onClick={() => openEditModal(profile)}
-                                    >
-                                      Edit
-                                    </button>
-                                    <button
-                                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                      onClick={() => void moveProfileDirection(profile, "up")}
-                                    >
-                                      Move Up
-                                    </button>
-                                    <button
-                                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                      onClick={() => void moveProfileDirection(profile, "down")}
-                                    >
-                                      Move Down
-                                    </button>
-                                    <div class="relative" data-ssh-menu-root>
+                                  <Show
+                                    when={getProfileHoverAction(profile.id) === "disconnect"}
+                                    fallback={
                                       <button
-                                        class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
+                                        class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
+                                        title="Connect"
                                         onClick={(event) => {
                                           event.stopPropagation();
-                                          setProfileMoveMenuId((current) => (current === profile.id ? null : profile.id));
+                                          void connectToProfile(profile);
                                         }}
                                       >
-                                        <span>Move to</span>
-                                        <span class="theme-text-soft text-[10px]">›</span>
+                                        <ControlDot variant="warn" />
                                       </button>
-                                      <Show when={profileMoveMenuId() === profile.id}>
-                                        <div
-                                          class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[160px] border p-1"
-                                          data-ssh-menu-root
-                                          style={{ "border-color": "var(--app-border)" }}
-                                        >
-                                          <button
-                                            class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                            onClick={() => void moveProfileToFolder(profile, null)}
-                                          >
-                                            Root
-                                          </button>
-                                          <For each={workspace().folders}>
-                                            {(folder) => (
-                                              <button
-                                                class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                                onClick={() => void moveProfileToFolder(profile, folder.id)}
-                                              >
-                                                {folder.name}
-                                              </button>
-                                            )}
-                                          </For>
-                                        </div>
-                                      </Show>
-                                    </div>
+                                    }
+                                  >
                                     <button
-                                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
-                                      onClick={() => void handleDeleteProfile(profile.id)}
+                                      class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
+                                      title="Disconnect"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        void disconnectProfile(profile.id);
+                                      }}
                                     >
-                                      Delete
+                                      <ControlDot variant="delete" />
                                     </button>
-                                  </div>
-                                </Show>
+                                  </Show>
+                                  <Show when={profileMenuId() === profile.id}>
+                                    <div
+                                      class="theme-panel-soft theme-menu-popover absolute right-0 top-7 z-20 min-w-[172px] border p-1"
+                                      data-ssh-menu-root
+                                      style={{ "border-color": "var(--app-border)" }}
+                                    >
+                                      <button
+                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                        onClick={() => {
+                                          void connectToProfile(profile);
+                                          setProfileMenuId(null);
+                                          setProfileMoveMenuId(null);
+                                        }}
+                                      >
+                                        Connect
+                                      </button>
+                                      <button
+                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                        onClick={() => openEditModal(profile)}
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                        onClick={() => void moveProfileDirection(profile, "up")}
+                                      >
+                                        Move Up
+                                      </button>
+                                      <button
+                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                        onClick={() => void moveProfileDirection(profile, "down")}
+                                      >
+                                        Move Down
+                                      </button>
+                                      <div class="relative" data-ssh-menu-root>
+                                        <button
+                                          class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setProfileMoveMenuId((current) => (current === profile.id ? null : profile.id));
+                                          }}
+                                        >
+                                          <span>Move to</span>
+                                          <span class="theme-text-soft text-[10px]">›</span>
+                                        </button>
+                                        <Show when={profileMoveMenuId() === profile.id}>
+                                          <div
+                                            class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[160px] border p-1"
+                                            data-ssh-menu-root
+                                            style={{ "border-color": "var(--app-border)" }}
+                                          >
+                                            <button
+                                              class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                              onClick={() => void moveProfileToFolder(profile, null)}
+                                            >
+                                              Root
+                                            </button>
+                                            <For each={workspace().folders}>
+                                              {(folder) => (
+                                                <button
+                                                  class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                                  onClick={() => void moveProfileToFolder(profile, folder.id)}
+                                                >
+                                                  {folder.name}
+                                                </button>
+                                              )}
+                                            </For>
+                                          </div>
+                                        </Show>
+                                      </div>
+                                      <button
+                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
+                                        onClick={() => void handleDeleteProfile(profile.id)}
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
+                                  </Show>
+                                </div>
                               </div>
-                            </div>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-                  </div>
-                )}
-              </For>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    </div>
+                  )}
+                </For>
+              </Show>
+
+              <Show when={hasProfileFilter() ? filteredProfilesFlat().length === 0 : filteredRootProfiles().length === 0 && filteredFolderEntries().length === 0}>
+                <div class="theme-text-soft px-2 py-2 text-xs">No matches</div>
+              </Show>
             </div>
           </>
         }

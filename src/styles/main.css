@@ -337,14 +337,13 @@ a {
 .workspace-sidebar-layout {
   display: grid;
   gap: 0;
-  min-height: 0;
+  min-height: calc(100vh - 36px);
+  min-height: calc(100dvh - 36px);
   grid-template-columns: minmax(0, 1fr);
 }
 
 .workspace-sidebar {
   min-width: 0;
-  min-height: calc(100vh - 36px);
-  min-height: calc(100dvh - 36px);
 }
 
 .workspace-sidebar-resizer {
