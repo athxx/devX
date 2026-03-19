@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"fmt"
+	neturl "net/url"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -27,6 +29,18 @@ type MongoQueryRequest struct {
 type MongoQueryResponse struct {
 	Result     any   `json:"result"`
 	DurationMs int64 `json:"durationMs"`
+}
+
+type MongoPingRequest struct {
+	URI       string `json:"uri"`
+	Database  string `json:"database"`
+	TimeoutMs int    `json:"timeoutMs"`
+}
+
+type MongoListCollectionsRequest struct {
+	URI       string `json:"uri"`
+	Database  string `json:"database"`
+	TimeoutMs int    `json:"timeoutMs"`
 }
 
 func RunMongoQuery(ctx context.Context, request MongoQueryRequest, fallbackTimeout time.Duration) (MongoQueryResponse, error) {
@@ -154,9 +168,104 @@ func RunMongoQuery(ctx context.Context, request MongoQueryRequest, fallbackTimeo
 			return MongoQueryResponse{}, err
 		}
 		return MongoQueryResponse{Result: fiberLikeMap("deletedCount", result.DeletedCount), DurationMs: time.Since(start).Milliseconds()}, nil
+	case "countDocuments":
+		count, err := collection.CountDocuments(timeoutCtx, filter)
+		if err != nil {
+			return MongoQueryResponse{}, err
+		}
+		return MongoQueryResponse{Result: fiberLikeMap("count", count), DurationMs: time.Since(start).Milliseconds()}, nil
 	default:
 		return MongoQueryResponse{}, fmt.Errorf("unsupported mongo action: %s", request.Action)
 	}
+}
+
+func PingMongo(ctx context.Context, request MongoPingRequest, fallbackTimeout time.Duration) (MongoQueryResponse, error) {
+	if strings.TrimSpace(request.URI) == "" {
+		return MongoQueryResponse{}, fmt.Errorf("uri is required")
+	}
+
+	timeout := fallbackTimeout
+	if request.TimeoutMs > 0 {
+		timeout = time.Duration(request.TimeoutMs) * time.Millisecond
+	}
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	client, err := mongo.Connect(timeoutCtx, options.Client().ApplyURI(request.URI))
+	if err != nil {
+		return MongoQueryResponse{}, fmt.Errorf("connect mongo: %w", err)
+	}
+	defer func() {
+		disconnectCtx, cancelDisconnect := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelDisconnect()
+		_ = client.Disconnect(disconnectCtx)
+	}()
+
+	database := strings.TrimSpace(request.Database)
+	if database == "" {
+		database = mongoDatabaseNameFromURI(request.URI)
+	}
+	if database == "" {
+		database = "admin"
+	}
+
+	start := time.Now()
+	var result map[string]any
+	if err := client.Database(database).RunCommand(timeoutCtx, bson.D{{Key: "ping", Value: 1}}).Decode(&result); err != nil {
+		return MongoQueryResponse{}, err
+	}
+
+	return MongoQueryResponse{
+		Result:     result,
+		DurationMs: time.Since(start).Milliseconds(),
+	}, nil
+}
+
+func ListMongoCollections(ctx context.Context, request MongoListCollectionsRequest, fallbackTimeout time.Duration) (MongoQueryResponse, error) {
+	if strings.TrimSpace(request.URI) == "" {
+		return MongoQueryResponse{}, fmt.Errorf("uri is required")
+	}
+
+	timeout := fallbackTimeout
+	if request.TimeoutMs > 0 {
+		timeout = time.Duration(request.TimeoutMs) * time.Millisecond
+	}
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	client, err := mongo.Connect(timeoutCtx, options.Client().ApplyURI(request.URI))
+	if err != nil {
+		return MongoQueryResponse{}, fmt.Errorf("connect mongo: %w", err)
+	}
+	defer func() {
+		disconnectCtx, cancelDisconnect := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelDisconnect()
+		_ = client.Disconnect(disconnectCtx)
+	}()
+
+	database := strings.TrimSpace(request.Database)
+	if database == "" {
+		database = mongoDatabaseNameFromURI(request.URI)
+	}
+	if database == "" {
+		database = "test"
+	}
+
+	start := time.Now()
+	collections, err := client.Database(database).ListCollectionNames(timeoutCtx, bson.D{})
+	if err != nil {
+		return MongoQueryResponse{}, err
+	}
+
+	result := make([]map[string]any, 0, len(collections))
+	for _, name := range collections {
+		result = append(result, map[string]any{"name": name})
+	}
+
+	return MongoQueryResponse{
+		Result:     result,
+		DurationMs: time.Since(start).Milliseconds(),
+	}, nil
 }
 
 func toBSONMap(value map[string]any) (bson.M, error) {
@@ -200,4 +309,16 @@ func fiberLikeMap(key string, value any, more ...any) map[string]any {
 		result[key] = more[index+1]
 	}
 	return result
+}
+
+func mongoDatabaseNameFromURI(rawURL string) string {
+	parsed, err := neturl.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	name := strings.Trim(parsed.Path, "/")
+	if name == "" {
+		return "test"
+	}
+	return name
 }

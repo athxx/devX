@@ -432,7 +432,7 @@ func splitCommandWords(input string) []string {
 	return parts
 }
 
-var mongoCommandPattern = regexp.MustCompile(`^db\.([A-Za-z0-9_-]+)\.(findOne|find|aggregate|deleteOne|deleteMany)\((.*)\)\s*$`)
+var mongoCommandPattern = regexp.MustCompile(`^db\.([A-Za-z0-9_-]+)\.(findOne|find|aggregate|deleteOne|deleteMany|insertOne|insertMany|updateOne|updateMany|countDocuments|count)\((.*)\)\s*$`)
 var mongoObjectIDPattern = regexp.MustCompile(`ObjectId\(['"]([0-9a-fA-F]{24})['"]\)`)
 var mongoKeyPattern = regexp.MustCompile(`([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)`)
 
@@ -493,6 +493,43 @@ func parseMongoShellCommand(rawURL string, command string) (dbrunner.MongoQueryR
 		}
 		request.Action = "aggregate"
 		request.Pipeline = pipeline
+	case "insertOne":
+		document, err := parseMongoObject(expression)
+		if err != nil {
+			return dbrunner.MongoQueryRequest{}, err
+		}
+		request.Action = "insertOne"
+		request.Document = document
+	case "insertMany":
+		documents, err := parseMongoDocumentArray(expression)
+		if err != nil {
+			return dbrunner.MongoQueryRequest{}, err
+		}
+		request.Action = "insertMany"
+		request.Documents = documents
+	case "updateOne", "updateMany":
+		args := splitMongoArgs(expression)
+		if len(args) < 2 {
+			return dbrunner.MongoQueryRequest{}, fmt.Errorf("%s requires filter and update arguments", action)
+		}
+		filter, err := parseMongoObject(args[0])
+		if err != nil {
+			return dbrunner.MongoQueryRequest{}, fmt.Errorf("parse filter: %w", err)
+		}
+		update, err := parseMongoObject(args[1])
+		if err != nil {
+			return dbrunner.MongoQueryRequest{}, fmt.Errorf("parse update: %w", err)
+		}
+		request.Action = action
+		request.Filter = filter
+		request.Update = update
+	case "countDocuments", "count":
+		filter, err := parseMongoObject(expression)
+		if err != nil {
+			filter = map[string]any{}
+		}
+		request.Action = "countDocuments"
+		request.Filter = filter
 	default:
 		return dbrunner.MongoQueryRequest{}, fmt.Errorf("unsupported mongodb action")
 	}
@@ -528,6 +565,59 @@ func parseMongoPipeline(expression string) ([]map[string]any, error) {
 		return nil, fmt.Errorf("parse mongodb pipeline: %w", err)
 	}
 	return result, nil
+}
+
+func parseMongoDocumentArray(expression string) ([]map[string]any, error) {
+	normalized := normalizeMongoJSON(expression)
+	var result []map[string]any
+	if err := bson.UnmarshalExtJSON([]byte(normalized), true, &result); err != nil {
+		return nil, fmt.Errorf("parse mongodb documents: %w", err)
+	}
+	return result, nil
+}
+
+func splitMongoArgs(expression string) []string {
+	var parts []string
+	depth := 0
+	start := 0
+	inString := false
+	escapeNext := false
+
+	for i, ch := range expression {
+		if escapeNext {
+			escapeNext = false
+			continue
+		}
+		if ch == '\\' {
+			escapeNext = true
+			continue
+		}
+		if ch == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		switch ch {
+		case '{', '[':
+			depth++
+		case '}', ']':
+			depth--
+		case ',':
+			if depth == 0 {
+				parts = append(parts, strings.TrimSpace(expression[start:i]))
+				start = i + 1
+			}
+		}
+	}
+
+	remaining := strings.TrimSpace(expression[start:])
+	if remaining != "" {
+		parts = append(parts, remaining)
+	}
+
+	return parts
 }
 
 func normalizeMongoJSON(input string) string {

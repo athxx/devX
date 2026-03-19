@@ -1,3 +1,4 @@
+import type { JSX } from "solid-js";
 import {
   For,
   Show,
@@ -10,29 +11,30 @@ import { createStore } from "solid-js/store";
 import { TabsBar } from "../../../components/tabs-bar";
 import { ControlDot, PinIcon } from "../../../components/ui-primitives";
 import { WorkspaceSidebarLayout } from "../../../components/workspace-sidebar-layout";
-import { arrayMove, cloneValue, reorderByDirection } from "../../../lib/utils";
+import { arrayMove, cloneValue } from "../../../lib/utils";
 import type {
   DbConnection,
   DbConnectionConfig,
   DbConnectionKind,
   DbExecutionState,
+  DbExplorerNode,
   DbFavoriteQuery,
-  DbFolder,
   DbQueryHistoryItem,
   DbResultPayload,
-  DbTab,
   DbWorkspaceState,
 } from "../models";
 import {
   buildDbConnectionUrl,
-  createDbFavorite,
   createDbConnection,
-  createDbFolder,
+  createDbFavorite,
   createDbHistoryItem,
   createDbTab,
   executeDbTab,
   loadDbWorkspace,
+  loadDbExplorer,
+  loadDbExplorerDatabaseChildren,
   saveDbWorkspace,
+  testDbConnection,
 } from "../service";
 
 type DbPanelProps = {
@@ -42,26 +44,69 @@ type DbPanelProps = {
   onSidebarResizeStart: (event: MouseEvent) => void;
 };
 
-type DbTabMenuState = {
-  id: string;
-  x: number;
-  y: number;
-};
-
 type ConnectionMenuState = {
   id: string;
   x: number;
   y: number;
 };
 
-type FolderMenuState = {
+type DbTabMenuState = {
   id: string;
   x: number;
   y: number;
 };
 
-type DbSidebarView = "connections" | "favorites" | "history";
+type ExplorerNodeMenuState = {
+  connectionId: string;
+  nodeId: string;
+  x: number;
+  y: number;
+};
+
 type DbConnectionModalMode = "create" | "edit";
+
+type SidebarSection = "connections" | "favorites" | "history";
+
+type FavoriteMenuState = {
+  id: string;
+  x: number;
+  y: number;
+};
+
+type ExplorerLoadState = {
+  status: "idle" | "loading" | "ready" | "error";
+  nodes: DbExplorerNode[];
+  error?: string;
+};
+
+type ExplorerLeafNode = Exclude<DbExplorerNode, { kind: "group" }>;
+
+const databaseKinds: DbConnectionKind[] = [
+  "redis",
+  "postgresql",
+  "mysql",
+  "mongodb",
+  "clickhouse",
+  "gaussdb",
+  "oracle",
+  "sqlite",
+  "sqlserver",
+  "tidb",
+];
+
+function getInitialWorkspace(): DbWorkspaceState {
+  return {
+    savedConnections: [],
+    connectedConnectionIds: [],
+    activeConnectionId: null,
+    openTabIds: [],
+    pinnedTabIds: [],
+    activeTabId: null,
+    tabsById: {},
+    favorites: [],
+    history: [],
+  };
+}
 
 function getConnectionBadge(connection: DbConnection) {
   switch (connection.kind) {
@@ -150,19 +195,6 @@ function getConnectionTypeLabel(kind: DbConnectionKind) {
   }
 }
 
-const databaseKinds: DbConnectionKind[] = [
-  "redis",
-  "postgresql",
-  "mysql",
-  "mongodb",
-  "clickhouse",
-  "gaussdb",
-  "oracle",
-  "sqlite",
-  "sqlserver",
-  "tidb",
-];
-
 function formatResultSize(value: unknown) {
   try {
     return new Blob([JSON.stringify(value ?? null)]).size;
@@ -177,34 +209,151 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function DatabaseFolderIcon(props: { active?: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      class={`h-4 w-4 shrink-0 ${
+        props.active
+          ? "text-[var(--app-accent)]"
+          : "text-[var(--app-text-soft)]"
+      }`}
+      viewBox="0 0 20 20"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M2.5 6.25a1.75 1.75 0 0 1 1.75-1.75h4.09c.48 0 .94.2 1.27.55l.58.62c.33.35.79.55 1.27.55h4.29A1.75 1.75 0 0 1 17.5 8v6.25A1.75 1.75 0 0 1 15.75 16H4.25A1.75 1.75 0 0 1 2.5 14.25V6.25Z"
+        stroke="currentColor"
+        stroke-width="1.4"
+        stroke-linejoin="round"
+      />
+      <path
+        d="M2.75 8.25h14.5"
+        stroke="currentColor"
+        stroke-width="1.4"
+        stroke-linecap="round"
+      />
+    </svg>
+  );
+}
+
+function TreeChevronIcon(props: { expanded: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      class={`h-3 w-3 transition-transform ${
+        props.expanded ? "rotate-90" : ""
+      }`}
+      viewBox="0 0 16 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M6 4.5L9.5 8L6 11.5"
+        stroke="currentColor"
+        stroke-width="1.6"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ExplorerLeafIcon(props: {
+  kind: "table" | "view" | "collection" | "key";
+}) {
+  return (
+    <span
+      class={`inline-flex h-5 min-w-[30px] items-center justify-center rounded-full px-2 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+        props.kind === "view"
+          ? "theme-method-badge theme-method-head"
+          : props.kind === "collection"
+            ? "theme-method-badge theme-method-trace"
+            : props.kind === "key"
+              ? "theme-method-badge theme-method-patch"
+              : "theme-method-badge theme-method-get"
+      }`}
+    >
+      {props.kind === "view"
+        ? "VIEW"
+        : props.kind === "collection"
+          ? "COL"
+          : props.kind === "key"
+            ? "KEY"
+            : "TAB"}
+    </span>
+  );
+}
+
+function describeConnection(connection: DbConnection) {
+  if (connection.kind === "sqlite") {
+    return connection.config.filePath.trim() || "Local file";
+  }
+
+  if (connection.kind === "oracle") {
+    const serviceName =
+      connection.config.serviceName.trim() ||
+      connection.config.database.trim() ||
+      "FREEPDB1";
+    return `${connection.config.host.trim() || "localhost"}:${connection.config.port.trim() || "1521"} / ${serviceName}`;
+  }
+
+  const host = connection.config.host.trim() || "localhost";
+  const port = connection.config.port.trim();
+  const database = connection.config.database.trim();
+  const hostLabel = `${host}${port ? `:${port}` : ""}`;
+
+  if (database) {
+    return `${hostLabel} / ${database}`;
+  }
+
+  return hostLabel;
+}
+
+function getConnectionSearchText(connection: DbConnection) {
+  return [
+    connection.name,
+    getConnectionTypeLabel(connection.kind),
+    connection.config.host,
+    connection.config.port,
+    connection.config.database,
+    connection.config.filePath,
+    connection.config.serviceName,
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
 export function DbPanel(props: DbPanelProps) {
-  const [workspace, setWorkspace] = createSignal<DbWorkspaceState>({
-    folders: [],
-    connections: [],
-    openTabIds: [],
-    pinnedTabIds: [],
-    activeTabId: null,
-    tabsById: {},
-    favorites: [],
-    history: [],
-  });
-  const [sidebarView, setSidebarView] =
-    createSignal<DbSidebarView>("connections");
-  const [expandedFolderIds, setExpandedFolderIds] = createSignal<string[]>([]);
+  const [workspace, setWorkspace] = createSignal<DbWorkspaceState>(
+    getInitialWorkspace(),
+  );
   const [filter, setFilter] = createSignal("");
-  const [headerMenuOpen, setHeaderMenuOpen] = createSignal(false);
-  const [addConnectionMenuOpen, setAddConnectionMenuOpen] = createSignal(false);
-  const [folderMenu, setFolderMenu] = createSignal<FolderMenuState | null>(
-    null,
-  );
-  const [folderAddMenuId, setFolderAddMenuId] = createSignal<string | null>(
-    null,
-  );
-  const [connectionMenu, setConnectionMenu] =
-    createSignal<ConnectionMenuState | null>(null);
-  const [connectionMoveMenuId, setConnectionMoveMenuId] = createSignal<
+  const [expandedConnectionIds, setExpandedConnectionIds] = createSignal<
+    string[]
+  >([]);
+  const [expandedExplorerNodeIds, setExpandedExplorerNodeIds] = createSignal<
+    string[]
+  >([]);
+  const [explorerByConnectionId, setExplorerByConnectionId] = createSignal<
+    Record<string, ExplorerLoadState>
+  >({});
+  const [savedConnectionsModalOpen, setSavedConnectionsModalOpen] =
+    createSignal(false);
+  const [savedConnectionsFilter, setSavedConnectionsFilter] = createSignal("");
+  const [savedConnectionsError, setSavedConnectionsError] = createSignal<
     string | null
   >(null);
+  const [pendingConnectionId, setPendingConnectionId] = createSignal<
+    string | null
+  >(null);
+  const [returnToSavedConnectionsModal, setReturnToSavedConnectionsModal] =
+    createSignal(false);
+  const [connectionMenu, setConnectionMenu] =
+    createSignal<ConnectionMenuState | null>(null);
+  const [explorerNodeMenu, setExplorerNodeMenu] =
+    createSignal<ExplorerNodeMenuState | null>(null);
   const [tabMenu, setTabMenu] = createSignal<DbTabMenuState | null>(null);
   const [draggedTabId, setDraggedTabId] = createSignal<string | null>(null);
   const [tabDropTargetId, setTabDropTargetId] = createSignal<string | null>(
@@ -222,6 +371,16 @@ export function DbPanel(props: DbPanelProps) {
   >({});
   const [connectionModalMode, setConnectionModalMode] =
     createSignal<DbConnectionModalMode | null>(null);
+  const [loadingExplorerNodeIds, setLoadingExplorerNodeIds] = createSignal<
+    string[]
+  >([]);
+  const [sidebarSection, setSidebarSection] =
+    createSignal<SidebarSection>("connections");
+  const [favoriteMenu, setFavoriteMenu] =
+    createSignal<FavoriteMenuState | null>(null);
+  const [favoriteNameDraft, setFavoriteNameDraft] = createSignal<string | null>(
+    null,
+  );
   const [connectionDraftState, setConnectionDraftState] = createStore<{
     value: DbConnection | null;
   }>({
@@ -229,62 +388,110 @@ export function DbPanel(props: DbPanelProps) {
   });
 
   const normalizedFilter = createMemo(() => filter().trim().toLowerCase());
+  const normalizedSavedConnectionsFilter = createMemo(() =>
+    savedConnectionsFilter().trim().toLowerCase(),
+  );
   const connectionMap = createMemo(
     () =>
       new Map(
-        workspace().connections.map((connection) => [
+        workspace().savedConnections.map((connection) => [
           connection.id,
           connection,
         ]),
       ),
   );
-  const activeTab = createMemo(() =>
-    workspace().activeTabId
-      ? (workspace().tabsById[workspace().activeTabId] ?? null)
-      : null,
+  const connectedConnections = createMemo(() =>
+    workspace()
+      .connectedConnectionIds.map((connectionId) =>
+        connectionMap().get(connectionId),
+      )
+      .filter((connection): connection is DbConnection => Boolean(connection)),
   );
-  const activeConnection = createMemo(() =>
-    activeTab()
-      ? (connectionMap().get(activeTab()!.connectionId) ?? null)
-      : null,
-  );
-  const folderEntries = createMemo(() =>
-    workspace().folders.map((folder) => ({
-      folder,
-      connections: workspace().connections.filter(
-        (connection) => connection.folderId === folder.id,
+  const filteredConnectedConnections = createMemo(() => {
+    if (!normalizedFilter()) {
+      return connectedConnections();
+    }
+
+    return connectedConnections().filter((connection) =>
+      getConnectionSearchText(connection).includes(normalizedFilter()),
+    );
+  });
+  const filteredSavedConnections = createMemo(() => {
+    if (!normalizedSavedConnectionsFilter()) {
+      return workspace().savedConnections;
+    }
+
+    return workspace().savedConnections.filter((connection) =>
+      getConnectionSearchText(connection).includes(
+        normalizedSavedConnectionsFilter(),
       ),
-    })),
-  );
-  const rootConnections = createMemo(() =>
-    workspace().connections.filter((connection) => !connection.folderId),
-  );
-  const filteredConnectionsFlat = createMemo(() => {
-    if (!normalizedFilter()) {
-      return [];
-    }
-    return workspace().connections.filter((connection) =>
-      connection.name.toLowerCase().includes(normalizedFilter()),
     );
   });
+  const activeTab = createMemo(() => {
+    const tabId = workspace().activeTabId;
+    return tabId ? (workspace().tabsById[tabId] ?? null) : null;
+  });
+  const activeConnection = createMemo(() => {
+    const tab = activeTab();
+    if (tab) {
+      return connectionMap().get(tab.connectionId) ?? null;
+    }
+
+    const connectionId = workspace().activeConnectionId;
+    if (connectionId) {
+      return connectionMap().get(connectionId) ?? null;
+    }
+
+    return null;
+  });
+  const activeConnectionId = createMemo(
+    () => activeConnection()?.id ?? workspace().activeConnectionId,
+  );
   const filteredFavorites = createMemo(() => {
-    if (!normalizedFilter()) {
-      return workspace().favorites;
-    }
-    return workspace().favorites.filter((item) =>
-      `${item.name} ${item.query}`.toLowerCase().includes(normalizedFilter()),
-    );
+    const favorites = workspace().favorites ?? [];
+    const connId = activeConnectionId();
+    const search = normalizedFilter();
+    return favorites.filter((fav) => {
+      if (connId && fav.connectionId !== connId) return false;
+      if (
+        search &&
+        !fav.name.toLowerCase().includes(search) &&
+        !fav.query.toLowerCase().includes(search)
+      )
+        return false;
+      return true;
+    });
   });
-  const filteredHistory = createMemo(() => {
-    if (!normalizedFilter()) {
-      return workspace().history;
-    }
-    return workspace().history.filter((item) =>
-      `${item.connectionName} ${item.query}`
-        .toLowerCase()
-        .includes(normalizedFilter()),
-    );
+  const recentHistory = createMemo(() => {
+    const history = workspace().history ?? [];
+    const search = normalizedFilter();
+    if (!search) return history.slice(0, 50);
+    return history
+      .filter(
+        (item) =>
+          item.query.toLowerCase().includes(search) ||
+          item.connectionName.toLowerCase().includes(search),
+      )
+      .slice(0, 50);
   });
+  const tabItems = createMemo(() =>
+    workspace()
+      .openTabIds.map((tabId) => {
+        const tab = workspace().tabsById[tabId];
+        const connection = tab ? connectionMap().get(tab.connectionId) : null;
+        if (!tab || !connection) return null;
+        const badge = getConnectionBadge(connection);
+        return {
+          id: tab.id,
+          name: tab.title,
+          badgeLabel: badge.label,
+          badgeClass: badge.class,
+          active: workspace().activeTabId === tab.id,
+          pinned: workspace().pinnedTabIds.includes(tab.id),
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item)),
+  );
 
   onMount(() => {
     void loadDbWorkspace().then((loaded) => {
@@ -296,14 +503,13 @@ export function DbPanel(props: DbPanelProps) {
       if (target?.closest("[data-db-menu-root]")) {
         return;
       }
-      setHeaderMenuOpen(false);
-      setAddConnectionMenuOpen(false);
-      setFolderMenu(null);
-      setFolderAddMenuId(null);
+
       setConnectionMenu(null);
-      setConnectionMoveMenuId(null);
+      setExplorerNodeMenu(null);
       setTabMenu(null);
+      setFavoriteMenu(null);
     };
+
     document.addEventListener("pointerdown", handlePointerDown);
     onCleanup(() => {
       document.removeEventListener("pointerdown", handlePointerDown);
@@ -317,49 +523,399 @@ export function DbPanel(props: DbPanelProps) {
     await saveDbWorkspace(next);
   }
 
-  function toggleFolderExpanded(folderId: string) {
-    setExpandedFolderIds((current) =>
-      current.includes(folderId)
-        ? current.filter((id) => id !== folderId)
-        : [...current, folderId],
+  function isConnectionExpanded(connectionId: string) {
+    return expandedConnectionIds().includes(connectionId);
+  }
+
+  function isExplorerNodeExpanded(nodeId: string) {
+    return expandedExplorerNodeIds().includes(nodeId);
+  }
+
+  function toggleExplorerNodeExpanded(nodeId: string) {
+    setExpandedExplorerNodeIds((current) =>
+      current.includes(nodeId)
+        ? current.filter((id) => id !== nodeId)
+        : [...current, nodeId],
     );
   }
 
-  function isFolderExpanded(folderId: string) {
-    return expandedFolderIds().includes(folderId);
+  function updateExplorerNodeChildren(
+    nodes: DbExplorerNode[],
+    targetId: string,
+    newChildren: DbExplorerNode[],
+  ): DbExplorerNode[] {
+    return nodes.map((node) => {
+      if (node.kind !== "group") return node;
+      if (node.id === targetId) {
+        return { ...node, children: newChildren, lazy: false };
+      }
+      return {
+        ...node,
+        children: updateExplorerNodeChildren(
+          node.children,
+          targetId,
+          newChildren,
+        ),
+      };
+    });
   }
 
-  async function addFolder() {
-    const folder = createDbFolder();
+  function expandExplorerGroupNode(
+    connectionId: string,
+    node: DbExplorerNode & { kind: "group" },
+  ) {
+    const wasExpanded = isExplorerNodeExpanded(node.id);
+    toggleExplorerNodeExpanded(node.id);
+
+    if (!wasExpanded && node.lazy && node.children.length === 0) {
+      void loadLazyExplorerNode(connectionId, node);
+    }
+  }
+
+  async function loadLazyExplorerNode(
+    connectionId: string,
+    node: DbExplorerNode & { kind: "group" },
+  ) {
+    const connection = connectionMap().get(connectionId);
+    if (!connection) return;
+
+    setLoadingExplorerNodeIds((prev) => [...prev, node.id]);
+
+    try {
+      const children = await loadDbExplorerDatabaseChildren(
+        connection,
+        node.label,
+      );
+      setExplorerByConnectionId((current) => {
+        const entry = current[connectionId];
+        if (!entry) return current;
+        return {
+          ...current,
+          [connectionId]: {
+            ...entry,
+            nodes: updateExplorerNodeChildren(entry.nodes, node.id, children),
+          },
+        };
+      });
+    } catch {
+      // Silently fail - user can retry by collapsing and re-expanding
+    } finally {
+      setLoadingExplorerNodeIds((prev) =>
+        prev.filter((id) => id !== node.id),
+      );
+    }
+  }
+
+  async function loadConnectionExplorer(connection: DbConnection) {
+    setExplorerByConnectionId((current) => ({
+      ...current,
+      [connection.id]: {
+        status: "loading",
+        nodes: current[connection.id]?.nodes ?? [],
+      },
+    }));
+
+    try {
+      const nodes = await loadDbExplorer(connection);
+      setExplorerByConnectionId((current) => ({
+        ...current,
+        [connection.id]: {
+          status: "ready",
+          nodes,
+        },
+      }));
+    } catch (error) {
+      setExplorerByConnectionId((current) => ({
+        ...current,
+        [connection.id]: {
+          status: "error",
+          nodes: current[connection.id]?.nodes ?? [],
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to load database objects.",
+        },
+      }));
+    }
+  }
+
+  function toggleConnectionExpanded(connection: DbConnection) {
+    const willExpand = !isConnectionExpanded(connection.id);
+    setExpandedConnectionIds((current) =>
+      current.includes(connection.id)
+        ? current.filter((id) => id !== connection.id)
+        : [...current, connection.id],
+    );
+
+    if (!willExpand) {
+      return;
+    }
+
+    const explorer = explorerByConnectionId()[connection.id];
+    if (
+      !explorer ||
+      explorer.status === "idle" ||
+      explorer.status === "error"
+    ) {
+      void loadConnectionExplorer(connection);
+    }
+  }
+
+  function findExplorerLeafNode(
+    nodes: DbExplorerNode[],
+    nodeId: string,
+  ): ExplorerLeafNode | null {
+    for (const node of nodes) {
+      if (node.kind === "group") {
+        const nested = findExplorerLeafNode(node.children, nodeId);
+        if (nested) {
+          return nested;
+        }
+        continue;
+      }
+
+      if (node.id === nodeId) {
+        return node;
+      }
+    }
+
+    return null;
+  }
+
+  function getExplorerPreviewMenuLabel(node: ExplorerLeafNode) {
+    switch (node.kind) {
+      case "collection":
+        return "Find Documents";
+      case "key":
+        return "Inspect Key";
+      case "table":
+      case "view":
+      default:
+        return "SELECT TOP/LIMIT";
+    }
+  }
+
+  async function openExplorerQuery(
+    connection: DbConnection,
+    node: ExplorerLeafNode,
+    query: string,
+    options?: {
+      forceNew?: boolean;
+      titleSuffix?: string;
+    },
+  ) {
+    const forceNew = options?.forceNew ?? false;
+    const activeTabId = workspace().activeTabId;
+    const existingId = !forceNew
+      ? activeTabId &&
+        workspace().tabsById[activeTabId]?.connectionId === connection.id
+        ? activeTabId
+        : (workspace().openTabIds.find(
+            (tabId) =>
+              workspace().tabsById[tabId]?.connectionId === connection.id,
+          ) ?? null)
+      : null;
+    const title = `${connection.name} · ${node.label}${
+      options?.titleSuffix ? ` · ${options.titleSuffix}` : ""
+    }`;
+
     await commitWorkspace((draft) => {
-      draft.folders.push(folder);
+      if (!draft.connectedConnectionIds.includes(connection.id)) {
+        draft.connectedConnectionIds = [
+          connection.id,
+          ...draft.connectedConnectionIds,
+        ];
+      }
+
+      draft.activeConnectionId = connection.id;
+
+      if (existingId && draft.tabsById[existingId]) {
+        draft.tabsById[existingId].title = title;
+        draft.tabsById[existingId].query = query;
+        draft.activeTabId = existingId;
+        return;
+      }
+
+      const tab = createDbTab(connection);
+      tab.title = title;
+      tab.query = query;
+      draft.tabsById[tab.id] = tab;
+      draft.openTabIds.push(tab.id);
+      draft.activeTabId = tab.id;
     });
-    setExpandedFolderIds((current) => [...current, folder.id]);
-    setHeaderMenuOpen(false);
+
+    closeFloatingMenus();
+  }
+
+  async function openExplorerLeaf(
+    connection: DbConnection,
+    node: DbExplorerNode,
+  ) {
+    if (node.kind === "group") {
+      toggleExplorerNodeExpanded(node.id);
+      return;
+    }
+
+    await openExplorerQuery(connection, node, node.query, { forceNew: true });
+  }
+
+  function resetConnectionExplorer(connectionId: string) {
+    setExpandedConnectionIds((current) =>
+      current.filter((id) => id !== connectionId),
+    );
+    setExplorerByConnectionId((current) => {
+      const next = { ...current };
+      delete next[connectionId];
+      return next;
+    });
+  }
+
+  async function refreshConnectionExplorer(connection: DbConnection) {
+    closeFloatingMenus();
+    await loadConnectionExplorer(connection);
+  }
+
+  async function refreshAllExplorers() {
+    closeFloatingMenus();
+    await Promise.all(
+      connectedConnections().map((connection) =>
+        loadConnectionExplorer(connection),
+      ),
+    );
+  }
+
+  async function resetConnectionExplorerCache(connection: DbConnection) {
+    setExpandedExplorerNodeIds([]);
+    setExplorerByConnectionId((current) => {
+      const next = { ...current };
+      delete next[connection.id];
+      return next;
+    });
+    closeFloatingMenus();
+    if (isConnectionExpanded(connection.id)) {
+      await loadConnectionExplorer(connection);
+    }
+  }
+
+  async function resetAllExplorerCaches() {
+    const expandedIds = new Set(expandedConnectionIds());
+    const expandedConnections = connectedConnections().filter((connection) =>
+      expandedIds.has(connection.id),
+    );
+
+    setExpandedExplorerNodeIds([]);
+    setExplorerByConnectionId({});
+    closeFloatingMenus();
+
+    await Promise.all(
+      expandedConnections.map((connection) =>
+        loadConnectionExplorer(connection),
+      ),
+    );
+  }
+
+  function clearTabArtifacts(tabIds: string[]) {
+    if (tabIds.length === 0) {
+      return;
+    }
+
+    setResultByTabId((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([tabId]) => !tabIds.includes(tabId)),
+      ),
+    );
+    setRawByTabId((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([tabId]) => !tabIds.includes(tabId)),
+      ),
+    );
+    setExecutionByTabId((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([tabId]) => !tabIds.includes(tabId)),
+      ),
+    );
+    setResultViewByTabId((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([tabId]) => !tabIds.includes(tabId)),
+      ),
+    );
+  }
+
+  function closeFloatingMenus() {
+    setConnectionMenu(null);
+    setExplorerNodeMenu(null);
+    setTabMenu(null);
+    setFavoriteMenu(null);
+  }
+
+  function openSavedConnectionsModal() {
+    setSavedConnectionsError(null);
+    setPendingConnectionId(null);
+    setSavedConnectionsModalOpen(true);
+    closeFloatingMenus();
+  }
+
+  function closeSavedConnectionsModal() {
+    setSavedConnectionsModalOpen(false);
+    setSavedConnectionsError(null);
+    setPendingConnectionId(null);
   }
 
   function openCreateConnectionModal(
-    kind: DbConnectionKind,
-    folderId: string | null = null,
+    kind: DbConnectionKind = "postgresql",
+    reopenSavedConnections = false,
   ) {
-    setConnectionDraftState("value", createDbConnection(kind, folderId));
+    setConnectionDraftState("value", createDbConnection(kind));
     setConnectionModalMode("create");
-    setAddConnectionMenuOpen(false);
-    setHeaderMenuOpen(false);
-    setFolderMenu(null);
-    setFolderAddMenuId(null);
+    setReturnToSavedConnectionsModal(reopenSavedConnections);
+    if (reopenSavedConnections) {
+      closeSavedConnectionsModal();
+    }
+    closeFloatingMenus();
   }
 
-  function openEditConnectionModal(connection: DbConnection) {
+  function openEditConnectionModal(
+    connection: DbConnection,
+    reopenSavedConnections = false,
+  ) {
     setConnectionDraftState("value", cloneValue(connection));
     setConnectionModalMode("edit");
-    setConnectionMenu(null);
-    setConnectionMoveMenuId(null);
+    setReturnToSavedConnectionsModal(reopenSavedConnections);
+    if (reopenSavedConnections) {
+      closeSavedConnectionsModal();
+    }
+    closeFloatingMenus();
   }
 
   function closeConnectionModal() {
+    const shouldReopenSavedConnections = returnToSavedConnectionsModal();
     setConnectionModalMode(null);
     setConnectionDraftState("value", null);
+    setReturnToSavedConnectionsModal(false);
+
+    if (shouldReopenSavedConnections) {
+      setSavedConnectionsModalOpen(true);
+    }
+  }
+
+  function changeConnectionDraftKind(kind: DbConnectionKind) {
+    const current = connectionDraftState.value;
+    if (!current) return;
+
+    const template = createDbConnection(kind);
+    const next: DbConnection = {
+      ...current,
+      kind,
+      config: template.config,
+      defaultQuery: template.defaultQuery,
+      url: buildDbConnectionUrl({
+        kind,
+        config: template.config,
+        url: current.url,
+      }),
+    };
+
+    setConnectionDraftState("value", next);
   }
 
   function updateConnectionDraft<K extends keyof DbConnection>(
@@ -368,11 +924,15 @@ export function DbPanel(props: DbPanelProps) {
   ) {
     const current = connectionDraftState.value;
     if (!current) return;
+
     setConnectionDraftState("value", key, value);
-    if (key !== "url") {
-      const next = cloneValue({ ...current, [key]: value });
-      setConnectionDraftState("value", "url", buildDbConnectionUrl(next));
+
+    if (key === "url" || key === "kind") {
+      return;
     }
+
+    const next = cloneValue({ ...current, [key]: value });
+    setConnectionDraftState("value", "url", buildDbConnectionUrl(next));
   }
 
   function updateConnectionDraftConfig<K extends keyof DbConnectionConfig>(
@@ -381,6 +941,7 @@ export function DbPanel(props: DbPanelProps) {
   ) {
     const current = connectionDraftState.value;
     if (!current) return;
+
     setConnectionDraftState("value", "config", key, value);
     const next = cloneValue({
       ...current,
@@ -398,32 +959,35 @@ export function DbPanel(props: DbPanelProps) {
       : null;
     const mode = connectionModalMode();
     if (!draftConnection || !mode) return;
-    const normalizedConnection = {
+
+    const normalizedConnection: DbConnection = {
       ...draftConnection,
       name:
         draftConnection.name.trim() ||
         getConnectionTypeLabel(draftConnection.kind),
       url: buildDbConnectionUrl(draftConnection) || draftConnection.url.trim(),
+      defaultQuery:
+        draftConnection.defaultQuery.trim() ||
+        createDbConnection(draftConnection.kind).defaultQuery,
     };
 
     if (mode === "create") {
-      const tab = createDbTab(normalizedConnection);
       await commitWorkspace((draft) => {
-        draft.connections.push(normalizedConnection);
-        draft.tabsById[tab.id] = tab;
-        draft.openTabIds.push(tab.id);
-        draft.activeTabId = tab.id;
+        draft.savedConnections = [
+          normalizedConnection,
+          ...draft.savedConnections,
+        ];
       });
-      if (normalizedConnection.folderId) {
-        setExpandedFolderIds((current) =>
-          current.includes(normalizedConnection.folderId!)
-            ? current
-            : [...current, normalizedConnection.folderId!],
-        );
-      }
+      setExplorerByConnectionId((current) => ({
+        ...current,
+        [normalizedConnection.id]: {
+          status: "idle",
+          nodes: [],
+        },
+      }));
     } else {
       await commitWorkspace((draft) => {
-        const target = draft.connections.find(
+        const target = draft.savedConnections.find(
           (item) => item.id === normalizedConnection.id,
         );
         if (!target) return;
@@ -433,7 +997,21 @@ export function DbPanel(props: DbPanelProps) {
             tab.title = normalizedConnection.name;
           }
         }
+        if (
+          draft.activeConnectionId &&
+          draft.activeConnectionId === normalizedConnection.id
+        ) {
+          draft.activeConnectionId = normalizedConnection.id;
+        }
       });
+      resetConnectionExplorer(normalizedConnection.id);
+      if (isConnectionExpanded(normalizedConnection.id)) {
+        setExpandedConnectionIds((current) => [
+          ...current,
+          normalizedConnection.id,
+        ]);
+        void loadConnectionExplorer(normalizedConnection);
+      }
     }
 
     closeConnectionModal();
@@ -442,6 +1020,7 @@ export function DbPanel(props: DbPanelProps) {
   async function updateActiveQuery(query: string) {
     const tab = activeTab();
     if (!tab) return;
+
     await commitWorkspace((draft) => {
       draft.tabsById[tab.id].query = query;
     });
@@ -455,29 +1034,104 @@ export function DbPanel(props: DbPanelProps) {
         ) ?? null)
       : null;
 
-    if (existingId) {
-      await commitWorkspace((draft) => {
-        draft.activeTabId = existingId;
-      });
-      return;
-    }
-
-    const tab = createDbTab(connection);
     await commitWorkspace((draft) => {
+      if (!draft.connectedConnectionIds.includes(connection.id)) {
+        draft.connectedConnectionIds = [
+          connection.id,
+          ...draft.connectedConnectionIds,
+        ];
+      }
+
+      draft.activeConnectionId = connection.id;
+
+      if (existingId && draft.tabsById[existingId]) {
+        draft.activeTabId = existingId;
+        return;
+      }
+
+      const tab = createDbTab(connection);
       draft.tabsById[tab.id] = tab;
       draft.openTabIds.push(tab.id);
       draft.activeTabId = tab.id;
     });
   }
 
+  async function connectSavedConnection(connection: DbConnection) {
+    if (workspace().connectedConnectionIds.includes(connection.id)) {
+      closeSavedConnectionsModal();
+      await commitWorkspace((draft) => {
+        draft.activeConnectionId = connection.id;
+      });
+      expandConnection(connection);
+      return;
+    }
+
+    setSavedConnectionsError(null);
+    setPendingConnectionId(connection.id);
+
+    try {
+      await testDbConnection(connection);
+      await commitWorkspace((draft) => {
+        draft.connectedConnectionIds = [
+          connection.id,
+          ...draft.connectedConnectionIds,
+        ];
+        draft.activeConnectionId = connection.id;
+      });
+      setExpandedConnectionIds((current) =>
+        current.includes(connection.id) ? current : [...current, connection.id],
+      );
+      void loadConnectionExplorer(connection);
+      closeSavedConnectionsModal();
+    } catch (error) {
+      setSavedConnectionsError(
+        error instanceof Error ? error.message : "Connection failed.",
+      );
+    } finally {
+      setPendingConnectionId(null);
+    }
+  }
+
+  function expandConnection(connection: DbConnection) {
+    if (isConnectionExpanded(connection.id)) {
+      return;
+    }
+
+    setExpandedConnectionIds((current) => [...current, connection.id]);
+
+    const explorer = explorerByConnectionId()[connection.id];
+    if (
+      !explorer ||
+      explorer.status === "idle" ||
+      explorer.status === "error"
+    ) {
+      void loadConnectionExplorer(connection);
+    }
+  }
+
+  async function focusConnectedConnection(connection: DbConnection) {
+    await commitWorkspace((draft) => {
+      draft.activeConnectionId = connection.id;
+    });
+    expandConnection(connection);
+  }
+
   async function closeTab(tabId: string) {
+    clearTabArtifacts([tabId]);
+
     await commitWorkspace((draft) => {
       delete draft.tabsById[tabId];
       draft.openTabIds = draft.openTabIds.filter((id) => id !== tabId);
       draft.pinnedTabIds = draft.pinnedTabIds.filter((id) => id !== tabId);
+
       if (draft.activeTabId === tabId) {
         draft.activeTabId = draft.openTabIds.at(-1) ?? null;
       }
+
+      draft.activeConnectionId = draft.activeTabId
+        ? (draft.tabsById[draft.activeTabId]?.connectionId ??
+          draft.activeConnectionId)
+        : (draft.connectedConnectionIds[0] ?? null);
     });
   }
 
@@ -491,10 +1145,14 @@ export function DbPanel(props: DbPanelProps) {
   }
 
   async function closeOtherTabs(tabId: string) {
+    const keepIds = workspace().openTabIds.filter(
+      (id) => id === tabId || workspace().pinnedTabIds.includes(id),
+    );
+    clearTabArtifacts(
+      workspace().openTabIds.filter((id) => !keepIds.includes(id)),
+    );
+
     await commitWorkspace((draft) => {
-      const keepIds = draft.openTabIds.filter(
-        (id) => id === tabId || draft.pinnedTabIds.includes(id),
-      );
       draft.openTabIds = keepIds;
       draft.activeTabId = keepIds.includes(draft.activeTabId ?? "")
         ? draft.activeTabId
@@ -502,46 +1160,32 @@ export function DbPanel(props: DbPanelProps) {
       draft.tabsById = Object.fromEntries(
         Object.entries(draft.tabsById).filter(([id]) => keepIds.includes(id)),
       );
+      draft.activeConnectionId = draft.activeTabId
+        ? (draft.tabsById[draft.activeTabId]?.connectionId ??
+          draft.activeConnectionId)
+        : (draft.connectedConnectionIds[0] ?? null);
     });
     setTabMenu(null);
   }
 
   async function closeAllTabs() {
+    const keepIds = workspace().pinnedTabIds.filter((id) =>
+      workspace().openTabIds.includes(id),
+    );
+    clearTabArtifacts(
+      workspace().openTabIds.filter((id) => !keepIds.includes(id)),
+    );
+
     await commitWorkspace((draft) => {
-      const keepIds = draft.pinnedTabIds.filter((id) =>
-        draft.openTabIds.includes(id),
-      );
       draft.openTabIds = keepIds;
       draft.activeTabId = keepIds.at(-1) ?? null;
       draft.tabsById = Object.fromEntries(
         Object.entries(draft.tabsById).filter(([id]) => keepIds.includes(id)),
       );
-    });
-    setTabMenu(null);
-  }
-
-  async function closeTabsToDirection(
-    tabId: string,
-    direction: "left" | "right",
-  ) {
-    await commitWorkspace((draft) => {
-      const index = draft.openTabIds.indexOf(tabId);
-      if (index < 0) return;
-      const keepIds = draft.openTabIds.filter((id, currentIndex) => {
-        if (draft.pinnedTabIds.includes(id) || id === tabId) {
-          return true;
-        }
-        return direction === "left"
-          ? currentIndex > index
-          : currentIndex < index;
-      });
-      draft.openTabIds = keepIds;
-      draft.activeTabId = keepIds.includes(draft.activeTabId ?? "")
-        ? draft.activeTabId
-        : tabId;
-      draft.tabsById = Object.fromEntries(
-        Object.entries(draft.tabsById).filter(([id]) => keepIds.includes(id)),
-      );
+      draft.activeConnectionId = draft.activeTabId
+        ? (draft.tabsById[draft.activeTabId]?.connectionId ??
+          draft.activeConnectionId)
+        : (draft.connectedConnectionIds[0] ?? null);
     });
     setTabMenu(null);
   }
@@ -551,6 +1195,7 @@ export function DbPanel(props: DbPanelProps) {
       const fromIndex = draft.openTabIds.indexOf(fromId);
       const toIndex = draft.openTabIds.indexOf(toId);
       if (fromIndex < 0 || toIndex < 0) return;
+
       const moved = arrayMove(draft.openTabIds, fromIndex, toIndex);
       const pinned = moved.filter((id) => draft.pinnedTabIds.includes(id));
       const unpinned = moved.filter((id) => !draft.pinnedTabIds.includes(id));
@@ -562,6 +1207,7 @@ export function DbPanel(props: DbPanelProps) {
     await commitWorkspace((draft) => {
       const fromIndex = draft.openTabIds.indexOf(fromId);
       if (fromIndex < 0) return;
+
       const moved = arrayMove(
         draft.openTabIds,
         fromIndex,
@@ -573,225 +1219,98 @@ export function DbPanel(props: DbPanelProps) {
     });
   }
 
-  async function renameFolder(folder: DbFolder) {
-    const name = window.prompt("Folder name", folder.name)?.trim();
-    if (!name) return;
-    await commitWorkspace((draft) => {
-      const target = draft.folders.find((item) => item.id === folder.id);
-      if (target) target.name = name;
-    });
-    setFolderMenu(null);
-  }
+  async function saveCurrentTab() {
+    const tab = activeTab();
+    const connection = activeConnection();
+    if (!tab || !connection) return;
 
-  async function deleteFolder(folderId: string) {
     await commitWorkspace((draft) => {
-      draft.folders = draft.folders.filter((folder) => folder.id !== folderId);
-      draft.connections = draft.connections.map((connection) =>
-        connection.folderId === folderId
-          ? { ...connection, folderId: null }
-          : connection,
-      );
-    });
-    setExpandedFolderIds((current) => current.filter((id) => id !== folderId));
-    setFolderMenu(null);
-  }
-
-  async function moveFolderDirection(
-    folderId: string,
-    direction: "up" | "down",
-  ) {
-    await commitWorkspace((draft) => {
-      const orderedIds = reorderByDirection(
-        draft.folders.map((folder) => folder.id),
-        folderId,
-        direction,
-      );
-      const order = new Map(orderedIds.map((id, index) => [id, index]));
-      draft.folders.sort(
-        (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
-      );
-    });
-    setFolderMenu(null);
-  }
-
-  async function moveConnectionDirection(
-    connection: DbConnection,
-    direction: "up" | "down",
-  ) {
-    await commitWorkspace((draft) => {
-      const siblingFolderId = connection.folderId ?? null;
-      const siblingIds = draft.connections
-        .filter((item) => (item.folderId ?? null) === siblingFolderId)
-        .map((item) => item.id);
-      const nextIds = reorderByDirection(siblingIds, connection.id, direction);
-      const order = new Map(nextIds.map((id, index) => [id, index]));
-      const original = new Map(
-        draft.connections.map((item, index) => [item.id, index]),
-      );
-      draft.connections.sort((a, b) => {
-        const aMatch = (a.folderId ?? null) === siblingFolderId;
-        const bMatch = (b.folderId ?? null) === siblingFolderId;
-        if (aMatch && bMatch) {
-          return (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0);
-        }
-        return (original.get(a.id) ?? 0) - (original.get(b.id) ?? 0);
-      });
-    });
-    setConnectionMenu(null);
-    setConnectionMoveMenuId(null);
-  }
-
-  async function moveConnectionToFolder(
-    connection: DbConnection,
-    folderId: string | null,
-  ) {
-    await commitWorkspace((draft) => {
-      const target = draft.connections.find(
+      const targetConnection = draft.savedConnections.find(
         (item) => item.id === connection.id,
       );
-      if (target) {
-        target.folderId = folderId;
-      }
+      const targetTab = draft.tabsById[tab.id];
+      if (!targetConnection || !targetTab) return;
+
+      targetConnection.name =
+        targetConnection.name.trim() ||
+        getConnectionTypeLabel(targetConnection.kind);
+      targetConnection.defaultQuery = targetTab.query;
+      targetConnection.url = buildDbConnectionUrl(targetConnection);
+      targetTab.title = targetConnection.name;
     });
-    setConnectionMenu(null);
-    setConnectionMoveMenuId(null);
   }
 
-  async function deleteConnection(connectionId: string) {
+  async function disconnectConnection(connectionId: string) {
+    const removedTabIds = Object.values(workspace().tabsById)
+      .filter((tab) => tab.connectionId === connectionId)
+      .map((tab) => tab.id);
+    clearTabArtifacts(removedTabIds);
+
     await commitWorkspace((draft) => {
-      draft.connections = draft.connections.filter(
-        (connection) => connection.id !== connectionId,
+      draft.connectedConnectionIds = draft.connectedConnectionIds.filter(
+        (id) => id !== connectionId,
       );
-      const removedTabIds = Object.values(draft.tabsById)
-        .filter((tab) => tab.connectionId === connectionId)
-        .map((tab) => tab.id);
       draft.openTabIds = draft.openTabIds.filter(
-        (id) => !removedTabIds.includes(id),
+        (tabId) => !removedTabIds.includes(tabId),
       );
       draft.pinnedTabIds = draft.pinnedTabIds.filter(
-        (id) => !removedTabIds.includes(id),
+        (tabId) => !removedTabIds.includes(tabId),
       );
       draft.tabsById = Object.fromEntries(
         Object.entries(draft.tabsById).filter(
           ([, tab]) => tab.connectionId !== connectionId,
         ),
       );
+
       if (draft.activeTabId && removedTabIds.includes(draft.activeTabId)) {
         draft.activeTabId = draft.openTabIds.at(-1) ?? null;
       }
-      draft.favorites = draft.favorites.filter(
-        (item) => item.connectionId !== connectionId,
-      );
-      draft.history = draft.history.filter(
-        (item) => item.connectionId !== connectionId,
-      );
+
+      draft.activeConnectionId = draft.activeTabId
+        ? (draft.tabsById[draft.activeTabId]?.connectionId ?? null)
+        : (draft.connectedConnectionIds[0] ?? null);
     });
-    setConnectionMenu(null);
-    setConnectionMoveMenuId(null);
+
+    resetConnectionExplorer(connectionId);
+    closeFloatingMenus();
   }
 
-  async function saveCurrentTab() {
-    const tab = activeTab();
-    const connection = activeConnection();
-    if (!tab || !connection) return;
-    await commitWorkspace((draft) => {
-      const targetConnection = draft.connections.find(
-        (item) => item.id === connection.id,
-      );
-      const targetTab = draft.tabsById[tab.id];
-      if (!targetConnection || !targetTab) return;
-      targetConnection.name =
-        targetConnection.name.trim() ||
-        getConnectionTypeLabel(targetConnection.kind);
-      targetTab.title = targetConnection.name;
-      targetConnection.defaultQuery = targetTab.query;
-      targetConnection.url = buildDbConnectionUrl(targetConnection);
-    });
-  }
+  async function removeSavedConnection(connectionId: string) {
+    const removedTabIds = Object.values(workspace().tabsById)
+      .filter((tab) => tab.connectionId === connectionId)
+      .map((tab) => tab.id);
+    clearTabArtifacts(removedTabIds);
 
-  async function addCurrentQueryToFavorites() {
-    const connection = activeConnection();
-    const tab = activeTab();
-    if (!connection || !tab || !tab.query.trim()) return;
     await commitWorkspace((draft) => {
-      const existing = draft.favorites.find(
-        (item) =>
-          item.connectionId === connection.id &&
-          item.query.trim() === tab.query.trim(),
+      draft.savedConnections = draft.savedConnections.filter(
+        (connection) => connection.id !== connectionId,
       );
-      if (existing) {
-        existing.createdAt = new Date().toISOString();
-        existing.name = existing.name || `${connection.name} Favorite`;
-        return;
+      draft.connectedConnectionIds = draft.connectedConnectionIds.filter(
+        (id) => id !== connectionId,
+      );
+      draft.openTabIds = draft.openTabIds.filter(
+        (tabId) => !removedTabIds.includes(tabId),
+      );
+      draft.pinnedTabIds = draft.pinnedTabIds.filter(
+        (tabId) => !removedTabIds.includes(tabId),
+      );
+      draft.tabsById = Object.fromEntries(
+        Object.entries(draft.tabsById).filter(
+          ([, tab]) => tab.connectionId !== connectionId,
+        ),
+      );
+
+      if (draft.activeTabId && removedTabIds.includes(draft.activeTabId)) {
+        draft.activeTabId = draft.openTabIds.at(-1) ?? null;
       }
-      draft.favorites = [
-        createDbFavorite(connection, tab.query, tab.query.split("\n")[0]),
-        ...draft.favorites,
-      ].slice(0, 100);
-    });
-    setSidebarView("favorites");
-  }
 
-  async function applyFavorite(favorite: DbFavoriteQuery) {
-    const connection = connectionMap().get(favorite.connectionId);
-    if (!connection) return;
-    let targetTabId =
-      workspace().openTabIds.find(
-        (tabId) => workspace().tabsById[tabId]?.connectionId === connection.id,
-      ) ?? null;
-    if (!targetTabId) {
-      const tab = createDbTab(connection);
-      targetTabId = tab.id;
-      await commitWorkspace((draft) => {
-        draft.tabsById[tab.id] = tab;
-        draft.openTabIds.push(tab.id);
-        draft.activeTabId = tab.id;
-      });
-    } else {
-      await commitWorkspace((draft) => {
-        draft.activeTabId = targetTabId;
-      });
-    }
-    await commitWorkspace((draft) => {
-      if (targetTabId && draft.tabsById[targetTabId]) {
-        draft.tabsById[targetTabId].query = favorite.query;
-      }
+      draft.activeConnectionId = draft.activeTabId
+        ? (draft.tabsById[draft.activeTabId]?.connectionId ?? null)
+        : (draft.connectedConnectionIds[0] ?? null);
     });
-  }
 
-  async function applyHistoryItem(item: DbQueryHistoryItem) {
-    const connection = connectionMap().get(item.connectionId);
-    if (!connection) return;
-    let targetTabId =
-      workspace().openTabIds.find(
-        (tabId) => workspace().tabsById[tabId]?.connectionId === connection.id,
-      ) ?? null;
-    if (!targetTabId) {
-      const tab = createDbTab(connection);
-      targetTabId = tab.id;
-      await commitWorkspace((draft) => {
-        draft.tabsById[tab.id] = tab;
-        draft.openTabIds.push(tab.id);
-        draft.activeTabId = tab.id;
-      });
-    } else {
-      await commitWorkspace((draft) => {
-        draft.activeTabId = targetTabId;
-      });
-    }
-    await commitWorkspace((draft) => {
-      if (targetTabId && draft.tabsById[targetTabId]) {
-        draft.tabsById[targetTabId].query = item.query;
-      }
-    });
-  }
-
-  async function removeFavorite(favoriteId: string) {
-    await commitWorkspace((draft) => {
-      draft.favorites = draft.favorites.filter(
-        (item) => item.id !== favoriteId,
-      );
-    });
+    resetConnectionExplorer(connectionId);
+    closeFloatingMenus();
   }
 
   async function runCurrentTab() {
@@ -820,121 +1339,126 @@ export function DbPanel(props: DbPanelProps) {
         },
       }));
       await commitWorkspace((draft) => {
-        draft.history = [
-          createDbHistoryItem(connection, tab.query, "success"),
-          ...draft.history,
-        ].slice(0, 150);
+        const item = createDbHistoryItem(connection, tab.query, "success");
+        draft.history = [item, ...(draft.history ?? [])].slice(0, 100);
       });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unknown database error";
+      setRawByTabId((current) => ({ ...current, [tab.id]: message }));
       setExecutionByTabId((current) => ({
         ...current,
         [tab.id]: { status: "error", message },
       }));
-      setRawByTabId((current) => ({ ...current, [tab.id]: message }));
       await commitWorkspace((draft) => {
-        draft.history = [
-          createDbHistoryItem(connection, tab.query, "error"),
-          ...draft.history,
-        ].slice(0, 150);
+        const item = createDbHistoryItem(connection, tab.query, "error");
+        draft.history = [item, ...(draft.history ?? [])].slice(0, 100);
       });
     }
   }
 
-  const tabItems = createMemo(() =>
-    workspace()
-      .openTabIds.map((tabId) => {
-        const tab = workspace().tabsById[tabId];
-        const connection = tab ? connectionMap().get(tab.connectionId) : null;
-        if (!tab || !connection) return null;
-        const badge = getConnectionBadge(connection);
-        return {
-          id: tab.id,
-          name: tab.title,
-          badgeLabel: badge.label,
-          badgeClass: badge.class,
-          active: workspace().activeTabId === tab.id,
-          pinned: workspace().pinnedTabIds.includes(tab.id),
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => Boolean(item)),
-  );
+  async function saveQueryAsFavorite() {
+    const tab = activeTab();
+    const connection = activeConnection();
+    if (!tab || !connection) return;
 
-  function renderConnectionRow(connection: DbConnection) {
-    return (
-      <div
-        class={`theme-sidebar-item group flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
-          activeConnection()?.id === connection.id
-            ? "theme-sidebar-item-active"
-            : ""
-        }`}
-        onClick={() => {
-          const existing = workspace().openTabIds.find(
-            (tabId) =>
-              workspace().tabsById[tabId]?.connectionId === connection.id,
-          );
-          if (existing) {
-            void commitWorkspace((draft) => {
-              draft.activeTabId = existing;
-            });
-          }
-        }}
-        onDblClick={() => void openConnectionTab(connection, true)}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          setConnectionMenu({
-            id: connection.id,
-            x: event.clientX,
-            y: event.clientY,
-          });
-          setConnectionMoveMenuId(null);
-          setFolderMenu(null);
-          setHeaderMenuOpen(false);
-        }}
-      >
-        <span class={`${getConnectionBadge(connection).class} shrink-0`}>
-          {getConnectionBadge(connection).label}
-        </span>
-        <button class="min-w-0 flex-1 text-left">
-          <p class="truncate text-[13px] font-medium" title={connection.name}>
-            {connection.name}
-          </p>
-        </button>
-        <div
-          class={`relative shrink-0 transition-opacity ${
-            connectionMenu()?.id === connection.id
-              ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-          }`}
-          data-db-menu-root
-        >
-          <button
-            class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
-            title="Connection options"
-            onClick={(event) => {
-              event.stopPropagation();
-              setConnectionMenu((current) =>
-                current?.id === connection.id
-                  ? null
-                  : { id: connection.id, x: 0, y: 0 },
-              );
-            }}
-          >
-            <ControlDot variant="menu" />
-          </button>
-        </div>
-      </div>
-    );
+    const name = favoriteNameDraft()?.trim() || tab.title;
+    const favorite = createDbFavorite(connection.id, name, tab.query);
+    await commitWorkspace((draft) => {
+      draft.favorites = [favorite, ...(draft.favorites ?? [])];
+    });
+    setFavoriteNameDraft(null);
+  }
+
+  async function removeFavorite(favoriteId: string) {
+    await commitWorkspace((draft) => {
+      draft.favorites = (draft.favorites ?? []).filter(
+        (f) => f.id !== favoriteId,
+      );
+    });
+    closeFloatingMenus();
+  }
+
+  async function loadFavoriteIntoTab(favorite: DbFavoriteQuery) {
+    const connection = connectionMap().get(favorite.connectionId);
+    if (!connection) return;
+
+    const existingId =
+      workspace().openTabIds.find(
+        (tabId) => workspace().tabsById[tabId]?.connectionId === connection.id,
+      ) ?? null;
+
+    await commitWorkspace((draft) => {
+      if (!draft.connectedConnectionIds.includes(connection.id)) {
+        draft.connectedConnectionIds = [
+          connection.id,
+          ...draft.connectedConnectionIds,
+        ];
+      }
+      draft.activeConnectionId = connection.id;
+
+      if (existingId && draft.tabsById[existingId]) {
+        draft.tabsById[existingId].title = favorite.name;
+        draft.tabsById[existingId].query = favorite.query;
+        draft.activeTabId = existingId;
+        return;
+      }
+
+      const tab = createDbTab(connection);
+      tab.title = favorite.name;
+      tab.query = favorite.query;
+      draft.tabsById[tab.id] = tab;
+      draft.openTabIds.push(tab.id);
+      draft.activeTabId = tab.id;
+    });
+  }
+
+  async function loadHistoryIntoTab(item: DbQueryHistoryItem) {
+    const connection = connectionMap().get(item.connectionId);
+    if (!connection) return;
+
+    const existingId =
+      workspace().openTabIds.find(
+        (tabId) => workspace().tabsById[tabId]?.connectionId === connection.id,
+      ) ?? null;
+
+    await commitWorkspace((draft) => {
+      if (!draft.connectedConnectionIds.includes(connection.id)) {
+        draft.connectedConnectionIds = [
+          connection.id,
+          ...draft.connectedConnectionIds,
+        ];
+      }
+      draft.activeConnectionId = connection.id;
+
+      if (existingId && draft.tabsById[existingId]) {
+        draft.tabsById[existingId].query = item.query;
+        draft.activeTabId = existingId;
+        return;
+      }
+
+      const tab = createDbTab(connection);
+      tab.query = item.query;
+      draft.tabsById[tab.id] = tab;
+      draft.openTabIds.push(tab.id);
+      draft.activeTabId = tab.id;
+    });
+  }
+
+  async function clearHistory() {
+    await commitWorkspace((draft) => {
+      draft.history = [];
+    });
   }
 
   function renderConfigField(
     label: string,
-    value: string,
+    getValue: string | (() => string),
     onInput: (value: string) => void,
     type = "text",
     placeholder?: string,
   ) {
+    const value = typeof getValue === "function" ? getValue : () => getValue;
     return (
       <label class="grid gap-1">
         <span class="theme-text-soft text-[11px] uppercase tracking-[0.16em]">
@@ -943,7 +1467,7 @@ export function DbPanel(props: DbPanelProps) {
         <input
           class="theme-input h-8 rounded-md px-2.5 text-sm"
           type={type}
-          value={value}
+          value={value()}
           placeholder={placeholder}
           onInput={(event) => onInput(event.currentTarget.value)}
         />
@@ -952,14 +1476,14 @@ export function DbPanel(props: DbPanelProps) {
   }
 
   function renderConnectionDraftForm(connection: DbConnection) {
-    const config = connection.config;
+    const cfg = () => connectionDraftState.value!.config;
 
     if (connection.kind === "sqlite") {
       return (
         <div class="grid gap-3">
           {renderConfigField(
             "File Path",
-            config.filePath,
+            () => cfg().filePath,
             (value) => updateConnectionDraftConfig("filePath", value),
             "text",
             "./devx.db",
@@ -971,35 +1495,39 @@ export function DbPanel(props: DbPanelProps) {
     if (connection.kind === "redis") {
       return (
         <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {renderConfigField("Host", config.host, (value) =>
-            updateConnectionDraftConfig("host", value),
+          {renderConfigField(
+            "Host",
+            () => cfg().host,
+            (value) => updateConnectionDraftConfig("host", value),
           )}
           {renderConfigField(
             "Port",
-            config.port,
+            () => cfg().port,
             (value) => updateConnectionDraftConfig("port", value),
             "text",
             "6379",
           )}
           {renderConfigField(
             "DB",
-            config.database,
+            () => cfg().database,
             (value) => updateConnectionDraftConfig("database", value),
             "text",
             "0",
           )}
-          {renderConfigField("Login", config.username, (value) =>
-            updateConnectionDraftConfig("username", value),
+          {renderConfigField(
+            "Login",
+            () => cfg().username,
+            (value) => updateConnectionDraftConfig("username", value),
           )}
           {renderConfigField(
             "Password",
-            config.password,
+            () => cfg().password,
             (value) => updateConnectionDraftConfig("password", value),
             "password",
           )}
           {renderConfigField(
             "Parameters",
-            config.options,
+            () => cfg().options,
             (value) => updateConnectionDraftConfig("options", value),
             "text",
             "protocol=3",
@@ -1011,35 +1539,39 @@ export function DbPanel(props: DbPanelProps) {
     if (connection.kind === "mongodb") {
       return (
         <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {renderConfigField("Host", config.host, (value) =>
-            updateConnectionDraftConfig("host", value),
+          {renderConfigField(
+            "Host",
+            () => cfg().host,
+            (value) => updateConnectionDraftConfig("host", value),
           )}
           {renderConfigField(
             "Port",
-            config.port,
+            () => cfg().port,
             (value) => updateConnectionDraftConfig("port", value),
             "text",
             "27017",
           )}
           {renderConfigField(
             "Database",
-            config.database,
+            () => cfg().database,
             (value) => updateConnectionDraftConfig("database", value),
             "text",
             "test",
           )}
-          {renderConfigField("Login", config.username, (value) =>
-            updateConnectionDraftConfig("username", value),
+          {renderConfigField(
+            "Login",
+            () => cfg().username,
+            (value) => updateConnectionDraftConfig("username", value),
           )}
           {renderConfigField(
             "Password",
-            config.password,
+            () => cfg().password,
             (value) => updateConnectionDraftConfig("password", value),
             "password",
           )}
           {renderConfigField(
             "Auth Source",
-            config.authSource,
+            () => cfg().authSource,
             (value) => updateConnectionDraftConfig("authSource", value),
             "text",
             "admin",
@@ -1047,7 +1579,7 @@ export function DbPanel(props: DbPanelProps) {
           <div class="md:col-span-2 xl:col-span-3">
             {renderConfigField(
               "Parameters",
-              config.options,
+              () => cfg().options,
               (value) => updateConnectionDraftConfig("options", value),
               "text",
               "replicaSet=rs0",
@@ -1060,35 +1592,39 @@ export function DbPanel(props: DbPanelProps) {
     if (connection.kind === "oracle") {
       return (
         <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {renderConfigField("Host", config.host, (value) =>
-            updateConnectionDraftConfig("host", value),
+          {renderConfigField(
+            "Host",
+            () => cfg().host,
+            (value) => updateConnectionDraftConfig("host", value),
           )}
           {renderConfigField(
             "Port",
-            config.port,
+            () => cfg().port,
             (value) => updateConnectionDraftConfig("port", value),
             "text",
             "1521",
           )}
           {renderConfigField(
             "Service",
-            config.serviceName,
+            () => cfg().serviceName,
             (value) => updateConnectionDraftConfig("serviceName", value),
             "text",
             "FREEPDB1",
           )}
-          {renderConfigField("Login", config.username, (value) =>
-            updateConnectionDraftConfig("username", value),
+          {renderConfigField(
+            "Login",
+            () => cfg().username,
+            (value) => updateConnectionDraftConfig("username", value),
           )}
           {renderConfigField(
             "Password",
-            config.password,
+            () => cfg().password,
             (value) => updateConnectionDraftConfig("password", value),
             "password",
           )}
           {renderConfigField(
             "Parameters",
-            config.options,
+            () => cfg().options,
             (value) => updateConnectionDraftConfig("options", value),
             "text",
             "standaloneConnection=0",
@@ -1108,35 +1644,39 @@ export function DbPanel(props: DbPanelProps) {
 
     return (
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {renderConfigField("Host", config.host, (value) =>
-          updateConnectionDraftConfig("host", value),
+        {renderConfigField(
+          "Host",
+          () => cfg().host,
+          (value) => updateConnectionDraftConfig("host", value),
         )}
         {renderConfigField(
           "Port",
-          config.port,
+          () => cfg().port,
           (value) => updateConnectionDraftConfig("port", value),
           "text",
           portPlaceholder,
         )}
         {renderConfigField(
           "Database",
-          config.database,
+          () => cfg().database,
           (value) => updateConnectionDraftConfig("database", value),
           "text",
-          "devx",
+          "",
         )}
-        {renderConfigField("Login", config.username, (value) =>
-          updateConnectionDraftConfig("username", value),
+        {renderConfigField(
+          "Login",
+          () => cfg().username,
+          (value) => updateConnectionDraftConfig("username", value),
         )}
         {renderConfigField(
           "Password",
-          config.password,
+          () => cfg().password,
           (value) => updateConnectionDraftConfig("password", value),
           "password",
         )}
         {renderConfigField(
           "Parameters",
-          config.options,
+          () => cfg().options,
           (value) => updateConnectionDraftConfig("options", value),
           "text",
           "sslmode=disable",
@@ -1145,8 +1685,11 @@ export function DbPanel(props: DbPanelProps) {
     );
   }
 
-  function renderRedisResult(result: DbResultPayload) {
+  function renderRedisResult(
+    result: Extract<DbResultPayload, { kind: "redis" }>,
+  ) {
     const value = result.data.result;
+
     if (Array.isArray(value)) {
       return (
         <div class="grid gap-2">
@@ -1215,9 +1758,12 @@ export function DbPanel(props: DbPanelProps) {
     );
   }
 
-  function renderMongoResult(result: DbResultPayload) {
+  function renderMongoResult(
+    result: Extract<DbResultPayload, { kind: "mongo" }>,
+  ) {
     const value = result.data.result;
     const documents = Array.isArray(value) ? value : [value];
+
     return (
       <div class="grid gap-2">
         <For each={documents}>
@@ -1242,13 +1788,21 @@ export function DbPanel(props: DbPanelProps) {
   function renderResultView() {
     const tab = activeTab();
     if (!tab) return null;
+
     const result = resultByTabId()[tab.id];
     const raw = rawByTabId()[tab.id];
     const execution = executionByTabId()[tab.id] ?? { status: "idle" };
     const resultView = resultViewByTabId()[tab.id] ?? "table";
+    const sqlResult = result?.kind === "sql" ? result : null;
+    const redisResult = result?.kind === "redis" ? result : null;
+    const mongoResult = result?.kind === "mongo" ? result : null;
 
     const resultMeta = result
-      ? `${formatBytes(formatResultSize(result.data))}${"durationMs" in result.data && result.data.durationMs ? ` | ${result.data.durationMs} ms` : ""}`
+      ? `${formatBytes(formatResultSize(result.data))}${
+          "durationMs" in result.data && result.data.durationMs
+            ? ` | ${result.data.durationMs} ms`
+            : ""
+        }`
       : null;
 
     return (
@@ -1291,7 +1845,9 @@ export function DbPanel(props: DbPanelProps) {
           </div>
           <div class="theme-text-soft text-xs">
             <Show when={execution.status === "running"}>Running...</Show>
-            <Show when={execution.status === "error"}>{execution.message}</Show>
+            <Show when={execution.status === "error"}>
+              {execution.status === "error" ? execution.message : ""}
+            </Show>
             <Show when={execution.status === "success" && resultMeta}>
               {resultMeta}
             </Show>
@@ -1311,9 +1867,7 @@ export function DbPanel(props: DbPanelProps) {
               fallback={
                 <Show
                   when={
-                    result?.kind === "sql" &&
-                    result.data.columns &&
-                    result.data.rows
+                    sqlResult && sqlResult.data.columns && sqlResult.data.rows
                   }
                   fallback={
                     <div class="grid gap-3 md:grid-cols-2">
@@ -1325,9 +1879,7 @@ export function DbPanel(props: DbPanelProps) {
                           Affected Rows
                         </p>
                         <p class="theme-text mt-2 text-lg font-semibold">
-                          {result?.kind === "sql"
-                            ? (result.data.affectedRows ?? 0)
-                            : 0}
+                          {sqlResult?.data.affectedRows ?? 0}
                         </p>
                       </div>
                       <div
@@ -1338,9 +1890,7 @@ export function DbPanel(props: DbPanelProps) {
                           Last Insert ID
                         </p>
                         <p class="theme-text mt-2 text-lg font-semibold">
-                          {result?.kind === "sql"
-                            ? (result.data.lastInsertId ?? 0)
-                            : 0}
+                          {sqlResult?.data.lastInsertId ?? 0}
                         </p>
                       </div>
                     </div>
@@ -1353,7 +1903,7 @@ export function DbPanel(props: DbPanelProps) {
                     <table class="min-w-full border-collapse text-sm">
                       <thead>
                         <tr>
-                          <For each={result?.data.columns ?? []}>
+                          <For each={sqlResult?.data.columns ?? []}>
                             {(column) => (
                               <th
                                 class="theme-kv-head border-b px-3 py-2 text-left font-medium"
@@ -1366,10 +1916,10 @@ export function DbPanel(props: DbPanelProps) {
                         </tr>
                       </thead>
                       <tbody>
-                        <For each={result?.data.rows ?? []}>
+                        <For each={sqlResult?.data.rows ?? []}>
                           {(row) => (
                             <tr>
-                              <For each={result?.data.columns ?? []}>
+                              <For each={sqlResult?.data.columns ?? []}>
                                 {(column) => (
                                   <td
                                     class="theme-kv-cell border-b px-3 py-2 align-top"
@@ -1396,10 +1946,10 @@ export function DbPanel(props: DbPanelProps) {
                 when={resultView === "raw"}
                 fallback={
                   <Show
-                    when={result?.kind === "redis"}
+                    when={redisResult}
                     fallback={
                       <Show
-                        when={result?.kind === "mongo"}
+                        when={mongoResult}
                         fallback={
                           <div
                             class="theme-code h-full overflow-auto rounded-[18px] border p-3"
@@ -1411,11 +1961,11 @@ export function DbPanel(props: DbPanelProps) {
                           </div>
                         }
                       >
-                        {renderMongoResult(result!)}
+                        {renderMongoResult(mongoResult!)}
                       </Show>
                     }
                   >
-                    {renderRedisResult(result!)}
+                    {renderRedisResult(redisResult!)}
                   </Show>
                 }
               >
@@ -1435,6 +1985,229 @@ export function DbPanel(props: DbPanelProps) {
     );
   }
 
+  function renderExplorerNode(
+    connection: DbConnection,
+    node: DbExplorerNode,
+    depth: number,
+  ): JSX.Element {
+    const paddingLeft = `${depth * 14 + 12}px`;
+
+    if (node.kind === "group") {
+      const expanded = isExplorerNodeExpanded(node.id);
+      const isLazy = Boolean(node.lazy);
+      const isNodeLoading = () => loadingExplorerNodeIds().includes(node.id);
+      const handleClick = () => {
+        if (isLazy) {
+          expandExplorerGroupNode(connection.id, node);
+        } else {
+          toggleExplorerNodeExpanded(node.id);
+        }
+      };
+      return (
+        <div class="grid gap-1">
+          <div
+            class="theme-sidebar-item flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5"
+            style={{ "padding-left": paddingLeft }}
+          >
+            <button
+              class="-ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-md text-[11px]"
+              onClick={(event) => {
+                event.stopPropagation();
+                handleClick();
+              }}
+            >
+              <TreeChevronIcon expanded={expanded} />
+            </button>
+            <DatabaseFolderIcon />
+            <button
+              class="min-w-0 flex-1 text-left"
+              onClick={handleClick}
+            >
+              <div class="flex min-w-0 items-center gap-2">
+                <p class="truncate text-[12px] font-medium">{node.label}</p>
+                <Show when={node.description}>
+                  <span class="theme-text-soft text-[10px]">
+                    {node.description}
+                  </span>
+                </Show>
+              </div>
+            </button>
+          </div>
+          <Show when={expanded}>
+            <div class="grid gap-0.5">
+              <Show when={isNodeLoading()}>
+                <div
+                  class="theme-text-soft px-2 py-1 text-[11px]"
+                  style={{ "padding-left": `${(depth + 1) * 14 + 12}px` }}
+                >
+                  Loading...
+                </div>
+              </Show>
+              <For each={node.children}>
+                {(child) => renderExplorerNode(connection, child, depth + 1)}
+              </For>
+            </div>
+          </Show>
+        </div>
+      );
+    }
+
+    return (
+      <button
+        class="theme-sidebar-item flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left"
+        style={{ "padding-left": paddingLeft }}
+        onClick={() => void openExplorerLeaf(connection, node)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setExplorerNodeMenu({
+            connectionId: connection.id,
+            nodeId: node.id,
+            x: event.clientX,
+            y: event.clientY,
+          });
+          setConnectionMenu(null);
+          setTabMenu(null);
+        }}
+      >
+        <ExplorerLeafIcon kind={node.kind} />
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-[12px] font-medium">{node.label}</p>
+          <Show when={node.description}>
+            <p class="theme-text-soft truncate text-[10px]">
+              {node.description}
+            </p>
+          </Show>
+        </div>
+      </button>
+    );
+  }
+
+  function renderConnectedConnectionRow(connection: DbConnection) {
+    const isActive = activeConnectionId() === connection.id;
+    const expanded = isConnectionExpanded(connection.id);
+    const badge = getConnectionBadge(connection);
+    const explorer = explorerByConnectionId()[connection.id] ?? {
+      status: "idle",
+      nodes: [],
+    };
+
+    return (
+      <div class="grid gap-1">
+        <div
+          class={`theme-sidebar-item group flex min-w-0 items-center gap-2 rounded-xl px-2 py-2 ${
+            isActive ? "theme-sidebar-item-active" : ""
+          }`}
+          onClick={() => void focusConnectedConnection(connection)}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setConnectionMenu({
+              id: connection.id,
+              x: event.clientX,
+              y: event.clientY,
+            });
+            setExplorerNodeMenu(null);
+            setTabMenu(null);
+          }}
+        >
+          <button
+            class="-ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-md text-[11px]"
+            onClick={(event) => {
+              event.stopPropagation();
+              toggleConnectionExpanded(connection);
+            }}
+          >
+            <TreeChevronIcon expanded={expanded} />
+          </button>
+          <DatabaseFolderIcon active={isActive} />
+          <button class="min-w-0 flex-1 text-left">
+            <p class="truncate text-[13px] font-medium" title={connection.name}>
+              {connection.name}
+            </p>
+            <p class="theme-text-soft truncate text-[11px]">
+              {describeConnection(connection)}
+            </p>
+          </button>
+          <span class={`${badge.class} shrink-0`}>{badge.label}</span>
+          <span
+            class="h-2.5 w-2.5 shrink-0 rounded-full bg-[#28c840]"
+            title="Connected"
+          />
+          <div class="relative shrink-0" data-db-menu-root>
+            <button
+              class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+              title="Connection options"
+              onClick={(event) => {
+                event.stopPropagation();
+                setConnectionMenu((current) =>
+                  current?.id === connection.id
+                    ? null
+                    : {
+                        id: connection.id,
+                        x: event.clientX,
+                        y: event.clientY,
+                      },
+                );
+                setExplorerNodeMenu(null);
+                setTabMenu(null);
+              }}
+            >
+              <ControlDot variant="menu" />
+            </button>
+          </div>
+        </div>
+
+        <Show when={expanded}>
+          <div class="grid gap-1">
+            <Show when={explorer.status === "loading"}>
+              <div class="theme-text-soft px-2 py-1 text-[11px]">
+                Loading objects...
+              </div>
+            </Show>
+            <Show when={explorer.status === "error"}>
+              <button
+                class="theme-control rounded-lg px-3 py-2 text-left text-[11px]"
+                onClick={() => void loadConnectionExplorer(connection)}
+              >
+                {explorer.error || "Failed to load database objects."}
+              </button>
+            </Show>
+            <Show
+              when={explorer.status === "ready" && explorer.nodes.length === 0}
+            >
+              <div class="theme-text-soft px-2 py-1 text-[11px]">
+                No objects found.
+              </div>
+            </Show>
+            <For each={explorer.nodes}>
+              {(node) => renderExplorerNode(connection, node, 1)}
+            </For>
+          </div>
+        </Show>
+      </div>
+    );
+  }
+
+  function renderEmptyState() {
+    return (
+      <div class="flex min-h-0 flex-1 items-center justify-center p-6">
+        <div class="theme-control max-w-md rounded-[28px] px-6 py-7 text-center">
+          <p class="theme-text text-lg font-semibold">No database connected</p>
+          <p class="theme-text-soft mt-2 text-sm leading-6">
+            Click the yellow dot in the Connections header, choose a saved
+            database, and connect it first.
+          </p>
+          <button
+            class="theme-button-primary mt-5 rounded-xl px-4 py-2 text-sm font-semibold"
+            onClick={() => openSavedConnectionsModal()}
+          >
+            Open Saved Connections
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <WorkspaceSidebarLayout
@@ -1447,95 +2220,41 @@ export function DbPanel(props: DbPanelProps) {
         sidebar={
           <>
             <div
-              class="mb-4 flex items-center justify-between border-b pb-3"
+              class="mb-3 flex items-center gap-1 border-b pb-2"
               style={{ "border-color": "var(--app-border)" }}
             >
-              <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">
-                Connections
-              </p>
-              <Show when={sidebarView() === "connections"}>
-                <div class="flex items-center gap-1">
-                  <div class="relative" data-db-menu-root>
-                    <button
-                      class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
-                      title="Connection options"
-                      onClick={() => {
-                        setHeaderMenuOpen((current) => !current);
-                        setAddConnectionMenuOpen(false);
-                      }}
-                    >
-                      <ControlDot variant="warn" />
-                    </button>
-                    <Show when={headerMenuOpen()}>
-                      <div
-                        class="theme-panel-soft theme-menu-popover absolute right-0 top-6 z-20 min-w-[148px] border p-1"
-                        data-db-menu-root
-                        style={{ "border-color": "var(--app-border)" }}
-                      >
-                        <button
-                          class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                          onClick={() => void addFolder()}
-                        >
-                          Add Folder
-                        </button>
-                      </div>
-                    </Show>
-                  </div>
-                  <div class="relative" data-db-menu-root>
-                    <button
-                      class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
-                      title="Add connection"
-                      onClick={() => {
-                        setAddConnectionMenuOpen((current) => !current);
-                        setHeaderMenuOpen(false);
-                      }}
-                    >
-                      <ControlDot variant="add" />
-                    </button>
-                    <Show when={addConnectionMenuOpen()}>
-                      <div
-                        class="theme-panel-soft theme-menu-popover absolute right-0 top-6 z-20 min-w-[172px] border p-1"
-                        data-db-menu-root
-                        style={{ "border-color": "var(--app-border)" }}
-                      >
-                        <For each={databaseKinds}>
-                          {(kind) => (
-                            <button
-                              class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                              onClick={() => openCreateConnectionModal(kind)}
-                            >
-                              {getConnectionTypeLabel(kind)}
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-                  </div>
-                </div>
-              </Show>
-            </div>
-
-            <div
-              class="mb-3 grid grid-cols-3 gap-0 overflow-hidden rounded-lg border"
-              style={{ "border-color": "var(--app-border)" }}
-            >
-              <button
-                class={`px-2 py-1.5 text-xs font-medium ${sidebarView() === "connections" ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]" : "theme-text-soft"}`}
-                onClick={() => setSidebarView("connections")}
+              <For
+                each={
+                  [
+                    {
+                      key: "connections" as SidebarSection,
+                      label: "Connections",
+                    },
+                    { key: "favorites" as SidebarSection, label: "Favorites" },
+                    { key: "history" as SidebarSection, label: "History" },
+                  ] as const
+                }
               >
-                Connections
-              </button>
+                {(section) => (
+                  <button
+                    class={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                      sidebarSection() === section.key
+                        ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
+                        : "theme-text-soft hover:text-[var(--app-text)]"
+                    }`}
+                    onClick={() => setSidebarSection(section.key)}
+                  >
+                    {section.label}
+                  </button>
+                )}
+              </For>
+              <div class="flex-1" />
               <button
-                class={`px-2 py-1.5 text-xs font-medium ${sidebarView() === "favorites" ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]" : "theme-text-soft"}`}
-                onClick={() => setSidebarView("favorites")}
+                class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
+                title="Saved connections"
+                onClick={() => openSavedConnectionsModal()}
               >
-                Favorites
-              </button>
-              <button
-                class={`px-2 py-1.5 text-xs font-medium ${sidebarView() === "history" ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]" : "theme-text-soft"}`}
-                onClick={() => setSidebarView("history")}
-              >
-                History
+                <ControlDot variant="warn" />
               </button>
             </div>
 
@@ -1543,9 +2262,9 @@ export function DbPanel(props: DbPanelProps) {
               <input
                 class="theme-input h-8 w-full rounded-md px-2.5 text-sm"
                 placeholder={
-                  sidebarView() === "connections"
-                    ? "Filter"
-                    : sidebarView() === "favorites"
+                  sidebarSection() === "connections"
+                    ? "Filter connected databases"
+                    : sidebarSection() === "favorites"
                       ? "Filter favorites"
                       : "Filter history"
                 }
@@ -1554,240 +2273,154 @@ export function DbPanel(props: DbPanelProps) {
               />
             </div>
 
-            <Show when={sidebarView() === "connections"}>
-              <div class="grid gap-0.5">
-                <Show when={normalizedFilter()}>
-                  <For each={filteredConnectionsFlat()}>
-                    {(connection) => renderConnectionRow(connection)}
-                  </For>
-                </Show>
+            <Show when={sidebarSection() === "connections"}>
+              <div class="mb-2 flex items-center justify-between">
+                <p class="theme-text-soft text-[11px] font-medium uppercase tracking-[0.16em]">
+                  Connected
+                </p>
+                <div class="flex items-center gap-1">
+                  <Show when={connectedConnections().length > 0}>
+                    <button
+                      class="theme-text-soft rounded-md px-1.5 py-0.5 text-[10px] hover:text-[var(--app-text)]"
+                      title="Refresh all object trees"
+                      onClick={() => void refreshAllExplorers()}
+                    >
+                      Refresh
+                    </button>
+                  </Show>
+                  <Show when={Object.keys(explorerByConnectionId()).length > 0}>
+                    <button
+                      class="theme-text-soft rounded-md px-1.5 py-0.5 text-[10px] hover:text-[var(--app-text)]"
+                      title="Reset cached object trees"
+                      onClick={() => void resetAllExplorerCaches()}
+                    >
+                      Reset
+                    </button>
+                  </Show>
+                </div>
+              </div>
+              <div class="grid gap-1">
+                <For each={filteredConnectedConnections()}>
+                  {(connection) => renderConnectedConnectionRow(connection)}
+                </For>
 
-                <Show when={!normalizedFilter()}>
-                  <For each={rootConnections()}>
-                    {(connection) => renderConnectionRow(connection)}
-                  </For>
-
-                  <For each={folderEntries()}>
-                    {(entry) => (
-                      <div class="grid gap-1">
-                        <div
-                          class="group flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5"
-                          onContextMenu={(event) => {
-                            event.preventDefault();
-                            setFolderMenu({
-                              id: entry.folder.id,
-                              x: event.clientX,
-                              y: event.clientY,
-                            });
-                            setHeaderMenuOpen(false);
-                            setAddConnectionMenuOpen(false);
-                            setFolderAddMenuId(null);
-                            setConnectionMenu(null);
-                            setConnectionMoveMenuId(null);
-                          }}
-                        >
-                          <button
-                            class="-ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-md text-[11px]"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              toggleFolderExpanded(entry.folder.id);
-                            }}
-                          >
-                            <svg
-                              class={`h-3 w-3 transition-transform ${isFolderExpanded(entry.folder.id) ? "rotate-90" : ""}`}
-                              viewBox="0 0 16 16"
-                              fill="none"
-                              xmlns="http://www.w3.org/2000/svg"
-                            >
-                              <path
-                                d="M6 4.5L9.5 8L6 11.5"
-                                stroke="currentColor"
-                                stroke-width="1.6"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                              />
-                            </svg>
-                          </button>
-                          <button
-                            class="min-w-0 flex-1 text-left"
-                            title={entry.folder.name}
-                            onClick={() =>
-                              toggleFolderExpanded(entry.folder.id)
-                            }
-                          >
-                            <div class="inline-flex max-w-full min-w-0 items-center gap-1.5 align-middle">
-                              <p class="max-w-full truncate text-[13px] font-medium">
-                                {entry.folder.name}
-                              </p>
-                              <span class="theme-chip shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
-                                {entry.connections.length}
-                              </span>
-                            </div>
-                          </button>
-                          <div
-                            class={`relative shrink-0 transition-opacity ${folderMenu()?.id === entry.folder.id ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"}`}
-                            data-db-menu-root
-                          >
-                            <button
-                              class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
-                              title="Folder options"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setFolderMenu((current) =>
-                                  current?.id === entry.folder.id
-                                    ? null
-                                    : { id: entry.folder.id, x: 0, y: 0 },
-                                );
-                              }}
-                            >
-                              <ControlDot variant="menu" />
-                            </button>
-                          </div>
-                          <div
-                            class={`relative shrink-0 transition-opacity ${folderMenu()?.id === entry.folder.id || folderAddMenuId() === entry.folder.id ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"}`}
-                            data-db-menu-root
-                          >
-                            <button
-                              class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
-                              title="Add connection"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setFolderAddMenuId((current) =>
-                                  current === entry.folder.id
-                                    ? null
-                                    : entry.folder.id,
-                                );
-                                setFolderMenu(null);
-                              }}
-                            >
-                              <ControlDot variant="add" />
-                            </button>
-                            <Show when={folderAddMenuId() === entry.folder.id}>
-                              <div
-                                class="theme-panel-soft theme-menu-popover absolute right-0 top-6 z-20 min-w-[172px] border p-1"
-                                data-db-menu-root
-                                style={{ "border-color": "var(--app-border)" }}
-                              >
-                                <For each={databaseKinds}>
-                                  {(kind) => (
-                                    <button
-                                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                                      onClick={() =>
-                                        openCreateConnectionModal(
-                                          kind,
-                                          entry.folder.id,
-                                        )
-                                      }
-                                    >
-                                      {getConnectionTypeLabel(kind)}
-                                    </button>
-                                  )}
-                                </For>
-                              </div>
-                            </Show>
-                          </div>
-                        </div>
-                        <Show when={isFolderExpanded(entry.folder.id)}>
-                          <div class="grid gap-0.5">
-                            <For each={entry.connections}>
-                              {(connection) => renderConnectionRow(connection)}
-                            </For>
-                          </div>
-                        </Show>
-                      </div>
-                    )}
-                  </For>
-                </Show>
-
-                <Show
-                  when={
-                    normalizedFilter()
-                      ? filteredConnectionsFlat().length === 0
-                      : rootConnections().length === 0 &&
-                        folderEntries().length === 0
-                  }
-                >
-                  <div class="theme-text-soft px-2 py-2 text-xs">
-                    No matches
+                <Show when={filteredConnectedConnections().length === 0}>
+                  <div class="theme-text-soft rounded-xl px-2 py-2 text-xs">
+                    {connectedConnections().length === 0
+                      ? "No connected databases. Click the yellow dot to connect."
+                      : "No matches"}
                   </div>
                 </Show>
               </div>
             </Show>
 
-            <Show when={sidebarView() === "favorites"}>
+            <Show when={sidebarSection() === "favorites"}>
               <div class="grid gap-1">
                 <For each={filteredFavorites()}>
-                  {(favorite) => {
-                    const connection = connectionMap().get(
-                      favorite.connectionId,
-                    );
+                  {(fav) => {
+                    const connection = connectionMap().get(fav.connectionId);
+                    const badge = connection
+                      ? getConnectionBadge(connection)
+                      : null;
                     return (
-                      <div class="theme-sidebar-item group flex items-start gap-2 rounded-lg px-2 py-2">
-                        <span
-                          class={`${connection ? getConnectionBadge(connection).class : "theme-method-badge theme-method-default"} mt-0.5 shrink-0`}
-                        >
-                          {connection
-                            ? getConnectionBadge(connection).label
-                            : "DB"}
-                        </span>
-                        <button
-                          class="min-w-0 flex-1 text-left"
-                          onClick={() => void applyFavorite(favorite)}
-                        >
-                          <p class="truncate text-[13px] font-medium">
-                            {favorite.name}
+                      <button
+                        class="theme-sidebar-item flex min-w-0 items-center gap-2 rounded-xl px-2 py-2 text-left"
+                        onClick={() => void loadFavoriteIntoTab(fav)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          setFavoriteMenu({
+                            id: fav.id,
+                            x: event.clientX,
+                            y: event.clientY,
+                          });
+                          setConnectionMenu(null);
+                          setExplorerNodeMenu(null);
+                          setTabMenu(null);
+                        }}
+                      >
+                        <Show when={badge}>
+                          <span class={`${badge!.class} shrink-0`}>
+                            {badge!.label}
+                          </span>
+                        </Show>
+                        <div class="min-w-0 flex-1">
+                          <p class="truncate text-[12px] font-medium">
+                            {fav.name}
                           </p>
-                          <p class="theme-text-soft mt-0.5 line-clamp-2 break-all text-[11px]">
-                            {favorite.query}
+                          <p class="theme-text-soft mt-0.5 truncate text-[10px] font-mono">
+                            {fav.query.slice(0, 80)}
                           </p>
-                        </button>
-                        <button
-                          class="traffic-dot-button inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full p-0 opacity-0 transition-opacity group-hover:opacity-100"
-                          title="Delete favorite"
-                          onClick={() => void removeFavorite(favorite.id)}
-                        >
-                          <ControlDot variant="delete" />
-                        </button>
-                      </div>
+                        </div>
+                      </button>
                     );
                   }}
                 </For>
                 <Show when={filteredFavorites().length === 0}>
-                  <div class="theme-text-soft px-2 py-2 text-xs">
-                    No favorites yet
+                  <div class="theme-text-soft rounded-xl px-2 py-3 text-center text-xs">
+                    {(workspace().favorites ?? []).length === 0
+                      ? "No favorites yet. Save a query from the toolbar."
+                      : "No matches"}
                   </div>
                 </Show>
               </div>
             </Show>
 
-            <Show when={sidebarView() === "history"}>
+            <Show when={sidebarSection() === "history"}>
+              <Show when={(workspace().history ?? []).length > 0}>
+                <div class="mb-2 flex items-center justify-end">
+                  <button
+                    class="theme-text-soft rounded-md px-1.5 py-0.5 text-[10px] hover:text-[var(--app-text)]"
+                    onClick={() => void clearHistory()}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </Show>
               <div class="grid gap-1">
-                <For each={filteredHistory()}>
-                  {(item) => (
-                    <button
-                      class="theme-sidebar-item flex items-start gap-2 rounded-lg px-2 py-2 text-left"
-                      onClick={() => void applyHistoryItem(item)}
-                    >
-                      <span
-                        class={`mt-0.5 inline-flex h-2.5 w-2.5 shrink-0 rounded-full ${item.status === "error" ? "bg-[#ff5f57]" : "bg-[#26c73f]"}`}
-                      />
-                      <div class="min-w-0 flex-1">
-                        <p class="truncate text-[13px] font-medium">
-                          {item.connectionName}
-                        </p>
-                        <p class="theme-text-soft mt-0.5 line-clamp-2 break-all text-[11px]">
-                          {item.query}
-                        </p>
-                        <p class="theme-text-soft mt-1 text-[10px] uppercase tracking-[0.14em]">
-                          {new Date(item.createdAt).toLocaleString()}
-                        </p>
-                      </div>
-                    </button>
-                  )}
+                <For each={recentHistory()}>
+                  {(item) => {
+                    const badge = getConnectionBadge({
+                      kind: item.kind,
+                    } as DbConnection);
+                    return (
+                      <button
+                        class="theme-sidebar-item flex min-w-0 items-center gap-2 rounded-xl px-2 py-2 text-left"
+                        onClick={() => void loadHistoryIntoTab(item)}
+                      >
+                        <span class={`${badge.class} shrink-0`}>
+                          {badge.label}
+                        </span>
+                        <div class="min-w-0 flex-1">
+                          <p class="truncate text-[12px] font-mono">
+                            {item.query.slice(0, 80)}
+                          </p>
+                          <div class="mt-0.5 flex items-center gap-2">
+                            <span class="theme-text-soft text-[10px]">
+                              {item.connectionName}
+                            </span>
+                            <span
+                              class={`text-[10px] ${
+                                item.status === "error"
+                                  ? "text-[#ff6f61]"
+                                  : "text-[#28c840]"
+                              }`}
+                            >
+                              {item.status}
+                            </span>
+                            <span class="theme-text-soft text-[10px]">
+                              {new Date(item.executedAt).toLocaleTimeString()}
+                            </span>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  }}
                 </For>
-                <Show when={filteredHistory().length === 0}>
-                  <div class="theme-text-soft px-2 py-2 text-xs">
-                    No history yet
+                <Show when={recentHistory().length === 0}>
+                  <div class="theme-text-soft rounded-xl px-2 py-3 text-center text-xs">
+                    {(workspace().history ?? []).length === 0
+                      ? "No history yet. Run a query to start tracking."
+                      : "No matches"}
                   </div>
                 </Show>
               </div>
@@ -1810,12 +2443,17 @@ export function DbPanel(props: DbPanelProps) {
                 onTabOpen={(tabId) =>
                   void commitWorkspace((draft) => {
                     draft.activeTabId = tabId;
+                    draft.activeConnectionId =
+                      draft.tabsById[tabId]?.connectionId ??
+                      draft.activeConnectionId;
                   })
                 }
                 onTabClose={(tabId) => void closeTab(tabId)}
-                onTabContextMenu={(tabId, event) =>
-                  setTabMenu({ id: tabId, x: event.clientX, y: event.clientY })
-                }
+                onTabContextMenu={(tabId, event) => {
+                  setConnectionMenu(null);
+                  setExplorerNodeMenu(null);
+                  setTabMenu({ id: tabId, x: event.clientX, y: event.clientY });
+                }}
                 onDragStart={(tabId, event) => {
                   setDraggedTabId(tabId);
                   event.dataTransfer?.setData("text/plain", tabId);
@@ -1853,13 +2491,13 @@ export function DbPanel(props: DbPanelProps) {
 
           <Show
             when={activeTab() && activeConnection()}
-            fallback={<div class="flex-1 min-h-0" />}
+            fallback={renderEmptyState()}
           >
             <div
               class="border-b px-3 py-2"
               style={{ "border-color": "var(--app-border)" }}
             >
-              <div class="grid gap-2 xl:grid-cols-[auto_minmax(180px,0.9fr)_auto_auto_auto_auto]">
+              <div class="grid gap-2 xl:grid-cols-[auto_minmax(180px,1fr)_auto_auto_auto_auto]">
                 <div class="flex items-center">
                   <span class={getConnectionBadge(activeConnection()!).class}>
                     {getConnectionBadge(activeConnection()!).label}
@@ -1879,15 +2517,27 @@ export function DbPanel(props: DbPanelProps) {
                 </button>
                 <button
                   class="theme-control h-8 rounded-md px-3 text-sm font-medium"
-                  onClick={() => void addCurrentQueryToFavorites()}
+                  onClick={() => void saveCurrentTab()}
                 >
-                  Favorite
+                  Save Query
                 </button>
                 <button
                   class="theme-control h-8 rounded-md px-3 text-sm font-medium"
-                  onClick={() => void saveCurrentTab()}
+                  onClick={() => {
+                    setFavoriteNameDraft(activeTab()?.title ?? "");
+                    setSidebarSection("favorites");
+                  }}
+                  title="Save current query as favorite"
                 >
-                  Save
+                  ★ Fav
+                </button>
+                <button
+                  class="theme-control h-8 rounded-md px-3 text-sm font-medium"
+                  onClick={() =>
+                    void disconnectConnection(activeConnection()!.id)
+                  }
+                >
+                  Disconnect
                 </button>
                 <button
                   class="theme-success h-8 rounded-md px-3 text-sm font-semibold"
@@ -1900,6 +2550,47 @@ export function DbPanel(props: DbPanelProps) {
 
             <div class="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_1px_minmax(0,1fr)]">
               <div class="min-h-0 overflow-hidden p-3">
+                <Show when={favoriteNameDraft() !== null}>
+                  <div
+                    class="mb-2 flex items-center gap-2 rounded-xl border px-3 py-2"
+                    style={{
+                      "border-color": "var(--app-accent)",
+                      background: "var(--app-accent-soft)",
+                    }}
+                  >
+                    <span class="text-[11px] font-medium">
+                      Save as Favorite:
+                    </span>
+                    <input
+                      class="theme-input h-7 flex-1 rounded-md px-2 text-sm"
+                      placeholder="Favorite name"
+                      value={favoriteNameDraft() ?? ""}
+                      onInput={(event) =>
+                        setFavoriteNameDraft(event.currentTarget.value)
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          void saveQueryAsFavorite();
+                        } else if (event.key === "Escape") {
+                          setFavoriteNameDraft(null);
+                        }
+                      }}
+                      autofocus
+                    />
+                    <button
+                      class="theme-success h-7 rounded-md px-3 text-[11px] font-semibold"
+                      onClick={() => void saveQueryAsFavorite()}
+                    >
+                      Save
+                    </button>
+                    <button
+                      class="theme-control h-7 rounded-md px-2 text-[11px]"
+                      onClick={() => setFavoriteNameDraft(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </Show>
                 <div class="mb-2 flex items-center justify-between">
                   <p class="theme-text text-sm font-semibold">Query</p>
                   <p class="theme-text-soft text-xs">
@@ -1921,9 +2612,160 @@ export function DbPanel(props: DbPanelProps) {
         </div>
       </WorkspaceSidebarLayout>
 
-      <Show when={Boolean(connectionModalMode() && connectionDraftState.value)}>
+      <Show when={savedConnectionsModalOpen()}>
         <div
           class="fixed inset-0 z-[320] flex items-center justify-center bg-[rgba(15,23,42,0.3)] px-4 py-6"
+          data-db-menu-root
+        >
+          <div
+            class="theme-panel-soft w-full max-w-3xl rounded-[22px] border p-5 shadow-[0_24px_60px_rgba(15,23,42,0.24)]"
+            style={{ "border-color": "var(--app-border)" }}
+          >
+            <div
+              class="flex items-start justify-between gap-4 border-b pb-4"
+              style={{ "border-color": "var(--app-border)" }}
+            >
+              <div>
+                <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">
+                  Saved Connections
+                </p>
+                <h3 class="theme-text mt-2 text-lg font-semibold">
+                  Connect a database
+                </h3>
+                <p class="theme-text-soft mt-1 text-sm">
+                  Double-click a saved connection, or use the button on the
+                  right to test and connect it.
+                </p>
+              </div>
+              <button
+                class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
+                onClick={() => closeSavedConnectionsModal()}
+              >
+                <ControlDot variant="delete" />
+              </button>
+            </div>
+
+            <div class="mt-4 flex flex-col gap-3 md:flex-row md:items-center">
+              <input
+                class="theme-input h-9 flex-1 rounded-xl px-3 text-sm"
+                placeholder="Search saved databases"
+                value={savedConnectionsFilter()}
+                onInput={(event) =>
+                  setSavedConnectionsFilter(event.currentTarget.value)
+                }
+              />
+              <button
+                class="theme-button-primary h-9 rounded-xl px-4 text-sm font-semibold"
+                onClick={() => openCreateConnectionModal("postgresql", true)}
+              >
+                New Connection
+              </button>
+            </div>
+
+            <Show when={savedConnectionsError()}>
+              <div
+                class="mt-4 rounded-xl border px-3 py-2 text-sm text-[#ff8b8b]"
+                style={{ "border-color": "rgba(255, 95, 87, 0.35)" }}
+              >
+                {savedConnectionsError()}
+              </div>
+            </Show>
+
+            <div class="mt-4 max-h-[55vh] overflow-auto">
+              <div class="grid gap-2">
+                <For each={filteredSavedConnections()}>
+                  {(connection) => {
+                    const badge = getConnectionBadge(connection);
+                    const isConnected =
+                      workspace().connectedConnectionIds.includes(
+                        connection.id,
+                      );
+                    const isPending = pendingConnectionId() === connection.id;
+
+                    return (
+                      <div
+                        class="theme-control grid gap-3 rounded-[18px] px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto]"
+                        onDblClick={() =>
+                          void connectSavedConnection(connection)
+                        }
+                      >
+                        <div class="min-w-0">
+                          <div class="flex min-w-0 items-center gap-2">
+                            <span class={badge.class}>{badge.label}</span>
+                            <p
+                              class="truncate text-sm font-semibold"
+                              title={connection.name}
+                            >
+                              {connection.name}
+                            </p>
+                            <Show when={isConnected}>
+                              <span class="theme-chip rounded-full px-2 py-0.5 text-[10px] font-medium">
+                                Connected
+                              </span>
+                            </Show>
+                          </div>
+                          <p class="theme-text-soft mt-2 truncate text-xs">
+                            {getConnectionTypeLabel(connection.kind)} ·{" "}
+                            {describeConnection(connection)}
+                          </p>
+                        </div>
+                        <div class="flex items-center justify-end gap-2">
+                          <button
+                            class="theme-control rounded-xl px-3 py-1.5 text-sm font-medium"
+                            disabled={isPending}
+                            onClick={() =>
+                              openEditConnectionModal(connection, true)
+                            }
+                          >
+                            Edit
+                          </button>
+                          <button
+                            class="theme-control rounded-xl px-3 py-1.5 text-sm font-medium text-[#ff6f61]"
+                            disabled={isPending}
+                            onClick={() =>
+                              void removeSavedConnection(connection.id)
+                            }
+                          >
+                            Delete
+                          </button>
+                          <button
+                            class="theme-button-primary rounded-xl px-3 py-1.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={Boolean(pendingConnectionId())}
+                            onClick={() =>
+                              void connectSavedConnection(connection)
+                            }
+                          >
+                            {isPending
+                              ? "Connecting..."
+                              : isConnected
+                                ? "Open"
+                                : "Connect"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }}
+                </For>
+
+                <Show when={filteredSavedConnections().length === 0}>
+                  <div class="theme-control rounded-[18px] px-4 py-5 text-center">
+                    <p class="theme-text text-sm font-semibold">
+                      No saved connections
+                    </p>
+                    <p class="theme-text-soft mt-1 text-sm">
+                      Create one first, then connect it from here.
+                    </p>
+                  </div>
+                </Show>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      <Show when={Boolean(connectionModalMode() && connectionDraftState.value)}>
+        <div
+          class="fixed inset-0 z-[330] flex items-center justify-center bg-[rgba(15,23,42,0.3)] px-4 py-6"
           data-db-menu-root
         >
           <div
@@ -1952,13 +2794,55 @@ export function DbPanel(props: DbPanelProps) {
               </button>
             </div>
 
-            <div class="mt-4 grid gap-3">
-              {renderConfigField(
-                "Alias",
-                connectionDraftState.value!.name,
-                (value) => updateConnectionDraft("name", value),
-              )}
+            <div class="mt-4 grid gap-4">
+              <div class="grid gap-3 md:grid-cols-2">
+                {renderConfigField(
+                  "Alias",
+                  () => connectionDraftState.value!.name,
+                  (value) => updateConnectionDraft("name", value),
+                )}
+                <label class="grid gap-1">
+                  <span class="theme-text-soft text-[11px] uppercase tracking-[0.16em]">
+                    Database Type
+                  </span>
+                  <select
+                    class="theme-input h-8 rounded-md px-2.5 text-sm"
+                    value={connectionDraftState.value!.kind}
+                    onInput={(event) =>
+                      changeConnectionDraftKind(
+                        event.currentTarget.value as DbConnectionKind,
+                      )
+                    }
+                  >
+                    <For each={databaseKinds}>
+                      {(kind) => (
+                        <option value={kind}>
+                          {getConnectionTypeLabel(kind)}
+                        </option>
+                      )}
+                    </For>
+                  </select>
+                </label>
+              </div>
+
               {renderConnectionDraftForm(connectionDraftState.value!)}
+
+              <label class="grid gap-1">
+                <span class="theme-text-soft text-[11px] uppercase tracking-[0.16em]">
+                  Default Query
+                </span>
+                <textarea
+                  class="theme-input min-h-[120px] rounded-[18px] px-3 py-2 font-mono text-sm leading-6"
+                  value={connectionDraftState.value!.defaultQuery}
+                  onInput={(event) =>
+                    updateConnectionDraft(
+                      "defaultQuery",
+                      event.currentTarget.value,
+                    )
+                  }
+                />
+              </label>
+
               <label class="grid gap-1">
                 <span class="theme-text-soft text-[11px] uppercase tracking-[0.16em]">
                   Connection String
@@ -1991,182 +2875,192 @@ export function DbPanel(props: DbPanelProps) {
         </div>
       </Show>
 
-      <Show when={folderMenu()}>
-        <div
-          class="theme-panel-soft fixed z-[300] inline-grid auto-cols-max overflow-hidden rounded-[18px] border p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.18)]"
-          data-db-menu-root
-          style={{
-            "border-color": "var(--app-border)",
-            left: `${folderMenu()!.x}px`,
-            top: `${folderMenu()!.y}px`,
-          }}
-        >
-          <button
-            class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-            onClick={() =>
-              void renameFolder(
-                workspace().folders.find(
-                  (folder) => folder.id === folderMenu()!.id,
-                )!,
-              )
-            }
-          >
-            Rename
-          </button>
-          <button
-            class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-            onClick={() => void moveFolderDirection(folderMenu()!.id, "up")}
-          >
-            Move Up
-          </button>
-          <button
-            class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-            onClick={() => void moveFolderDirection(folderMenu()!.id, "down")}
-          >
-            Move Down
-          </button>
-          <button
-            class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
-            onClick={() => void deleteFolder(folderMenu()!.id)}
-          >
-            Delete
-          </button>
-        </div>
-      </Show>
+      <Show when={connectionMenu()} keyed>
+        {(menu) => {
+          const connection = connectionMap().get(menu.id);
+          if (!connection) return null;
 
-      <Show when={connectionMenu()}>
-        {() => {
-          const connection = workspace().connections.find(
-            (item) => item.id === connectionMenu()!.id,
-          )!;
           return (
             <div
               class="theme-panel-soft fixed z-[300] inline-grid auto-cols-max overflow-hidden rounded-[18px] border p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.18)]"
               data-db-menu-root
               style={{
                 "border-color": "var(--app-border)",
-                left: `${connectionMenu()!.x}px`,
-                top: `${connectionMenu()!.y}px`,
+                left: `${menu.x}px`,
+                top: `${menu.y}px`,
               }}
             >
               <button
                 class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() => void openConnectionTab(connection, true)}
+                onClick={() => void openConnectionTab(connection)}
               >
                 Open
               </button>
               <button
                 class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                onClick={() => void openConnectionTab(connection, true)}
+              >
+                New Query Tab
+              </button>
+              <button
+                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                onClick={() => void refreshConnectionExplorer(connection)}
+              >
+                Refresh Objects
+              </button>
+              <button
+                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                onClick={() => void resetConnectionExplorerCache(connection)}
+              >
+                Reset Object Cache
+              </button>
+              <button
+                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
                 onClick={() => openEditConnectionModal(connection)}
               >
-                Edit
+                Edit Saved Connection
               </button>
               <button
                 class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() => void moveConnectionDirection(connection, "up")}
+                onClick={() => void disconnectConnection(connection.id)}
               >
-                Move Up
+                Disconnect
               </button>
-              <button
-                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() => void moveConnectionDirection(connection, "down")}
-              >
-                Move Down
-              </button>
-              <div class="relative" data-db-menu-root>
-                <button
-                  class="theme-sidebar-item flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setConnectionMoveMenuId((current) =>
-                      current === connection.id ? null : connection.id,
-                    );
-                  }}
-                >
-                  <span>Move to</span>
-                  <span class="theme-text-soft text-[10px]">›</span>
-                </button>
-                <Show when={connectionMoveMenuId() === connection.id}>
-                  <div
-                    class="theme-panel-soft theme-menu-popover absolute left-full top-0 ml-1 min-w-[160px] border p-1"
-                    data-db-menu-root
-                    style={{ "border-color": "var(--app-border)" }}
-                  >
-                    <button
-                      class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                      onClick={() =>
-                        void moveConnectionToFolder(connection, null)
-                      }
-                    >
-                      Root
-                    </button>
-                    <For each={workspace().folders}>
-                      {(folder) => (
-                        <button
-                          class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
-                          onClick={() =>
-                            void moveConnectionToFolder(connection, folder.id)
-                          }
-                        >
-                          {folder.name}
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-              </div>
               <button
                 class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
-                onClick={() => void deleteConnection(connection.id)}
+                onClick={() => void removeSavedConnection(connection.id)}
               >
-                Delete
+                Delete Saved Connection
               </button>
             </div>
           );
         }}
       </Show>
 
-      <Show when={tabMenu()}>
-        <div
-          class="theme-panel-soft fixed z-[300] inline-grid auto-cols-max overflow-hidden rounded-[18px] border p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.18)]"
-          data-db-menu-root
-          style={{
-            "border-color": "var(--app-border)",
-            left: `${tabMenu()!.x}px`,
-            top: `${tabMenu()!.y}px`,
-          }}
-        >
-          <button
-            class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-            onClick={() => void togglePinnedTab(tabMenu()!.id)}
-          >
-            {workspace().pinnedTabIds.includes(tabMenu()!.id) ? "UnPin" : "Pin"}
-          </button>
-          <button
-            class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-            onClick={() => void closeOtherTabs(tabMenu()!.id)}
-          >
-            Close Others
-          </button>
-          <button
-            class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-            onClick={() => void closeAllTabs()}
-          >
-            Close All
-          </button>
-          <button
-            class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-            onClick={() => void closeTabsToDirection(tabMenu()!.id, "right")}
-          >
-            Close Right
-          </button>
-          <button
-            class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-            onClick={() => void closeTabsToDirection(tabMenu()!.id, "left")}
-          >
-            Close Left
-          </button>
-        </div>
+      <Show when={explorerNodeMenu()} keyed>
+        {(menu) => {
+          const connection = connectionMap().get(menu.connectionId);
+          const node = connection
+            ? findExplorerLeafNode(
+                explorerByConnectionId()[menu.connectionId]?.nodes ?? [],
+                menu.nodeId,
+              )
+            : null;
+          if (!connection || !node) return null;
+
+          return (
+            <div
+              class="theme-panel-soft fixed z-[305] inline-grid auto-cols-max overflow-hidden rounded-[18px] border p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.18)]"
+              data-db-menu-root
+              style={{
+                "border-color": "var(--app-border)",
+                left: `${menu.x}px`,
+                top: `${menu.y}px`,
+              }}
+            >
+              <button
+                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                onClick={() =>
+                  void openExplorerQuery(connection, node, node.query)
+                }
+              >
+                {getExplorerPreviewMenuLabel(node)}
+              </button>
+              <Show when={node.countQuery}>
+                <button
+                  class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                  onClick={() =>
+                    void openExplorerQuery(connection, node, node.countQuery!, {
+                      titleSuffix: "Count",
+                    })
+                  }
+                >
+                  COUNT(*)
+                </button>
+              </Show>
+              <button
+                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                onClick={() =>
+                  void openExplorerQuery(connection, node, node.query, {
+                    forceNew: true,
+                  })
+                }
+              >
+                Open In New Tab
+              </button>
+            </div>
+          );
+        }}
+      </Show>
+
+      <Show when={tabMenu()} keyed>
+        {(menu) => {
+          const isPinned = workspace().pinnedTabIds.includes(menu.id);
+          return (
+            <div
+              class="theme-panel-soft fixed z-[310] inline-grid auto-cols-max overflow-hidden rounded-[18px] border p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.18)]"
+              data-db-menu-root
+              style={{
+                "border-color": "var(--app-border)",
+                left: `${menu.x}px`,
+                top: `${menu.y}px`,
+              }}
+            >
+              <button
+                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                onClick={() => void togglePinnedTab(menu.id)}
+              >
+                {isPinned ? "Unpin Tab" : "Pin Tab"}
+              </button>
+              <button
+                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                onClick={() => void closeOtherTabs(menu.id)}
+              >
+                Close Others
+              </button>
+              <button
+                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                onClick={() => void closeAllTabs()}
+              >
+                Close All
+              </button>
+            </div>
+          );
+        }}
+      </Show>
+
+      <Show when={favoriteMenu()} keyed>
+        {(menu) => {
+          const fav = (workspace().favorites ?? []).find(
+            (f) => f.id === menu.id,
+          );
+          if (!fav) return null;
+
+          return (
+            <div
+              class="theme-panel-soft fixed z-[310] inline-grid auto-cols-max overflow-hidden rounded-[18px] border p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.18)]"
+              data-db-menu-root
+              style={{
+                "border-color": "var(--app-border)",
+                left: `${menu.x}px`,
+                top: `${menu.y}px`,
+              }}
+            >
+              <button
+                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                onClick={() => void loadFavoriteIntoTab(fav)}
+              >
+                Load Query
+              </button>
+              <button
+                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
+                onClick={() => void removeFavorite(fav.id)}
+              >
+                Delete Favorite
+              </button>
+            </div>
+          );
+        }}
       </Show>
     </>
   );

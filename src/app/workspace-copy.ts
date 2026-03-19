@@ -12,6 +12,7 @@ export const workspaceCopy: Record<
   WorkspaceLocale,
   {
     tabs: {
+      home: string;
       api: string;
       db: string;
       ssh: string;
@@ -30,6 +31,7 @@ export const workspaceCopy: Record<
 > = {
   "zh-CN": {
     tabs: {
+      home: "首页",
       api: "API",
       db: "数据库",
       ssh: "终端",
@@ -47,6 +49,7 @@ export const workspaceCopy: Record<
   },
   "en-US": {
     tabs: {
+      home: "Home",
       api: "API",
       db: "DB",
       ssh: "Terminal",

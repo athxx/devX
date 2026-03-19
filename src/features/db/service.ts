@@ -4,14 +4,38 @@ import { loadDbWorkspaceFromDb, saveDbWorkspaceToDb } from "./local-db";
 import type {
   DbConnection,
   DbConnectionConfig,
+  DbExplorerNode,
   DbConnectionKind,
   DbFavoriteQuery,
-  DbFolder,
   DbQueryHistoryItem,
   DbResultPayload,
   DbTab,
-  DbWorkspaceState
+  DbWorkspaceState,
 } from "./models";
+
+type LegacyDbWorkspaceState = Partial<DbWorkspaceState> & {
+  connections?: DbConnection[];
+  folders?: unknown[];
+};
+
+type DbSocketResponse = {
+  id?: string;
+  type?: string;
+  error?: string;
+  data?: unknown;
+};
+
+type DbSocketCommandMessage = {
+  id: string;
+  type: string;
+  payload: Record<string, unknown>;
+};
+
+type SqlExplorerRow = {
+  schema_name?: unknown;
+  table_name?: unknown;
+  table_type?: unknown;
+};
 
 function defaultQueryForKind(kind: DbConnectionKind) {
   switch (kind) {
@@ -95,7 +119,7 @@ function defaultDatabaseForKind(kind: DbConnectionKind) {
     case "clickhouse":
     case "sqlserver":
     case "tidb":
-      return "devx";
+      return "";
     case "mongodb":
       return "test";
     case "oracle":
@@ -112,10 +136,10 @@ function defaultConnectionConfig(kind: DbConnectionKind): DbConnectionConfig {
     username: "",
     password: "",
     database: defaultDatabaseForKind(kind),
-    filePath: kind === "sqlite" ? "./devx.db" : "",
+    filePath: kind === "sqlite" ? "./asonx.db" : "",
     authSource: kind === "mongodb" ? "admin" : "",
     serviceName: kind === "oracle" ? "FREEPDB1" : "",
-    options: ""
+    options: "",
   };
 }
 
@@ -123,17 +147,87 @@ function encodeCredentialPart(value: string) {
   return encodeURIComponent(value);
 }
 
-function appendOptions(url: URL, options: string) {
+function parseOptionEntries(options: string) {
   const normalized = options.trim().replace(/^\?/, "");
   if (!normalized) {
-    return;
+    return [] as Array<[string, string]>;
   }
-  for (const [key, value] of new URLSearchParams(normalized)) {
+  return Array.from(new URLSearchParams(normalized).entries()).filter(
+    ([key]) => key.trim().length > 0,
+  );
+}
+
+function appendUrlOptions(url: URL, options: string) {
+  for (const [key, value] of parseOptionEntries(options)) {
     url.searchParams.set(key, value);
   }
 }
 
-export function buildDbConnectionUrl(connection: Pick<DbConnection, "kind" | "config" | "url">) {
+function formatKeywordValue(value: string) {
+  const normalized = value.trim();
+  if (!normalized) {
+    return "";
+  }
+  if (/[\s'"]/u.test(normalized)) {
+    return `'${normalized.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+  }
+  return normalized;
+}
+
+function buildKeywordDsn(parts: Array<[string, string]>, options: string) {
+  const result: string[] = [];
+
+  for (const [key, value] of parts) {
+    const normalized = value.trim();
+    if (!normalized) {
+      continue;
+    }
+    result.push(`${key}=${formatKeywordValue(normalized)}`);
+  }
+
+  for (const [key, value] of parseOptionEntries(options)) {
+    const normalizedKey = key.trim();
+    if (!normalizedKey) {
+      continue;
+    }
+    result.push(`${normalizedKey}=${formatKeywordValue(value)}`);
+  }
+
+  return result.join(" ");
+}
+
+function buildMySqlStyleDsn(
+  connection: Pick<DbConnection, "config" | "url">,
+  treatAsTiDb = false,
+) {
+  const config = connection.config;
+  const host = config.host.trim();
+  const port = config.port.trim();
+  const username = config.username.trim();
+  const password = config.password.trim();
+  const database = config.database.trim();
+
+  if (!host) {
+    return connection.url.trim();
+  }
+
+  const auth =
+    username || password
+      ? `${username}${password ? `:${password}` : ""}@`
+      : "";
+  const params = new URLSearchParams(parseOptionEntries(config.options));
+  if (treatAsTiDb && !params.has("charset")) {
+    params.set("charset", "utf8mb4");
+  }
+
+  return `${auth}tcp(${host}${port ? `:${port}` : ""})/${database}${
+    params.toString() ? `?${params.toString()}` : ""
+  }`;
+}
+
+export function buildDbConnectionUrl(
+  connection: Pick<DbConnection, "kind" | "config" | "url">,
+) {
   const config = connection.config;
   if (connection.kind === "sqlite") {
     return config.filePath.trim() || connection.url.trim();
@@ -153,167 +247,237 @@ export function buildDbConnectionUrl(connection: Pick<DbConnection, "kind" | "co
     case "redis": {
       const auth =
         username || password
-          ? `${encodeCredentialPart(username)}${password ? `:${encodeCredentialPart(password)}` : ""}@`
+          ? `${encodeCredentialPart(username)}${
+              password ? `:${encodeCredentialPart(password)}` : ""
+            }@`
           : "";
       const dbPath = database ? `/${encodeURIComponent(database)}` : "";
-      const url = new URL(`redis://${auth}${host}${port ? `:${port}` : ""}${dbPath}`);
-      appendOptions(url, config.options);
+      const url = new URL(
+        `redis://${auth}${host}${port ? `:${port}` : ""}${dbPath}`,
+      );
+      appendUrlOptions(url, config.options);
       return url.toString();
     }
     case "mongodb": {
       const auth =
         username || password
-          ? `${encodeCredentialPart(username)}${password ? `:${encodeCredentialPart(password)}` : ""}@`
+          ? `${encodeCredentialPart(username)}${
+              password ? `:${encodeCredentialPart(password)}` : ""
+            }@`
           : "";
       const dbPath = database ? `/${encodeURIComponent(database)}` : "";
-      const url = new URL(`mongodb://${auth}${host}${port ? `:${port}` : ""}${dbPath}`);
+      const url = new URL(
+        `mongodb://${auth}${host}${port ? `:${port}` : ""}${dbPath}`,
+      );
       if (config.authSource.trim()) {
         url.searchParams.set("authSource", config.authSource.trim());
       }
-      appendOptions(url, config.options);
+      appendUrlOptions(url, config.options);
       return url.toString();
     }
+    case "mysql":
+      return buildMySqlStyleDsn(connection);
+    case "tidb":
+      return buildMySqlStyleDsn(connection, true);
+    case "postgresql":
+      return buildKeywordDsn(
+        [
+          ["host", host],
+          ["port", port],
+          ["user", username],
+          ["password", password],
+          ["dbname", database],
+        ],
+        config.options,
+      );
+    case "gaussdb":
+      return buildKeywordDsn(
+        [
+          ["host", host],
+          ["port", port],
+          ["user", username],
+          ["password", password],
+          ["dbname", database],
+        ],
+        config.options,
+      );
     case "sqlserver": {
       const auth =
         username || password
-          ? `${encodeCredentialPart(username)}${password ? `:${encodeCredentialPart(password)}` : ""}@`
+          ? `${encodeCredentialPart(username)}${
+              password ? `:${encodeCredentialPart(password)}` : ""
+            }@`
           : "";
       const url = new URL(`sqlserver://${auth}${host}${port ? `:${port}` : ""}`);
       if (database) {
         url.searchParams.set("database", database);
       }
-      appendOptions(url, config.options);
+      appendUrlOptions(url, config.options);
       return url.toString();
     }
     case "oracle": {
       const auth =
         username || password
-          ? `${encodeCredentialPart(username)}${password ? `:${encodeCredentialPart(password)}` : ""}@`
+          ? `${encodeCredentialPart(username)}${
+              password ? `:${encodeCredentialPart(password)}` : ""
+            }@`
           : "";
       const serviceName = config.serviceName.trim() || database || "FREEPDB1";
-      const url = new URL(`oracle://${auth}${host}${port ? `:${port}` : ""}/${encodeURIComponent(serviceName)}`);
-      appendOptions(url, config.options);
+      const url = new URL(
+        `oracle://${auth}${host}${port ? `:${port}` : ""}/${encodeURIComponent(
+          serviceName,
+        )}`,
+      );
+      appendUrlOptions(url, config.options);
       return url.toString();
     }
+    case "clickhouse":
     default: {
-      const scheme =
-        connection.kind === "postgresql" ||
-        connection.kind === "gaussdb" ||
-        connection.kind === "clickhouse" ||
-        connection.kind === "mysql" ||
-        connection.kind === "tidb"
-          ? connection.kind
-          : "postgresql";
       const auth =
         username || password
-          ? `${encodeCredentialPart(username)}${password ? `:${encodeCredentialPart(password)}` : ""}@`
+          ? `${encodeCredentialPart(username)}${
+              password ? `:${encodeCredentialPart(password)}` : ""
+            }@`
           : "";
       const dbPath = database ? `/${encodeURIComponent(database)}` : "";
-      const url = new URL(`${scheme}://${auth}${host}${port ? `:${port}` : ""}${dbPath}`);
-      appendOptions(url, config.options);
+      const url = new URL(
+        `${connection.kind}://${auth}${host}${port ? `:${port}` : ""}${dbPath}`,
+      );
+      appendUrlOptions(url, config.options);
       return url.toString();
     }
   }
-}
-
-function normalizeFolder(folder: DbFolder): DbFolder {
-  return {
-    id: folder.id,
-    name: folder.name?.trim() || "New Folder"
-  };
 }
 
 function normalizeConnectionConfig(
   config: Partial<DbConnectionConfig> | undefined,
-  kind: DbConnectionKind
+  kind: DbConnectionKind,
 ): DbConnectionConfig {
   return {
     ...defaultConnectionConfig(kind),
-    ...config
+    ...config,
   };
 }
 
-function normalizeConnection(connection: DbConnection, folderIds: Set<string>): DbConnection {
-  const kind = connection.kind ?? "postgresql";
-  const config = normalizeConnectionConfig(connection.config, kind);
-  const fallbackUrl = connection.url?.trim() || buildDbConnectionUrl({ kind, config, url: "" });
+function normalizeConnection(connection: Partial<DbConnection> | null | undefined) {
+  const safeConnection: Partial<DbConnection> = connection ?? {};
+  const kind = safeConnection.kind ?? "postgresql";
+  const config = normalizeConnectionConfig(safeConnection.config, kind);
+  const fallbackUrl =
+    safeConnection.url?.trim() || buildDbConnectionUrl({ kind, config, url: "" });
+
   return {
-    id: connection.id,
-    name: connection.name?.trim() || defaultNameForKind(kind),
+    id: safeConnection.id ?? makeId("db-conn"),
+    name: safeConnection.name?.trim() || defaultNameForKind(kind),
     kind,
     url: fallbackUrl,
     config,
-    folderId: connection.folderId && folderIds.has(connection.folderId) ? connection.folderId : null,
-    defaultQuery: connection.defaultQuery?.trim() || defaultQueryForKind(kind)
+    defaultQuery:
+      safeConnection.defaultQuery?.trim() || defaultQueryForKind(kind),
   };
 }
 
-function normalizeTab(tab: DbTab, connectionIds: Set<string>, connectionsById: Map<string, DbConnection>): DbTab | null {
-  if (!connectionIds.has(tab.connectionId)) {
+function normalizeTab(
+  tab: Partial<DbTab> | null | undefined,
+  connectionIds: Set<string>,
+  connectionsById: Map<string, DbConnection>,
+): DbTab | null {
+  if (!tab?.connectionId || !connectionIds.has(tab.connectionId)) {
     return null;
   }
+
   const connection = connectionsById.get(tab.connectionId);
   return {
-    id: tab.id,
+    id: tab.id ?? makeId("db-tab"),
     connectionId: tab.connectionId,
     title: tab.title?.trim() || connection?.name || "Query",
-    query: tab.query ?? connection?.defaultQuery ?? ""
+    query: tab.query ?? connection?.defaultQuery ?? "",
   };
 }
 
-function normalizeWorkspace(workspace: DbWorkspaceState | null | undefined): DbWorkspaceState {
-  const folders = (workspace?.folders ?? []).map(normalizeFolder);
-  const folderIds = new Set(folders.map((folder) => folder.id));
-  const connections = (workspace?.connections ?? []).map((connection) =>
-    normalizeConnection(connection, folderIds)
+function normalizeWorkspace(
+  workspace: LegacyDbWorkspaceState | null | undefined,
+): DbWorkspaceState {
+  const savedConnectionsSource = Array.isArray(workspace?.savedConnections)
+    ? workspace.savedConnections
+    : Array.isArray(workspace?.connections)
+      ? workspace.connections
+      : [];
+  const savedConnections = savedConnectionsSource.map(normalizeConnection);
+  const connectionsById = new Map(
+    savedConnections.map((connection) => [connection.id, connection]),
   );
-  const connectionsById = new Map(connections.map((connection) => [connection.id, connection]));
-  const connectionIds = new Set(connections.map((connection) => connection.id));
+  const connectionIds = new Set(savedConnections.map((connection) => connection.id));
+
   const tabsById = Object.fromEntries(
     Object.entries(workspace?.tabsById ?? {})
-      .map(([tabId, tab]) => [tabId, normalizeTab(tab, connectionIds, connectionsById)])
-      .filter(([, tab]) => Boolean(tab))
+      .map(([tabId, tab]) => [
+        tabId,
+        normalizeTab(tab, connectionIds, connectionsById),
+      ])
+      .filter(([, tab]) => Boolean(tab)),
   ) as Record<string, DbTab>;
+
   const validTabIds = new Set(Object.keys(tabsById));
-  const openTabIds = (workspace?.openTabIds ?? []).filter((id) => validTabIds.has(id));
-  const pinnedTabIds = (workspace?.pinnedTabIds ?? []).filter((id) => validTabIds.has(id));
+  const openTabIds = (workspace?.openTabIds ?? []).filter((id) =>
+    validTabIds.has(id),
+  );
+  const pinnedTabIds = (workspace?.pinnedTabIds ?? []).filter((id) =>
+    validTabIds.has(id),
+  );
   const activeTabId =
     workspace?.activeTabId && validTabIds.has(workspace.activeTabId)
       ? workspace.activeTabId
       : openTabIds.at(-1) ?? null;
 
+  const favorites = (Array.isArray(workspace?.favorites) ? workspace.favorites : [])
+    .filter((f): f is DbFavoriteQuery => Boolean(f?.id && f?.connectionId && connectionIds.has(f.connectionId)));
+
+  const MAX_HISTORY = 100;
+  const history = (Array.isArray(workspace?.history) ? workspace.history : [])
+    .filter((h): h is DbQueryHistoryItem => Boolean(h?.id && h?.connectionId))
+    .slice(0, MAX_HISTORY);
+
+  const derivedConnectedConnectionIds = Array.from(
+    new Set(
+      openTabIds
+        .map((tabId) => tabsById[tabId]?.connectionId)
+        .filter((id): id is string => Boolean(id) && connectionIds.has(id)),
+    ),
+  );
+
+  const connectedConnectionIds = (
+    workspace?.connectedConnectionIds ?? derivedConnectedConnectionIds
+  ).filter((id) => connectionIds.has(id));
+
+  const activeConnectionId =
+    workspace?.activeConnectionId && connectionIds.has(workspace.activeConnectionId)
+      ? workspace.activeConnectionId
+      : activeTabId && tabsById[activeTabId]
+        ? tabsById[activeTabId].connectionId
+        : connectedConnectionIds[0] ?? null;
+
   return {
-    folders,
-    connections,
+    savedConnections,
+    connectedConnectionIds,
+    activeConnectionId,
     openTabIds,
     pinnedTabIds,
     activeTabId,
     tabsById,
-    favorites: (workspace?.favorites ?? []).map((item) => ({
-      id: item.id,
-      connectionId: item.connectionId,
-      name: item.name?.trim() || "Favorite Query",
-      query: item.query ?? "",
-      createdAt: item.createdAt ?? new Date().toISOString()
-    })),
-    history: (workspace?.history ?? []).map((item) => ({
-      id: item.id,
-      connectionId: item.connectionId,
-      connectionName: item.connectionName?.trim() || "Connection",
-      kind: item.kind ?? "postgresql",
-      query: item.query ?? "",
-      createdAt: item.createdAt ?? new Date().toISOString(),
-      status: item.status === "error" ? "error" : "success"
-    }))
+    favorites,
+    history,
   };
 }
 
 export async function loadDbWorkspace(): Promise<DbWorkspaceState> {
   const stored = await loadDbWorkspaceFromDb();
   const normalized = normalizeWorkspace(stored);
+
   if (!stored || JSON.stringify(stored) !== JSON.stringify(normalized)) {
     await saveDbWorkspaceToDb(normalized);
   }
+
   return normalized;
 }
 
@@ -321,22 +485,15 @@ export async function saveDbWorkspace(workspace: DbWorkspaceState): Promise<void
   await saveDbWorkspaceToDb(normalizeWorkspace(workspace));
 }
 
-export function createDbConnection(kind: DbConnectionKind, folderId: string | null = null): DbConnection {
+export function createDbConnection(kind: DbConnectionKind): DbConnection {
+  const config = defaultConnectionConfig(kind);
   return {
     id: makeId("db-conn"),
     name: `New ${defaultNameForKind(kind)}`,
     kind,
-    url: "",
-    config: defaultConnectionConfig(kind),
-    folderId,
-    defaultQuery: defaultQueryForKind(kind)
-  };
-}
-
-export function createDbFolder(): DbFolder {
-  return {
-    id: makeId("db-folder"),
-    name: "New Folder"
+    url: buildDbConnectionUrl({ kind, config, url: "" }),
+    config,
+    defaultQuery: defaultQueryForKind(kind),
   };
 }
 
@@ -345,33 +502,36 @@ export function createDbTab(connection: DbConnection): DbTab {
     id: makeId("db-tab"),
     connectionId: connection.id,
     title: connection.name,
-    query: connection.defaultQuery
+    query: connection.defaultQuery,
   };
 }
 
-export function createDbFavorite(connection: DbConnection, query: string, name?: string): DbFavoriteQuery {
+export function createDbFavorite(
+  connectionId: string,
+  name: string,
+  query: string,
+): DbFavoriteQuery {
   return {
-    id: makeId("db-favorite"),
-    connectionId: connection.id,
-    name: name?.trim() || `${connection.name} Favorite`,
+    id: makeId("db-fav"),
+    connectionId,
+    name: name.trim() || "Untitled Query",
     query,
-    createdAt: new Date().toISOString()
   };
 }
 
 export function createDbHistoryItem(
   connection: DbConnection,
   query: string,
-  status: "success" | "error"
+  status: "success" | "error",
 ): DbQueryHistoryItem {
   return {
-    id: makeId("db-history"),
+    id: makeId("db-hist"),
     connectionId: connection.id,
     connectionName: connection.name,
     kind: connection.kind,
     query,
-    createdAt: new Date().toISOString(),
-    status
+    executedAt: new Date().toISOString(),
+    status,
   };
 }
 
@@ -380,6 +540,7 @@ export async function buildDbRelayUrl(): Promise<string | null> {
   if (settings.db.mode !== "proxy" || !settings.db.address.trim()) {
     return null;
   }
+
   const normalized = settings.db.address
     .trim()
     .replace(/\/+$/, "")
@@ -401,7 +562,293 @@ function splitRedisCommand(command: string) {
   return matches.map((part) => part.replace(/^['"`]|['"`]$/g, ""));
 }
 
-function buildDbCommandMessage(tab: DbTab, connection: DbConnection) {
+function makeExplorerGroup(
+  label: string,
+  groupKind: "database" | "schema" | "category",
+  children: DbExplorerNode[],
+  description?: string,
+  lazy?: boolean,
+): DbExplorerNode {
+  return {
+    id: makeId("db-tree-group"),
+    kind: "group",
+    groupKind,
+    label,
+    description,
+    children,
+    lazy,
+  };
+}
+
+function makeExplorerLeaf(
+  kind: "table" | "view" | "collection" | "key",
+  label: string,
+  query: string,
+  description?: string,
+  countQuery?: string,
+): DbExplorerNode {
+  return {
+    id: makeId("db-tree-leaf"),
+    kind,
+    label,
+    query,
+    description,
+    countQuery,
+  };
+}
+
+function escapeSqlIdentifier(kind: DbConnectionKind, value: string) {
+  switch (kind) {
+    case "mysql":
+    case "tidb":
+    case "clickhouse":
+      return `\`${value.replace(/`/g, "``")}\``;
+    case "sqlserver":
+      return `[${value.replace(/]/g, "]]")}]`;
+    default:
+      return `"${value.replace(/"/g, '""')}"`;
+  }
+}
+
+function buildQualifiedSqlName(
+  kind: DbConnectionKind,
+  schemaName: string,
+  objectName: string,
+) {
+  const quotedObjectName = escapeSqlIdentifier(kind, objectName);
+  const normalizedSchemaName = schemaName.trim();
+
+  if (
+    !normalizedSchemaName ||
+    (kind === "sqlite" && normalizedSchemaName === "main")
+  ) {
+    return quotedObjectName;
+  }
+
+  return `${escapeSqlIdentifier(kind, normalizedSchemaName)}.${quotedObjectName}`;
+}
+
+function buildSqlObjectQuery(
+  connection: DbConnection,
+  schemaName: string,
+  objectName: string,
+) {
+  const qualifiedName = buildQualifiedSqlName(
+    connection.kind,
+    schemaName,
+    objectName,
+  );
+
+  switch (connection.kind) {
+    case "sqlserver":
+      return `SELECT TOP 200 * FROM ${qualifiedName};`;
+    case "oracle":
+      return `SELECT * FROM ${qualifiedName} FETCH FIRST 200 ROWS ONLY;`;
+    default:
+      return `SELECT * FROM ${qualifiedName} LIMIT 200;`;
+  }
+}
+
+function buildSqlCountQuery(
+  connection: DbConnection,
+  schemaName: string,
+  objectName: string,
+) {
+  return `SELECT COUNT(*) AS total FROM ${buildQualifiedSqlName(
+    connection.kind,
+    schemaName,
+    objectName,
+  )};`;
+}
+
+function normalizeExplorerTableType(value: unknown) {
+  const normalized = String(value ?? "").toUpperCase();
+  return normalized.includes("VIEW") ? "view" : "table";
+}
+
+function asString(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function buildSqlExplorerNodes(
+  connection: DbConnection,
+  rows: SqlExplorerRow[],
+): DbExplorerNode[] {
+  const schemas = new Map<
+    string,
+    {
+      tables: DbExplorerNode[];
+      views: DbExplorerNode[];
+    }
+  >();
+
+  for (const row of rows) {
+    const objectName = asString(row.table_name);
+    if (!objectName) {
+      continue;
+    }
+
+    const schemaName =
+      asString(row.schema_name) ||
+      connection.config.database.trim() ||
+      (connection.kind === "sqlite" ? "main" : "default");
+    const bucket =
+      schemas.get(schemaName) ??
+      {
+        tables: [],
+        views: [],
+      };
+    const objectType = normalizeExplorerTableType(row.table_type);
+    const leaf = makeExplorerLeaf(
+      objectType,
+      objectName,
+      buildSqlObjectQuery(connection, schemaName, objectName),
+      objectType === "view" ? "View" : "Table",
+      buildSqlCountQuery(connection, schemaName, objectName),
+    );
+
+    if (objectType === "view") {
+      bucket.views.push(leaf);
+    } else {
+      bucket.tables.push(leaf);
+    }
+
+    schemas.set(schemaName, bucket);
+  }
+
+  const schemaNodes = Array.from(schemas.entries())
+    .sort(([schemaA], [schemaB]) => schemaA.localeCompare(schemaB))
+    .map(([schemaName, bucket]) => {
+      const children: DbExplorerNode[] = [];
+      if (bucket.tables.length > 0) {
+        children.push(
+          makeExplorerGroup(
+            "Tables",
+            "category",
+            bucket.tables.sort((a, b) => a.label.localeCompare(b.label)),
+            `${bucket.tables.length} objects`,
+          ),
+        );
+      }
+      if (bucket.views.length > 0) {
+        children.push(
+          makeExplorerGroup(
+            "Views",
+            "category",
+            bucket.views.sort((a, b) => a.label.localeCompare(b.label)),
+            `${bucket.views.length} objects`,
+          ),
+        );
+      }
+
+      return makeExplorerGroup(
+        schemaName,
+        connection.kind === "mysql" ||
+          connection.kind === "tidb" ||
+          connection.kind === "clickhouse"
+          ? "database"
+          : "schema",
+        children,
+      );
+    });
+
+  return schemaNodes;
+}
+
+function buildMongoCollectionQuery(collectionName: string) {
+  return `db.${collectionName}.find({})`;
+}
+
+function buildMongoCollectionCountQuery(collectionName: string) {
+  return `db.${collectionName}.aggregate([{ $count: "total" }])`;
+}
+
+function quoteRedisArgument(value: string) {
+  return /[\s"'`]/u.test(value)
+    ? JSON.stringify(value)
+    : value;
+}
+
+function buildRedisKeyQuery(keyName: string) {
+  return `TYPE ${quoteRedisArgument(keyName)}`;
+}
+
+function buildSqlExplorerQuery(kind: DbConnectionKind) {
+  switch (kind) {
+    case "postgresql":
+    case "gaussdb":
+      return `
+        SELECT
+          table_schema AS schema_name,
+          table_name,
+          table_type
+        FROM information_schema.tables
+        WHERE table_schema NOT IN (
+          'pg_catalog', 'information_schema',
+          'tiger', 'tiger_data', 'topology',
+          'pg_toast', 'pg_temp_1', 'pg_toast_temp_1'
+        )
+        ORDER BY table_schema, table_type, table_name;
+      `;
+    case "mysql":
+    case "tidb":
+      return `
+        SELECT
+          table_schema AS schema_name,
+          table_name,
+          table_type
+        FROM information_schema.tables
+        WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+        ORDER BY table_schema, table_type, table_name;
+      `;
+    case "sqlserver":
+      return `
+        SELECT
+          TABLE_SCHEMA AS schema_name,
+          TABLE_NAME AS table_name,
+          TABLE_TYPE AS table_type
+        FROM INFORMATION_SCHEMA.TABLES
+        ORDER BY TABLE_SCHEMA, TABLE_TYPE, TABLE_NAME;
+      `;
+    case "sqlite":
+      return `
+        SELECT
+          'main' AS schema_name,
+          name AS table_name,
+          CASE
+            WHEN type = 'view' THEN 'VIEW'
+            ELSE 'BASE TABLE'
+          END AS table_type
+        FROM sqlite_master
+        WHERE type IN ('table', 'view')
+          AND name NOT LIKE 'sqlite_%'
+        ORDER BY type, name;
+      `;
+    case "clickhouse":
+      return `
+        SELECT
+          database AS schema_name,
+          name AS table_name,
+          if(engine = 'View', 'VIEW', 'BASE TABLE') AS table_type
+        FROM system.tables
+        WHERE database NOT IN ('system', 'information_schema', 'INFORMATION_SCHEMA')
+        ORDER BY database, table_type, table_name;
+      `;
+    case "oracle":
+      return `
+        SELECT USER AS schema_name, table_name, 'BASE TABLE' AS table_type
+        FROM user_tables
+        UNION ALL
+        SELECT USER AS schema_name, view_name AS table_name, 'VIEW' AS table_type
+        FROM user_views
+        ORDER BY schema_name, table_type, table_name;
+      `;
+    default:
+      return "SELECT 1;";
+  }
+}
+
+function buildDbCommandMessage(tab: DbTab, connection: DbConnection): DbSocketCommandMessage {
   if (connection.kind === "redis") {
     const parts = splitRedisCommand(tab.query.trim());
     return {
@@ -410,8 +857,8 @@ function buildDbCommandMessage(tab: DbTab, connection: DbConnection) {
       payload: {
         url: connection.url,
         command: parts[0] ?? "",
-        arguments: parts.slice(1)
-      }
+        arguments: parts.slice(1),
+      },
     };
   }
 
@@ -421,8 +868,8 @@ function buildDbCommandMessage(tab: DbTab, connection: DbConnection) {
       type: "mongoShell",
       payload: {
         url: connection.url,
-        command: tab.query
-      }
+        command: tab.query,
+      },
     };
   }
 
@@ -432,25 +879,56 @@ function buildDbCommandMessage(tab: DbTab, connection: DbConnection) {
     payload: {
       driver: connection.kind,
       dsn: connection.url,
-      query: tab.query
-    }
+      query: tab.query,
+    },
   };
 }
 
-type DbSocketResponse = {
-  id?: string;
-  type?: string;
-  error?: string;
-  data?: unknown;
-};
+function buildDbTestCommandMessage(connection: DbConnection): DbSocketCommandMessage {
+  const commandId = makeId("db-connect");
 
-export async function executeDbTab(tab: DbTab, connection: DbConnection): Promise<DbResultPayload> {
+  if (connection.kind === "redis") {
+    return {
+      id: commandId,
+      type: "redis",
+      payload: {
+        url: connection.url,
+        command: "PING",
+        arguments: [],
+      },
+    };
+  }
+
+  if (connection.kind === "mongodb") {
+    return {
+      id: commandId,
+      type: "mongoPing",
+      payload: {
+        uri: connection.url,
+        database: connection.config.database.trim() || "admin",
+      },
+    };
+  }
+
+  return {
+    id: commandId,
+    type: "sql",
+    payload: {
+      driver: connection.kind,
+      dsn: connection.url,
+      query: defaultQueryForKind(connection.kind),
+    },
+  };
+}
+
+async function executeDbSocketCommand(
+  message: DbSocketCommandMessage,
+  connection: Pick<DbConnection, "kind">,
+): Promise<DbResultPayload> {
   const relayUrl = await buildDbRelayUrl();
   if (!relayUrl) {
     throw new Error("未配置 DB Proxy，请先到 Settings → Proxy 填写地址。");
   }
-
-  const payload = buildDbCommandMessage(tab, connection);
 
   return new Promise<DbResultPayload>((resolve, reject) => {
     const ws = new WebSocket(relayUrl);
@@ -461,19 +939,24 @@ export async function executeDbTab(tab: DbTab, connection: DbConnection): Promis
       ws.onmessage = null;
       ws.onerror = null;
       ws.onclose = null;
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+
+      if (
+        ws.readyState === WebSocket.OPEN ||
+        ws.readyState === WebSocket.CONNECTING
+      ) {
         ws.close();
       }
     };
 
     ws.onopen = () => {
-      ws.send(JSON.stringify(payload));
+      ws.send(JSON.stringify(message));
     };
 
     ws.onmessage = (event) => {
-      let message: DbSocketResponse;
+      let response: DbSocketResponse;
+
       try {
-        message = JSON.parse(event.data as string) as DbSocketResponse;
+        response = JSON.parse(event.data as string) as DbSocketResponse;
       } catch {
         if (!settled) {
           settled = true;
@@ -483,16 +966,16 @@ export async function executeDbTab(tab: DbTab, connection: DbConnection): Promis
         return;
       }
 
-      if (message.type === "error") {
+      if (response.type === "error") {
         if (!settled) {
           settled = true;
           cleanup();
-          reject(new Error(message.error || "DB relay error"));
+          reject(new Error(response.error || "DB relay error"));
         }
         return;
       }
 
-      if (message.id !== tab.id) {
+      if (response.id !== message.id) {
         return;
       }
 
@@ -506,7 +989,7 @@ export async function executeDbTab(tab: DbTab, connection: DbConnection): Promis
               : connection.kind === "mongodb"
                 ? "mongo"
                 : "sql",
-          data: (message.data ?? {}) as Record<string, unknown>
+          data: (response.data ?? {}) as Record<string, unknown>,
         } as DbResultPayload);
       }
     };
@@ -527,4 +1010,222 @@ export async function executeDbTab(tab: DbTab, connection: DbConnection): Promis
       }
     };
   });
+}
+
+async function loadSqlExplorer(connection: DbConnection) {
+  // For PostgreSQL/GaussDB: list databases first, return lazy groups
+  if (connection.kind === "postgresql" || connection.kind === "gaussdb") {
+    const listDbResult = await executeDbSocketCommand(
+      {
+        id: makeId("db-tree"),
+        type: "sql",
+        payload: {
+          driver: connection.kind,
+          dsn: connection.url,
+          query: "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname;",
+        },
+      },
+      connection,
+    );
+
+    if (
+      listDbResult.kind === "sql" &&
+      Array.isArray(listDbResult.data.rows) &&
+      listDbResult.data.rows.length > 0
+    ) {
+      return (listDbResult.data.rows as Array<Record<string, unknown>>)
+        .map((row) => asString(row.datname))
+        .filter(Boolean)
+        .map((dbName) =>
+          makeExplorerGroup(dbName, "database", [], undefined, true),
+        );
+    }
+  }
+
+  const result = await executeDbSocketCommand(
+    {
+      id: makeId("db-tree"),
+      type: "sql",
+      payload: {
+        driver: connection.kind,
+        dsn: connection.url,
+        query: buildSqlExplorerQuery(connection.kind),
+      },
+    },
+    connection,
+  );
+
+  if (result.kind !== "sql") {
+    return [] as DbExplorerNode[];
+  }
+
+  return buildSqlExplorerNodes(
+    connection,
+    (result.data.rows ?? []) as SqlExplorerRow[],
+  );
+}
+
+async function loadMongoExplorer(connection: DbConnection) {
+  const result = await executeDbSocketCommand(
+    {
+      id: makeId("db-tree"),
+      type: "mongoListCollections",
+      payload: {
+        uri: connection.url,
+        database: connection.config.database.trim() || "test",
+      },
+    },
+    connection,
+  );
+
+  if (result.kind !== "mongo" || !Array.isArray(result.data.result)) {
+    return [] as DbExplorerNode[];
+  }
+
+  const collectionNodes = result.data.result
+    .map((item) => {
+      const name =
+        item && typeof item === "object"
+          ? asString((item as Record<string, unknown>).name)
+          : "";
+      if (!name) {
+        return null;
+      }
+
+      return makeExplorerLeaf(
+        "collection",
+        name,
+        buildMongoCollectionQuery(name),
+        "Collection",
+        buildMongoCollectionCountQuery(name),
+      );
+    })
+    .filter((node): node is DbExplorerNode => Boolean(node))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return [
+    makeExplorerGroup(
+      connection.config.database.trim() || "test",
+      "database",
+      collectionNodes,
+      `${collectionNodes.length} collections`,
+    ),
+  ];
+}
+
+async function loadRedisExplorer(connection: DbConnection) {
+  const result = await executeDbSocketCommand(
+    {
+      id: makeId("db-tree"),
+      type: "redis",
+      payload: {
+        url: connection.url,
+        command: "KEYS",
+        arguments: ["*"],
+      },
+    },
+    connection,
+  );
+
+  if (result.kind !== "redis" || !Array.isArray(result.data.result)) {
+    return [] as DbExplorerNode[];
+  }
+
+  const keys = result.data.result
+    .map((item) => asString(item))
+    .filter(Boolean)
+    .slice(0, 200)
+    .map((keyName) =>
+      makeExplorerLeaf("key", keyName, buildRedisKeyQuery(keyName), "Key"),
+    )
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return [
+    makeExplorerGroup("Keys", "category", keys, `${keys.length} loaded`),
+  ];
+}
+
+export async function loadDbExplorer(connection: DbConnection) {
+  const normalizedConnection = {
+    ...connection,
+    url: buildDbConnectionUrl(connection) || connection.url.trim(),
+  };
+
+  if (normalizedConnection.kind === "mongodb") {
+    return loadMongoExplorer(normalizedConnection);
+  }
+
+  if (normalizedConnection.kind === "redis") {
+    return loadRedisExplorer(normalizedConnection);
+  }
+
+  return loadSqlExplorer(normalizedConnection);
+}
+
+function switchDsnDatabase(
+  kind: DbConnectionKind,
+  baseDsn: string,
+  database: string,
+): string {
+  if (kind === "postgresql" || kind === "gaussdb") {
+    // Keyword DSN format: host=... dbname=old → host=... dbname=new
+    if (/dbname\s*=/i.test(baseDsn)) {
+      return baseDsn.replace(/dbname\s*=\s*\S*/i, `dbname=${database}`);
+    }
+    return `${baseDsn} dbname=${database}`;
+  }
+  return baseDsn;
+}
+
+export async function loadDbExplorerDatabaseChildren(
+  connection: DbConnection,
+  databaseName: string,
+): Promise<DbExplorerNode[]> {
+  const baseDsn = buildDbConnectionUrl(connection) || connection.url.trim();
+  const dsn = switchDsnDatabase(connection.kind, baseDsn, databaseName);
+
+  const result = await executeDbSocketCommand(
+    {
+      id: makeId("db-tree"),
+      type: "sql",
+      payload: {
+        driver: connection.kind,
+        dsn,
+        query: buildSqlExplorerQuery(connection.kind),
+      },
+    },
+    connection,
+  );
+
+  if (result.kind !== "sql") {
+    return [];
+  }
+
+  const modifiedConnection = {
+    ...connection,
+    config: { ...connection.config, database: databaseName },
+  };
+
+  return buildSqlExplorerNodes(
+    modifiedConnection,
+    (result.data.rows ?? []) as SqlExplorerRow[],
+  );
+}
+
+export async function testDbConnection(connection: DbConnection) {
+  const normalizedConnection = {
+    ...connection,
+    url: buildDbConnectionUrl(connection) || connection.url.trim(),
+  };
+  return executeDbSocketCommand(
+    buildDbTestCommandMessage(normalizedConnection),
+    normalizedConnection,
+  );
+}
+
+export async function executeDbTab(
+  tab: DbTab,
+  connection: DbConnection,
+): Promise<DbResultPayload> {
+  return executeDbSocketCommand(buildDbCommandMessage(tab, connection), connection);
 }

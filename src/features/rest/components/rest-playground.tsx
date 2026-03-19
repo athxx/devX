@@ -1063,11 +1063,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
         );
         const rootRequests = collection.requestIds
           .map((requestId) => requestMap().get(requestId))
-          .filter(
-            (request): request is RequestDraft =>
-              Boolean(request) &&
-              (!request.folderId || !folderIds.has(request.folderId)),
-          );
+          .filter((request): request is RequestDraft => {
+            if (!request) {
+              return false;
+            }
+            return !request.folderId || !folderIds.has(request.folderId);
+          });
 
         if (!filter) {
           return { collection, folders, rootRequests };
@@ -2212,7 +2213,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
   }
 
   function getRequestMoveTargetLabel(
-    collection: RestCollection,
+    collection: Collection,
     folderId: string | null,
   ) {
     if (!folderId) {
@@ -2448,7 +2449,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
       };
 
       const collectionId = makeId("collection");
-      const importedFolders =
+      const importedFolders: CollectionFolder[] =
         parsed.folders?.map((folder, index) => ({
           id: folder.id ?? makeId("folder"),
           name: folder.name?.trim() || `Folder ${index + 1}`,
@@ -4807,10 +4808,13 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                 <input
                                   class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
                                   value={
-                                    request().auth.type === "bearer"
-                                      ? request().auth.token
-                                      : ""
-                                  }
+                                      (() => {
+                                        const auth = request().auth;
+                                        return auth.type === "bearer"
+                                          ? auth.token
+                                          : "";
+                                      })()
+                                    }
                                   onInput={(event) =>
                                     updateActiveRequest((current) => {
                                       if (current.auth.type === "bearer") {
@@ -4834,9 +4838,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                   <input
                                     class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
                                     value={
-                                      request().auth.type === "basic"
-                                        ? request().auth.username
-                                        : ""
+                                      (() => {
+                                        const auth = request().auth;
+                                        return auth.type === "basic"
+                                          ? auth.username
+                                          : "";
+                                      })()
                                     }
                                     onInput={(event) =>
                                       updateActiveRequest((current) => {
@@ -4858,9 +4865,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                     class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
                                     type="password"
                                     value={
-                                      request().auth.type === "basic"
-                                        ? request().auth.password
-                                        : ""
+                                      (() => {
+                                        const auth = request().auth;
+                                        return auth.type === "basic"
+                                          ? auth.password
+                                          : "";
+                                      })()
                                     }
                                     onInput={(event) =>
                                       updateActiveRequest((current) => {
@@ -4886,9 +4896,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                   <input
                                     class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
                                     value={
-                                      request().auth.type === "api-key"
-                                        ? request().auth.key
-                                        : ""
+                                      (() => {
+                                        const auth = request().auth;
+                                        return auth.type === "api-key"
+                                          ? auth.key
+                                          : "";
+                                      })()
                                     }
                                     onInput={(event) =>
                                       updateActiveRequest((current) => {
@@ -4909,9 +4922,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                   <input
                                     class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
                                     value={
-                                      request().auth.type === "api-key"
-                                        ? request().auth.value
-                                        : ""
+                                      (() => {
+                                        const auth = request().auth;
+                                        return auth.type === "api-key"
+                                          ? auth.value
+                                          : "";
+                                      })()
                                     }
                                     onInput={(event) =>
                                       updateActiveRequest((current) => {
@@ -4932,9 +4948,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                   <select
                                     class="theme-input h-8 rounded-md px-2.5 py-1 text-sm"
                                     value={
-                                      request().auth.type === "api-key"
-                                        ? request().auth.addTo
-                                        : "header"
+                                      (() => {
+                                        const auth = request().auth;
+                                        return auth.type === "api-key"
+                                          ? auth.addTo
+                                          : "header";
+                                      })()
                                     }
                                     onInput={(event) =>
                                       updateActiveRequest((current) => {
@@ -5117,10 +5136,13 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                 class="theme-input w-full rounded-[18px] px-3 py-2.5 font-mono text-sm leading-6 transition"
                                 style={{ "min-height": "calc(100dvh - 320px)" }}
                                 value={
-                                  request().body.type === "json" ||
-                                  request().body.type === "raw"
-                                    ? request().body.value
-                                    : ""
+                                  (() => {
+                                    const body = request().body;
+                                    return body.type === "json" ||
+                                      body.type === "raw"
+                                      ? body.value
+                                      : "";
+                                  })()
                                 }
                                 onInput={(event) =>
                                   updateActiveRequest((current) => {
@@ -5144,9 +5166,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                 style={{ "min-height": "calc(100dvh - 320px)" }}
                                 placeholder="Paste base64 payload"
                                 value={
-                                  request().body.type === "binary"
-                                    ? request().body.value
-                                    : ""
+                                  (() => {
+                                    const body = request().body;
+                                    return body.type === "binary"
+                                      ? body.value
+                                      : "";
+                                  })()
                                 }
                                 onInput={(event) =>
                                   updateActiveRequest((current) => {
@@ -5164,9 +5189,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
                             <Show when={request().body.type === "form-data"}>
                               <FormDataTableEditor
                                 rows={
-                                  request().body.type === "form-data"
-                                    ? request().body.entries
-                                    : []
+                                  (() => {
+                                    const body = request().body;
+                                    return body.type === "form-data"
+                                      ? body.entries
+                                      : [];
+                                  })()
                                 }
                                 resizeStorageKey="devx-kv-body-form-data"
                                 onUpdate={(id, patch) =>
@@ -5222,9 +5250,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
                             >
                               <KeyValueTableEditor
                                 rows={
-                                  request().body.type === "form-urlencoded"
-                                    ? request().body.entries
-                                    : []
+                                  (() => {
+                                    const body = request().body;
+                                    return body.type === "form-urlencoded"
+                                      ? body.entries
+                                      : [];
+                                  })()
                                 }
                                 resizeStorageKey="devx-kv-body-form-urlencoded"
                                 onUpdate={(id, key, value) =>

@@ -10,11 +10,6 @@ export type DbConnectionKind =
   | "sqlserver"
   | "tidb";
 
-export type DbFolder = {
-  id: string;
-  name: string;
-};
-
 export type DbConnectionConfig = {
   host: string;
   port: string;
@@ -33,7 +28,6 @@ export type DbConnection = {
   kind: DbConnectionKind;
   url: string;
   config: DbConnectionConfig;
-  folderId: string | null;
   defaultQuery: string;
 };
 
@@ -49,7 +43,6 @@ export type DbFavoriteQuery = {
   connectionId: string;
   name: string;
   query: string;
-  createdAt: string;
 };
 
 export type DbQueryHistoryItem = {
@@ -58,13 +51,14 @@ export type DbQueryHistoryItem = {
   connectionName: string;
   kind: DbConnectionKind;
   query: string;
-  createdAt: string;
+  executedAt: string;
   status: "success" | "error";
 };
 
 export type DbWorkspaceState = {
-  folders: DbFolder[];
-  connections: DbConnection[];
+  savedConnections: DbConnection[];
+  connectedConnectionIds: string[];
+  activeConnectionId: string | null;
   openTabIds: string[];
   pinnedTabIds: string[];
   activeTabId: string | null;
@@ -78,6 +72,28 @@ export type DbExecutionState =
   | { status: "running" }
   | { status: "success"; durationMs?: number }
   | { status: "error"; message: string };
+
+export type DbExplorerGroupKind = "database" | "schema" | "category" | "server";
+export type DbExplorerLeafKind = "table" | "view" | "collection" | "key";
+
+export type DbExplorerNode =
+  | {
+      id: string;
+      kind: "group";
+      groupKind: DbExplorerGroupKind;
+      label: string;
+      description?: string;
+      children: DbExplorerNode[];
+      lazy?: boolean;
+    }
+  | {
+      id: string;
+      kind: DbExplorerLeafKind;
+      label: string;
+      description?: string;
+      query: string;
+      countQuery?: string;
+    };
 
 export type DbResultPayload =
   | {

@@ -1,4 +1,5 @@
 import {
+  ErrorBoundary,
   For,
   createEffect,
   createMemo,
@@ -75,6 +76,23 @@ function SettingsIcon() {
         stroke-width="1.5"
       />
     </svg>
+  );
+}
+
+function PanelError(props: { error: Error; name: string }) {
+  return (
+    <div class="flex h-full items-center justify-center p-8">
+      <div class="max-w-lg rounded-2xl border border-red-300 bg-red-50 p-6 text-left dark:border-red-800 dark:bg-red-950">
+        <p class="text-base font-semibold text-red-700 dark:text-red-300">
+          {props.name} panel crashed
+        </p>
+        <pre class="mt-3 overflow-auto whitespace-pre-wrap text-xs text-red-600 dark:text-red-400">
+          {props.error?.message ?? String(props.error)}
+          {"\n"}
+          {props.error?.stack}
+        </pre>
+      </div>
+    </div>
   );
 }
 
@@ -311,28 +329,38 @@ export function WorkspacePage(_props: WorkspacePageProps) {
         <HomeWorkspace />
       </div>
       <div style={tabPanelStyle("api")}>
-        <RestPlayground
-          sidebarOpen={sidebarOpen()}
-          sidebarWidth={sidebarWidth()}
-          sidebarResizing={sidebarResizing()}
-          onSidebarResizeStart={handleSidebarResizeStart}
-        />
+        <ErrorBoundary
+          fallback={(err) => <PanelError error={err} name="REST" />}
+        >
+          <RestPlayground
+            sidebarOpen={sidebarOpen()}
+            sidebarWidth={sidebarWidth()}
+            sidebarResizing={sidebarResizing()}
+            onSidebarResizeStart={handleSidebarResizeStart}
+          />
+        </ErrorBoundary>
       </div>
       <div style={tabPanelStyle("db")}>
-        <DbPanel
-          sidebarOpen={sidebarOpen()}
-          sidebarWidth={sidebarWidth()}
-          sidebarResizing={sidebarResizing()}
-          onSidebarResizeStart={handleSidebarResizeStart}
-        />
+        <ErrorBoundary fallback={(err) => <PanelError error={err} name="DB" />}>
+          <DbPanel
+            sidebarOpen={sidebarOpen()}
+            sidebarWidth={sidebarWidth()}
+            sidebarResizing={sidebarResizing()}
+            onSidebarResizeStart={handleSidebarResizeStart}
+          />
+        </ErrorBoundary>
       </div>
       <div style={tabPanelStyle("ssh")}>
-        <SshPanel
-          sidebarOpen={sidebarOpen()}
-          sidebarWidth={sidebarWidth()}
-          sidebarResizing={sidebarResizing()}
-          onSidebarResizeStart={handleSidebarResizeStart}
-        />
+        <ErrorBoundary
+          fallback={(err) => <PanelError error={err} name="SSH" />}
+        >
+          <SshPanel
+            sidebarOpen={sidebarOpen()}
+            sidebarWidth={sidebarWidth()}
+            sidebarResizing={sidebarResizing()}
+            onSidebarResizeStart={handleSidebarResizeStart}
+          />
+        </ErrorBoundary>
       </div>
       <div style={tabPanelStyle("tools")}>
         <ToolsWorkspace

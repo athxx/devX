@@ -165,6 +165,50 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 			"type": "mongo",
 			"data": result,
 		})
+	case "mongoPing":
+		var request dbrunner.MongoPingRequest
+		if err := json.Unmarshal(command.Payload, &request); err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": "invalid mongo ping payload",
+			})
+		}
+		result, err := dbrunner.PingMongo(context.Background(), request, deps.Config.MongoTimeout)
+		if err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": err.Error(),
+			})
+		}
+		return conn.WriteJSON(fiber.Map{
+			"id":   command.ID,
+			"type": "mongo",
+			"data": result,
+		})
+	case "mongoListCollections":
+		var request dbrunner.MongoListCollectionsRequest
+		if err := json.Unmarshal(command.Payload, &request); err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": "invalid mongo list collections payload",
+			})
+		}
+		result, err := dbrunner.ListMongoCollections(context.Background(), request, deps.Config.MongoTimeout)
+		if err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": err.Error(),
+			})
+		}
+		return conn.WriteJSON(fiber.Map{
+			"id":   command.ID,
+			"type": "mongo",
+			"data": result,
+		})
 	case "mongoShell":
 		var request struct {
 			URL     string `json:"url"`
