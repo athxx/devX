@@ -6,9 +6,14 @@ import (
 	"strings"
 	"time"
 
+	"gorm.io/driver/clickhouse"
+	"gorm.io/driver/gaussdb"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
+	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
+	oracle "github.com/oracle-samples/gorm-oracle/oracle"
 )
 
 type SQLQueryRequest struct {
@@ -120,10 +125,22 @@ func QuerySQL(ctx context.Context, request SQLQueryRequest, fallbackTimeout time
 
 func buildDialector(driver, dsn string) (gorm.Dialector, error) {
 	switch strings.ToLower(strings.TrimSpace(driver)) {
+	case "clickhouse":
+		return clickhouse.Open(dsn), nil
+	case "gaussdb":
+		return gaussdb.Open(dsn), nil
 	case "mysql":
 		return mysql.Open(dsn), nil
+	case "tidb":
+		return mysql.Open(dsn), nil
+	case "sqlite":
+		return sqlite.Open(dsn), nil
 	case "postgres", "postgresql":
 		return postgres.Open(dsn), nil
+	case "sqlserver", "mssql":
+		return sqlserver.Open(dsn), nil
+	case "oracle":
+		return oracle.Open(dsn), nil
 	default:
 		return nil, fmt.Errorf("unsupported sql driver: %s", driver)
 	}

@@ -3,6 +3,7 @@ import { For, Show, createSignal } from "solid-js";
 import { SectionCard } from "../components/section-card";
 import { WorkspaceSection } from "../components/workspace-section";
 import { WorkspaceSidebarLayout } from "../components/workspace-sidebar-layout";
+import { DbPanel } from "../features/db/components/db-panel";
 import { ProxyPanel } from "../features/proxy/components/proxy-panel";
 import { SyncPanel } from "../features/sync/components/sync-panel";
 import { SshPanel } from "../features/ssh/components/ssh-panel";
@@ -201,70 +202,12 @@ export function SettingsWorkspace(props: SidebarWorkspaceProps) {
 
 export function DbWorkspace(props: SidebarWorkspaceProps) {
   return (
-    <WorkspaceSidebarLayout
+    <DbPanel
       sidebarOpen={props.sidebarOpen}
       sidebarWidth={props.sidebarWidth}
       sidebarResizing={props.sidebarResizing}
-      onResizeStart={props.onSidebarResizeStart}
-      contentClass="theme-workspace-pane grid gap-0 border-l"
-      contentStyle={{ "border-color": "var(--app-border)" }}
-      sidebar={
-        <>
-          <div class="mb-5 border-b pb-4" style={{ "border-color": "var(--app-border)" }}>
-            <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">Connections</p>
-            <h2 class="theme-text mt-2 text-lg font-semibold">Database</h2>
-            <p class="theme-text-soft mt-1 text-sm leading-6">连接、查询历史和结果视图都从这里进入。</p>
-          </div>
-
-          <div class="grid gap-3">
-            <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
-              <p class="theme-text text-sm font-semibold">Primary PostgreSQL</p>
-              <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">staging / readonly</p>
-            </div>
-            <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
-              <p class="theme-text text-sm font-semibold">Analytics MySQL</p>
-              <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">warehouse / readonly</p>
-            </div>
-            <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
-              <p class="theme-text text-sm font-semibold">Redis Cache</p>
-              <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">session / inspect</p>
-            </div>
-          </div>
-        </>
-      }
-    >
-        <WorkspaceSection eyebrow="Query Editor" title="Query Draft">
-          <div class="theme-code border px-4 py-4" style={{ "border-color": "var(--app-border)" }}>
-            <pre class="theme-text-muted overflow-x-auto font-mono text-sm leading-7">
-              <code>{`SELECT id, name, status
-FROM users
-WHERE deleted_at IS NULL
-ORDER BY created_at DESC
-LIMIT 50;`}</code>
-            </pre>
-          </div>
-        </WorkspaceSection>
-
-        <WorkspaceSection eyebrow="Preview" title="Result Viewer" class="border-b">
-          <div
-            class="grid gap-px overflow-hidden border md:grid-cols-3"
-            style={{ "border-color": "var(--app-border)", background: "var(--app-border)" }}
-          >
-            <div class="theme-kv-cell-muted px-4 py-4">
-              <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">Rows</p>
-              <p class="theme-text mt-2 text-lg font-semibold">50</p>
-            </div>
-            <div class="theme-kv-cell-muted px-4 py-4">
-              <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">Runtime</p>
-              <p class="theme-text mt-2 text-lg font-semibold">84 ms</p>
-            </div>
-            <div class="theme-kv-cell-muted px-4 py-4">
-              <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">Source</p>
-              <p class="theme-text mt-2 text-lg font-semibold">PostgreSQL</p>
-            </div>
-          </div>
-        </WorkspaceSection>
-    </WorkspaceSidebarLayout>
+      onSidebarResizeStart={props.onSidebarResizeStart}
+    />
   );
 }
 

@@ -165,6 +165,39 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 			"type": "mongo",
 			"data": result,
 		})
+	case "mongoShell":
+		var request struct {
+			URL     string `json:"url"`
+			Command string `json:"command"`
+		}
+		if err := json.Unmarshal(command.Payload, &request); err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": "invalid mongo shell payload",
+			})
+		}
+		parsed, err := parseMongoShellCommand(request.URL, request.Command)
+		if err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": err.Error(),
+			})
+		}
+		result, err := dbrunner.RunMongoQuery(context.Background(), parsed, deps.Config.MongoTimeout)
+		if err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": err.Error(),
+			})
+		}
+		return conn.WriteJSON(fiber.Map{
+			"id":   command.ID,
+			"type": "mongo",
+			"data": result,
+		})
 	default:
 		return conn.WriteJSON(fiber.Map{
 			"id":    command.ID,
