@@ -1464,7 +1464,7 @@ export function DbPanel(props: DbPanelProps) {
                         setAddConnectionMenuOpen(false);
                       }}
                     >
-                      <ControlDot variant="menu" />
+                      <ControlDot variant="warn" />
                     </button>
                     <Show when={headerMenuOpen()}>
                       <div
