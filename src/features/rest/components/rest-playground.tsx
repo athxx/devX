@@ -977,7 +977,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
   const requestMap = createMemo(() => new Map(workspace.requests.map((request) => [request.id, request])));
   const activeRequest = createMemo(
-    () => requestMap().get(workspace.activeRequestId) ?? workspace.requests[0] ?? null
+    () => requestMap().get(workspace.activeRequestId) ?? null
   );
   const activeCollection = createMemo(
     () =>
@@ -1347,7 +1347,6 @@ export function RestPlayground(props: RestPlaygroundProps) {
         const fallbackId =
           currentOpenIds[currentIndex + 1] ??
           currentOpenIds[currentIndex - 1] ??
-          next.requests[0]?.id ??
           "";
         next.activeRequestId = fallbackId;
         const fallbackRequest = next.requests.find((request) => request.id === fallbackId);
@@ -1385,19 +1384,19 @@ export function RestPlayground(props: RestPlaygroundProps) {
   }
 
   function closeAllTabs() {
-    const currentId = currentTabMenuRequest()?.id ?? activeRequest()?.id ?? "";
-
     commitWorkspace((next) => {
       const pinned = next.pinnedRequestIds.filter((id) =>
         next.requests.some((request) => request.id === id)
       );
-      next.openRequestIds = pinned.length > 0 ? pinned : currentId ? [currentId] : [];
+      next.openRequestIds = pinned;
       if (next.openRequestIds.length > 0) {
         next.activeRequestId = next.openRequestIds[0];
         const active = next.requests.find((request) => request.id === next.activeRequestId);
         if (active) {
           next.activeCollectionId = active.collectionId;
         }
+      } else {
+        next.activeRequestId = "";
       }
     });
 
@@ -2522,11 +2521,19 @@ export function RestPlayground(props: RestPlaygroundProps) {
                         return (
                           <div class="grid gap-1">
                             <div
-                              class={`theme-sidebar-item flex min-w-0 items-center gap-1.5 rounded-lg px-1.5 py-1 ${
+                              class={`theme-sidebar-item group flex min-w-0 items-center gap-1.5 rounded-lg px-1.5 py-1 ${
                                 workspace.activeCollectionId === entry.collection.id
                                   ? "theme-sidebar-item-active"
                                   : ""
                               }`}
+                              onContextMenu={(event) => {
+                                event.preventDefault();
+                                selectCollection(entry.collection.id);
+                                setCollectionMenuId(entry.collection.id);
+                                setCollectionOrderMenuId(null);
+                                setCollectionAddMenuId(null);
+                                setShowCollectionCreateMenu(false);
+                              }}
                             >
                               <button
                                 class="inline-flex h-5 w-5 items-center justify-center rounded-md text-[11px]"
@@ -2535,9 +2542,23 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                 onPointerDown={(event) => event.stopPropagation()}
                                 onClick={() => toggleCollectionExpanded(entry.collection.id)}
                               >
-                                <span class={`transition ${isCollectionExpanded(entry.collection.id) ? "rotate-90" : ""}`}>
-                                  ▸
-                                </span>
+                                <svg
+                                  class={`h-3.5 w-3.5 transition-transform ${
+                                    isCollectionExpanded(entry.collection.id) ? "rotate-90" : ""
+                                  }`}
+                                  viewBox="0 0 16 16"
+                                  fill="none"
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  aria-hidden="true"
+                                >
+                                  <path
+                                    d="M6 4.5L9.5 8L6 11.5"
+                                    stroke="currentColor"
+                                    stroke-width="1.6"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                  />
+                                </svg>
                               </button>
 
                               <button
@@ -2545,20 +2566,23 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                 onMouseDown={(event) => event.stopPropagation()}
                                 onClick={() => selectCollection(entry.collection.id)}
                               >
-                                <p class="theme-text truncate text-[13px] font-medium" title={entry.collection.name}>
-                                  {entry.collection.name}
-                                </p>
+                                <div class="inline-flex max-w-full min-w-0 items-center gap-1.5 align-middle">
+                                  <p class="theme-text max-w-full truncate text-[13px] font-medium" title={entry.collection.name}>
+                                    {entry.collection.name}
+                                  </p>
+                                  <span class="theme-chip shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
+                                    {entry.collection.requestIds.length}
+                                  </span>
+                                </div>
                               </button>
 
-                              <div class="ml-1 flex shrink-0 items-center gap-1">
-                                <button
-                                  class="theme-chip shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
-                                  onMouseDown={(event) => event.stopPropagation()}
-                                  onPointerDown={(event) => event.stopPropagation()}
-                                >
-                                  {entry.collection.requestIds.length}
-                                </button>
-
+                              <div
+                                class={`ml-1 flex shrink-0 items-center gap-1 transition-opacity ${
+                                  collectionMenuId() === entry.collection.id || collectionAddMenuId() === entry.collection.id
+                                    ? "opacity-100"
+                                    : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                                }`}
+                              >
                                 <div class="relative shrink-0" data-rest-menu-root>
                                   <button
                                     class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-[11px]"
@@ -2601,6 +2625,18 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                         onClick={() => exportCollection(entry.collection.id)}
                                       >
                                         Export
+                                      </button>
+                                      <button
+                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                        onClick={() => orderCollection(entry.collection.id, "up")}
+                                      >
+                                        Move Up
+                                      </button>
+                                      <button
+                                        class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm"
+                                        onClick={() => orderCollection(entry.collection.id, "down")}
+                                      >
+                                        Move Down
                                       </button>
                                       <div class="relative" data-rest-menu-root>
                                         <button
@@ -2679,11 +2715,18 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                 <For each={rootRequests()}>
                                   {(request) => (
                                     <div
-                                      class={`theme-sidebar-item flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
+                                      class={`theme-sidebar-item group flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
                                         workspace.activeRequestId === request.id
                                           ? "theme-sidebar-item-active"
                                           : ""
                                       }`}
+                                      onContextMenu={(event) => {
+                                        event.preventDefault();
+                                        openRequestTab(request.id, request.collectionId);
+                                        setRequestMenuId(request.id);
+                                        setRequestOrderMenuId(null);
+                                        setRequestMoveMenuId(null);
+                                      }}
                                     >
                                       <button class={getRequestBadgeClass(request)} onClick={() => openRequestTab(request.id, request.collectionId)}>
                                         {getRequestKindLabel(request)}
@@ -2691,7 +2734,14 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                       <button class="min-w-0 flex-1 text-left" onClick={() => openRequestTab(request.id, request.collectionId)}>
                                         <p class="truncate text-[13px] font-medium" title={request.name}>{request.name}</p>
                                       </button>
-                                    <div class="relative shrink-0" data-rest-menu-root>
+                                    <div
+                                      class={`relative shrink-0 transition-opacity ${
+                                        requestMenuId() === request.id
+                                          ? "opacity-100"
+                                          : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                                      }`}
+                                      data-rest-menu-root
+                                    >
                                         <button
                                           class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-[11px]"
                                           title="Request options"
@@ -2720,6 +2770,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                             </button>
                                             <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => duplicateRequest(request.id)}>
                                               Duplicate
+                                            </button>
+                                            <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "up")}>
+                                              Move Up
+                                            </button>
+                                            <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "down")}>
+                                              Move Down
                                             </button>
                                             <div class="relative" data-rest-menu-root>
                                               <button
@@ -2806,7 +2862,16 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                 <For each={folders()}>
                                   {(folderEntry) => (
                                     <div class="grid gap-1">
-                                      <div class="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5">
+                                      <div
+                                        class="group flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5"
+                                        onContextMenu={(event) => {
+                                          event.preventDefault();
+                                          setFolderMenuId(folderEntry.folder.id);
+                                          setFolderOrderMenuId(null);
+                                          setFolderMoveMenuId(null);
+                                          setFolderAddMenuId(null);
+                                        }}
+                                      >
                                         <button
                                           class="inline-flex h-5 w-5 items-center justify-center rounded-md text-[11px]"
                                           title={isFolderExpanded(folderEntry.folder.id) ? "Collapse" : "Expand"}
@@ -2817,11 +2882,24 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                             toggleFolderExpanded(folderEntry.folder.id);
                                           }}
                                         >
-                                          <span class={`transition ${isFolderExpanded(folderEntry.folder.id) ? "rotate-90" : ""}`}>
-                                            ▸
-                                          </span>
+                                          <svg
+                                            class={`h-3.5 w-3.5 transition-transform ${
+                                              isFolderExpanded(folderEntry.folder.id) ? "rotate-90" : ""
+                                            }`}
+                                            viewBox="0 0 16 16"
+                                            fill="none"
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            aria-hidden="true"
+                                          >
+                                            <path
+                                              d="M6 4.5L9.5 8L6 11.5"
+                                              stroke="currentColor"
+                                              stroke-width="1.6"
+                                              stroke-linecap="round"
+                                              stroke-linejoin="round"
+                                            />
+                                          </svg>
                                         </button>
-                                        <span class="theme-chip rounded-full px-2 py-0.5 text-[11px] font-medium">Dir</span>
                                         <button
                                           class="min-w-0 flex-1 text-left"
                                           title={folderEntry.folder.name}
@@ -2831,12 +2909,21 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                             toggleFolderExpanded(folderEntry.folder.id);
                                           }}
                                         >
-                                          <p class="truncate text-[13px] font-medium">{folderEntry.folder.name}</p>
+                                          <div class="inline-flex max-w-full min-w-0 items-center gap-1.5 align-middle">
+                                            <p class="max-w-full truncate text-[13px] font-medium">{folderEntry.folder.name}</p>
+                                            <span class="theme-chip shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
+                                              {folderEntry.requests.length}
+                                            </span>
+                                          </div>
                                         </button>
-                                        <span class="theme-chip rounded-full px-2 py-0.5 text-[11px] font-medium">
-                                          {folderEntry.requests.length}
-                                        </span>
-                                        <div class="relative shrink-0" data-rest-menu-root>
+                                        <div
+                                          class={`relative shrink-0 transition-opacity ${
+                                            folderMenuId() === folderEntry.folder.id || folderAddMenuId() === folderEntry.folder.id
+                                              ? "opacity-100"
+                                              : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                                          }`}
+                                          data-rest-menu-root
+                                        >
                                           <button
                                             class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-[11px]"
                                             title="Folder options"
@@ -2862,6 +2949,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                               </button>
                                               <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => duplicateFolder(entry.collection.id, folderEntry.folder.id)}>
                                                 Duplicate
+                                              </button>
+                                              <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderFolder(entry.collection.id, folderEntry.folder.id, "up")}>
+                                                Move Up
+                                              </button>
+                                              <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderFolder(entry.collection.id, folderEntry.folder.id, "down")}>
+                                                Move Down
                                               </button>
                                               <div class="relative" data-rest-menu-root>
                                                 <button
@@ -2960,7 +3053,14 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                             </div>
                                           </Show>
                                         </div>
-                                        <div class="relative shrink-0" data-rest-menu-root>
+                                        <div
+                                          class={`relative shrink-0 transition-opacity ${
+                                            folderMenuId() === folderEntry.folder.id || folderAddMenuId() === folderEntry.folder.id
+                                              ? "opacity-100"
+                                              : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                                          }`}
+                                          data-rest-menu-root
+                                        >
                                           <button
                                             class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-xs"
                                             title="Add request"
@@ -2984,11 +3084,18 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                           <For each={folderEntry.requests}>
                                             {(request) => (
                                               <div
-                                                class={`theme-sidebar-item flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
+                                                class={`theme-sidebar-item group flex min-w-0 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
                                                   workspace.activeRequestId === request.id
                                                     ? "theme-sidebar-item-active"
                                                     : ""
                                                 }`}
+                                                onContextMenu={(event) => {
+                                                  event.preventDefault();
+                                                  openRequestTab(request.id, request.collectionId);
+                                                  setRequestMenuId(request.id);
+                                                  setRequestOrderMenuId(null);
+                                                  setRequestMoveMenuId(null);
+                                                }}
                                               >
                                                 <button class={getRequestBadgeClass(request)} onClick={() => openRequestTab(request.id, request.collectionId)}>
                                                   {getRequestKindLabel(request)}
@@ -2996,7 +3103,14 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                 <button class="min-w-0 flex-1 text-left" onClick={() => openRequestTab(request.id, request.collectionId)}>
                                                   <p class="truncate text-[13px] font-medium" title={request.name}>{request.name}</p>
                                                 </button>
-                                                <div class="relative shrink-0" data-rest-menu-root>
+                                                <div
+                                                  class={`relative shrink-0 transition-opacity ${
+                                                    requestMenuId() === request.id
+                                                      ? "opacity-100"
+                                                      : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                                                  }`}
+                                                  data-rest-menu-root
+                                                >
                                                   <button
                                                     class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0 text-[11px]"
                                                     title="Request options"
@@ -3025,6 +3139,12 @@ export function RestPlayground(props: RestPlaygroundProps) {
                                                       </button>
                                                       <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => duplicateRequest(request.id)}>
                                                         Duplicate
+                                                      </button>
+                                                      <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "up")}>
+                                                        Move Up
+                                                      </button>
+                                                      <button class="theme-sidebar-item w-full rounded-xl px-3 py-2 text-left text-sm" onClick={() => orderRequest(request.id, "down")}>
+                                                        Move Down
                                                       </button>
                                                       <div class="relative" data-rest-menu-root>
                                                         <button
@@ -3283,70 +3403,74 @@ export function RestPlayground(props: RestPlaygroundProps) {
           </div>
         }
       >
-        <div class="border-b" style={{ "border-color": "var(--app-border)" }}>
-          <div class="grid gap-1.5">
-            <div class="overflow-visible">
-              <RequestTabsBar
-                items={requestTabItems()}
-                draggedId={draggedTabId()}
-                dropTargetId={tabDropTargetId()}
-                renderCloseIcon={() => <ControlDot variant="delete" />}
-                renderPinIcon={() => <PinIcon />}
-                onTabOpen={(requestId) => {
-                  const request = requestMap().get(requestId);
-                  if (request) {
-                    openRequestTab(requestId, request.collectionId);
-                  }
-                }}
-                onTabClose={(requestId) => closeRequestTab(requestId)}
-                onTabContextMenu={(requestId, event) => {
-                  setRequestTabMenuState({
-                    id: requestId,
-                    x: event.clientX,
-                    y: event.clientY
-                  });
-                }}
-                onDragStart={(requestId, event) => {
-                  setDraggedTabId(requestId);
-                  event.dataTransfer?.setData("text/plain", requestId);
-                  if (event.dataTransfer) {
-                    event.dataTransfer.effectAllowed = "move";
-                  }
-                }}
-                onDragEnd={() => {
-                  setDraggedTabId(null);
-                  setTabDropTargetId(null);
-                }}
-                onTabDragOver={(requestId, event) => {
-                  event.preventDefault();
-                  setTabDropTargetId(requestId);
-                }}
-                onTabDrop={(requestId, event) => {
-                  event.preventDefault();
-                  const draggedId = draggedTabId();
-                  if (draggedId) {
-                    reorderRequestTabs(draggedId, requestId);
-                  }
-                  setDraggedTabId(null);
-                  setTabDropTargetId(null);
-                }}
-                onStripDragOver={(event) => {
-                  event.preventDefault();
-                  setTabDropTargetId(null);
-                }}
-                onStripDrop={(event) => {
-                  event.preventDefault();
-                  const draggedId = draggedTabId();
-                  if (draggedId) {
-                    reorderRequestTabs(draggedId, null);
-                  }
-                  setDraggedTabId(null);
-                  setTabDropTargetId(null);
-                }}
-              />
-            </div>
+        <Show
+          when={requestTabItems().length > 0}
+          fallback={<div class="flex-1 min-h-0" />}
+        >
+          <div class="border-b" style={{ "border-color": "var(--app-border)" }}>
+            <div class="grid gap-1.5">
+              <div class="overflow-visible">
+                <RequestTabsBar
+                  items={requestTabItems()}
+                  draggedId={draggedTabId()}
+                  dropTargetId={tabDropTargetId()}
+                  renderCloseIcon={() => <ControlDot variant="delete" />}
+                  renderPinIcon={() => <PinIcon />}
+                  onTabOpen={(requestId) => {
+                    const request = requestMap().get(requestId);
+                    if (request) {
+                      openRequestTab(requestId, request.collectionId);
+                    }
+                  }}
+                  onTabClose={(requestId) => closeRequestTab(requestId)}
+                  onTabContextMenu={(requestId, event) => {
+                    setRequestTabMenuState({
+                      id: requestId,
+                      x: event.clientX,
+                      y: event.clientY
+                    });
+                  }}
+                  onDragStart={(requestId, event) => {
+                    setDraggedTabId(requestId);
+                    event.dataTransfer?.setData("text/plain", requestId);
+                    if (event.dataTransfer) {
+                      event.dataTransfer.effectAllowed = "move";
+                    }
+                  }}
+                  onDragEnd={() => {
+                    setDraggedTabId(null);
+                    setTabDropTargetId(null);
+                  }}
+                  onTabDragOver={(requestId, event) => {
+                    event.preventDefault();
+                    setTabDropTargetId(requestId);
+                  }}
+                  onTabDrop={(requestId, event) => {
+                    event.preventDefault();
+                    const draggedId = draggedTabId();
+                    if (draggedId) {
+                      reorderRequestTabs(draggedId, requestId);
+                    }
+                    setDraggedTabId(null);
+                    setTabDropTargetId(null);
+                  }}
+                  onStripDragOver={(event) => {
+                    event.preventDefault();
+                    setTabDropTargetId(null);
+                  }}
+                  onStripDrop={(event) => {
+                    event.preventDefault();
+                    const draggedId = draggedTabId();
+                    if (draggedId) {
+                      reorderRequestTabs(draggedId, null);
+                    }
+                    setDraggedTabId(null);
+                    setTabDropTargetId(null);
+                  }}
+                />
+              </div>
 
-            <Show when={activeRequest()}>
+              <Show when={activeRequest()}>
               {(request) => (
                 <div class="flex flex-wrap items-center gap-2 px-3 pb-1.5">
                   <input
@@ -3418,17 +3542,19 @@ export function RestPlayground(props: RestPlaygroundProps) {
                   </AppButton>
                 </div>
               )}
-            </Show>
+              </Show>
+            </div>
           </div>
-        </div>
+        </Show>
 
-        <div
-          class="grid min-h-0 flex-1"
-          style={{
-            "grid-template-columns": `minmax(0, ${mainPaneSplit()}fr) 10px minmax(360px, ${100 - mainPaneSplit()}fr)`
-          }}
-        >
-          <div class="flex min-h-0 flex-col overflow-auto border-r" style={{ "border-color": "var(--app-border)" }}>
+        <Show when={requestTabItems().length > 0}>
+          <div
+            class="grid min-h-0 flex-1"
+            style={{
+              "grid-template-columns": `minmax(0, ${mainPaneSplit()}fr) 10px minmax(360px, ${100 - mainPaneSplit()}fr)`
+            }}
+          >
+            <div class="flex min-h-0 flex-col overflow-auto border-r" style={{ "border-color": "var(--app-border)" }}>
             <div class="shrink-0 border-b px-3 py-2" style={{ "border-color": "var(--app-border)" }}>
               <Show when={!canSendActiveRequest() && activeRequest()}>
                 {(request) => (
@@ -3907,118 +4033,119 @@ export function RestPlayground(props: RestPlaygroundProps) {
                 </Show>
               </div>
             </div>
-          </div>
+            </div>
 
-          <div
-            class="api-main-pane-resizer relative cursor-col-resize select-none"
-            aria-hidden="true"
-            onMouseDown={startMainPaneResize}
-          >
             <div
-              class={`absolute inset-y-0 left-0 w-px transition ${
-                mainPaneResizing() ? "bg-[var(--app-accent)]" : ""
-              }`}
-              style={{
-                background: mainPaneResizing()
-                  ? "var(--app-accent)"
-                  : "color-mix(in srgb, var(--app-accent) 28%, var(--app-border))"
-              }}
-            />
-          </div>
+              class="api-main-pane-resizer relative cursor-col-resize select-none"
+              aria-hidden="true"
+              onMouseDown={startMainPaneResize}
+            >
+              <div
+                class={`absolute inset-y-0 left-0 w-px transition ${
+                  mainPaneResizing() ? "bg-[var(--app-accent)]" : ""
+                }`}
+                style={{
+                  background: mainPaneResizing()
+                    ? "var(--app-accent)"
+                    : "color-mix(in srgb, var(--app-accent) 28%, var(--app-border))"
+                }}
+              />
+            </div>
 
-          <div
-            class="flex min-h-0 flex-col px-3 py-2"
-            style={{ "min-height": "calc(100dvh - 128px)" }}
-          >
-            <Show when={responseError()}>
-              <div class="mb-3 border px-4 py-3 text-sm theme-warn" style={{ "border-color": "var(--app-border)" }}>
-                {responseError()}
-              </div>
-            </Show>
+            <div
+              class="flex min-h-0 flex-col px-3 py-2"
+              style={{ "min-height": "calc(100dvh - 128px)" }}
+            >
+              <Show when={responseError()}>
+                <div class="mb-3 border px-4 py-3 text-sm theme-warn" style={{ "border-color": "var(--app-border)" }}>
+                  {responseError()}
+                </div>
+              </Show>
 
-            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div class="flex flex-wrap items-center gap-1.5">
-                <EditorToggle active={responseTab() === "body"} label="Body" onClick={() => setResponseTab("body")} />
-                <EditorToggle active={responseTab() === "headers"} label="Headers" onClick={() => setResponseTab("headers")} />
-                <Show when={responseTab() === "body" && responsePreviewKind()}>
-                  <button
-                    class={`rounded-lg px-2 py-1 text-[11px] font-medium transition ${
-                      responseBodyView() === "preview"
-                        ? "bg-[var(--app-method-delete-bg)] text-[var(--app-method-delete)]"
-                        : "bg-[var(--app-method-get-bg)] text-[var(--app-method-get)]"
-                    }`}
-                    onClick={() =>
-                      setResponseBodyView((current) => current === "preview" ? "raw" : "preview")
-                    }
-                  >
-                    Preview
-                  </button>
+              <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <EditorToggle active={responseTab() === "body"} label="Body" onClick={() => setResponseTab("body")} />
+                  <EditorToggle active={responseTab() === "headers"} label="Headers" onClick={() => setResponseTab("headers")} />
+                  <Show when={responseTab() === "body" && responsePreviewKind()}>
+                    <button
+                      class={`rounded-lg px-2 py-1 text-[11px] font-medium transition ${
+                        responseBodyView() === "preview"
+                          ? "bg-[var(--app-method-delete-bg)] text-[var(--app-method-delete)]"
+                          : "bg-[var(--app-method-get-bg)] text-[var(--app-method-get)]"
+                      }`}
+                      onClick={() =>
+                        setResponseBodyView((current) => current === "preview" ? "raw" : "preview")
+                      }
+                    >
+                      Preview
+                    </button>
+                  </Show>
+                </div>
+                <Show when={responseSummary()}>
+                  {(summary) => (
+                    <div class="theme-text-soft flex flex-wrap items-center gap-2 text-sm">
+                      <span class={`font-semibold ${getResponseStatusClass(summary().status)}`}>
+                        {summary().status} {summary().statusText}
+                      </span>
+                      <span>|</span>
+                      <span>{summary().timeMs} ms</span>
+                      <span>|</span>
+                      <span>{formatBytes(summary().sizeBytes)}</span>
+                    </div>
+                  )}
                 </Show>
               </div>
-              <Show when={responseSummary()}>
-                {(summary) => (
-                  <div class="theme-text-soft flex flex-wrap items-center gap-2 text-sm">
-                    <span class={`font-semibold ${getResponseStatusClass(summary().status)}`}>
-                      {summary().status} {summary().statusText}
-                    </span>
-                    <span>|</span>
-                    <span>{summary().timeMs} ms</span>
-                    <span>|</span>
-                    <span>{formatBytes(summary().sizeBytes)}</span>
-                  </div>
-                )}
-              </Show>
-            </div>
 
-            <div class="min-h-0 flex-1">
-            <Switch>
-              <Match when={responseTab() === "body"}>
-                <Switch>
-                  <Match when={responseBodyView() === "preview" && responsePreviewKind() === "json" && responsePreviewJson() !== null}>
-                    <div class="theme-code flex h-full min-h-[240px] flex-col overflow-auto rounded-[20px] border px-3 py-3" style={{ "border-color": "var(--app-border)" }}>
-                      <JsonPreviewNode value={responsePreviewJson()} />
-                    </div>
-                  </Match>
-                  <Match when={responseBodyView() === "preview" && responsePreviewKind() === "html" && responseSummary()}>
-                    <div class="theme-code flex h-full min-h-[240px] flex-col overflow-hidden rounded-[20px] border" style={{ "border-color": "var(--app-border)" }}>
-                      <iframe
-                        class="h-full min-h-[240px] w-full border-0 bg-white"
-                        sandbox=""
-                        srcdoc={responseSummary()?.body ?? ""}
-                        title="HTML preview"
-                      />
-                    </div>
-                  </Match>
-                  <Match when={responseBodyView() === "preview" && responsePreviewKind() === "json" && responsePreviewJson() === null}>
-                    <div class="theme-code flex h-full min-h-[240px] items-center rounded-[20px] border px-4 text-sm theme-text-soft" style={{ "border-color": "var(--app-border)" }}>
-                      JSON preview is unavailable because the response body could not be parsed.
-                    </div>
-                  </Match>
-                  <Match when={true}>
-                    <div class="theme-code flex h-full min-h-[240px] flex-col overflow-hidden rounded-[20px] border" style={{ "border-color": "var(--app-border)" }}>
-                      <Show
-                        when={responseSummary() && isJsonContentType(responseSummary()!.contentType)}
-                        fallback={
-                          <pre class="theme-text-muted h-full flex-1 overflow-x-auto px-3 py-3 font-mono text-sm leading-7">
-                            <code>{responseSummary()?.body ?? "Send a request to inspect the response body."}</code>
-                          </pre>
-                        }
-                      >
-                        <JsonHighlightedCode value={responseSummary()?.body ?? ""} />
-                      </Show>
-                    </div>
-                  </Match>
-                </Switch>
-              </Match>
-              <Match when={responseTab() === "headers"}>
-                <div class="min-h-[240px]">
-                  <KeyValueTableEditor rows={responseSummary()?.headers ?? []} resizeStorageKey="devx-kv-response-headers" readOnly />
-                </div>
-              </Match>
-            </Switch>
+              <div class="min-h-0 flex-1">
+              <Switch>
+                <Match when={responseTab() === "body"}>
+                  <Switch>
+                    <Match when={responseBodyView() === "preview" && responsePreviewKind() === "json" && responsePreviewJson() !== null}>
+                      <div class="theme-code flex h-full min-h-[240px] flex-col overflow-auto rounded-[20px] border px-3 py-3" style={{ "border-color": "var(--app-border)" }}>
+                        <JsonPreviewNode value={responsePreviewJson()} />
+                      </div>
+                    </Match>
+                    <Match when={responseBodyView() === "preview" && responsePreviewKind() === "html" && responseSummary()}>
+                      <div class="theme-code flex h-full min-h-[240px] flex-col overflow-hidden rounded-[20px] border" style={{ "border-color": "var(--app-border)" }}>
+                        <iframe
+                          class="h-full min-h-[240px] w-full border-0 bg-white"
+                          sandbox=""
+                          srcdoc={responseSummary()?.body ?? ""}
+                          title="HTML preview"
+                        />
+                      </div>
+                    </Match>
+                    <Match when={responseBodyView() === "preview" && responsePreviewKind() === "json" && responsePreviewJson() === null}>
+                      <div class="theme-code flex h-full min-h-[240px] items-center rounded-[20px] border px-4 text-sm theme-text-soft" style={{ "border-color": "var(--app-border)" }}>
+                        JSON preview is unavailable because the response body could not be parsed.
+                      </div>
+                    </Match>
+                    <Match when={true}>
+                      <div class="theme-code flex h-full min-h-[240px] flex-col overflow-hidden rounded-[20px] border" style={{ "border-color": "var(--app-border)" }}>
+                        <Show
+                          when={responseSummary() && isJsonContentType(responseSummary()!.contentType)}
+                          fallback={
+                            <pre class="theme-text-muted h-full flex-1 overflow-x-auto px-3 py-3 font-mono text-sm leading-7">
+                              <code>{responseSummary()?.body ?? "Send a request to inspect the response body."}</code>
+                            </pre>
+                          }
+                        >
+                          <JsonHighlightedCode value={responseSummary()?.body ?? ""} />
+                        </Show>
+                      </div>
+                    </Match>
+                  </Switch>
+                </Match>
+                <Match when={responseTab() === "headers"}>
+                  <div class="min-h-[240px]">
+                    <KeyValueTableEditor rows={responseSummary()?.headers ?? []} resizeStorageKey="devx-kv-response-headers" readOnly />
+                  </div>
+                </Match>
+              </Switch>
+              </div>
             </div>
           </div>
-        </div>
+        </Show>
       </WorkspaceSidebarLayout>
 
       <Show when={requestTabMenuState() && currentTabMenuRequest()}>

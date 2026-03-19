@@ -309,6 +309,10 @@ a {
   background: #0a84ff;
 }
 
+.traffic-dot-warn {
+  background: #fdbb2b;
+}
+
 .traffic-dot-button {
   border: 0;
   background: transparent;
@@ -601,3 +605,6 @@ a {
   background: var(--app-warn-bg);
   color: var(--app-warn-text);
 }
+
+.xterm { height: 100%; }
+.xterm-viewport { overflow-y: auto !important; }

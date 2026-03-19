@@ -1,13 +1,24 @@
-import { For, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import {
+  For,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import { AppShell } from "../components/app-shell";
 import {
   DbWorkspace,
   HomeWorkspace,
   SettingsWorkspace,
   SshWorkspace,
-  ToolsWorkspace
+  ToolsWorkspace,
 } from "./workspace-sections";
-import { workspaceCopy, workspaceLocaleOptions, type WorkspaceLocale } from "./workspace-copy";
+import {
+  workspaceCopy,
+  workspaceLocaleOptions,
+  type WorkspaceLocale,
+} from "./workspace-copy";
 import { RestPlayground } from "../features/rest/components/rest-playground";
 import { startSyncScheduler } from "../features/sync/service";
 
@@ -18,30 +29,25 @@ type WorkspacePageProps = {
   platform: WorkspacePlatform;
 };
 
-const topTabs = [{ id: "home" }, { id: "api" }, { id: "db" }, { id: "ssh" }, { id: "tools" }] as const;
+const topTabs = [
+  { id: "home" },
+  { id: "api" },
+  { id: "db" },
+  { id: "ssh" },
+  { id: "tools" },
+] as const;
 
 function HomeIcon() {
   return (
     <svg
       aria-hidden="true"
       class="h-4 w-4"
-      fill="none"
       viewBox="0 0 24 24"
       xmlns="http://www.w3.org/2000/svg"
     >
       <path
-        d="M4 10.5L12 4l8 6.5"
-        stroke="currentColor"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="1.8"
-      />
-      <path
-        d="M7 9.5V20h10V9.5"
-        stroke="currentColor"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        stroke-width="1.8"
+        d="M9.686.764c1.272-1.02 3.348-1.02 4.632.011l8.315 6.648c.923.744 1.524 2.315 1.332 3.49l-1.596 9.552c-.288 1.691-1.932 3.084-3.648 3.084H5.283c-1.728 0-3.36-1.38-3.648-3.084L.04 10.914c-.204-1.176.396-2.747 1.332-3.491L9.686.763zm2.316 9.214a3 3 0 1 0 0 5.999 3 3 0 0 0 0-5.999z"
+        fill="#FFBF00"
       />
     </svg>
   );
@@ -52,9 +58,8 @@ function SettingsIcon() {
     <svg
       aria-hidden="true"
       class="h-4 w-4"
-      fill="none"
-      viewBox="0 0 24 24"
       xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
     >
       <path
         d="M12 8.75a3.25 3.25 0 1 0 0 6.5 3.25 3.25 0 0 0 0-6.5Z"
@@ -77,7 +82,8 @@ function SettingsIcon() {
 export function WorkspacePage(_props: WorkspacePageProps) {
   const sidebarWidthStorageKey = "devx-sidebar-width";
   const topTabHoverDelayMs = 300;
-  const clampSidebarWidth = (value: number) => Math.min(520, Math.max(180, Math.round(value)));
+  const clampSidebarWidth = (value: number) =>
+    Math.min(520, Math.max(180, Math.round(value)));
   const [darkMode, setDarkMode] = createSignal(true);
   const [locale, setLocale] = createSignal<WorkspaceLocale>("zh-CN");
   const [activeTab, setActiveTab] = createSignal<WorkspaceTab>("home");
@@ -91,12 +97,16 @@ export function WorkspacePage(_props: WorkspacePageProps) {
     const stopSyncScheduler = startSyncScheduler();
     const savedTheme = window.localStorage.getItem("devx-theme");
     const savedLocale = window.localStorage.getItem("devx-locale");
-    const savedSidebarWidth = window.localStorage.getItem(sidebarWidthStorageKey);
+    const savedSidebarWidth = window.localStorage.getItem(
+      sidebarWidthStorageKey,
+    );
 
     if (savedTheme === "dark" || savedTheme === "light") {
       setDarkMode(savedTheme === "dark");
     } else {
-      const preferredDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const preferredDark = window.matchMedia(
+        "(prefers-color-scheme: dark)",
+      ).matches;
       setDarkMode(preferredDark);
     }
 
@@ -146,7 +156,9 @@ export function WorkspacePage(_props: WorkspacePageProps) {
     setSidebarResizing(true);
 
     const handlePointerMove = (moveEvent: MouseEvent) => {
-      const nextWidth = clampSidebarWidth(startWidth + (moveEvent.clientX - startX));
+      const nextWidth = clampSidebarWidth(
+        startWidth + (moveEvent.clientX - startX),
+      );
       setSidebarWidth(nextWidth);
     };
 
@@ -235,8 +247,16 @@ export function WorkspacePage(_props: WorkspacePageProps) {
       nav={
         <nav class="flex h-9 items-center gap-1" aria-label="Primary">
           <button
-            aria-label={sidebarOpen() ? copy().actions.collapseSidebar : copy().actions.expandSidebar}
-            title={sidebarOpen() ? copy().actions.collapseSidebar : copy().actions.expandSidebar}
+            aria-label={
+              sidebarOpen()
+                ? copy().actions.collapseSidebar
+                : copy().actions.expandSidebar
+            }
+            title={
+              sidebarOpen()
+                ? copy().actions.collapseSidebar
+                : copy().actions.expandSidebar
+            }
             class="theme-control inline-flex h-7 w-7 items-center justify-center rounded-md p-0 transition"
             onClick={() => setSidebarOpen((value) => !value)}
           >
@@ -263,17 +283,14 @@ export function WorkspacePage(_props: WorkspacePageProps) {
                     ? "theme-tab-active"
                     : "theme-tab border-transparent hover:text-[var(--app-text-muted)]"
                 }`}
+                aria-label={tab.id === "home" ? copy().tabs.home : undefined}
                 aria-current={activeTab() === tab.id ? "page" : undefined}
                 onMouseEnter={() => scheduleTopTabHover(tab.id)}
                 onMouseLeave={cancelTopTabHover}
                 onFocus={() => setActiveTab(tab.id)}
               >
                 {tab.id === "home" ? <HomeIcon /> : null}
-                {tab.id === "home" ? (
-                  <span class="sr-only">{copy().tabs.home}</span>
-                ) : (
-                  copy().tabs[tab.id]
-                )}
+                {tab.id === "home" ? null : copy().tabs[tab.id]}
               </button>
             )}
           </For>
@@ -292,7 +309,9 @@ export function WorkspacePage(_props: WorkspacePageProps) {
             aria-label={copy().actions.language}
             class="theme-input h-7 rounded-full px-3 text-sm"
             value={locale()}
-            onInput={(event) => setLocale(event.currentTarget.value as WorkspaceLocale)}
+            onInput={(event) =>
+              setLocale(event.currentTarget.value as WorkspaceLocale)
+            }
           >
             <For each={workspaceLocaleOptions}>
               {(option) => <option value={option.code}>{option.label}</option>}
@@ -300,9 +319,15 @@ export function WorkspacePage(_props: WorkspacePageProps) {
           </select>
           <button
             aria-label={
-              darkMode() ? copy().actions.switchToLightMode : copy().actions.switchToDarkMode
+              darkMode()
+                ? copy().actions.switchToLightMode
+                : copy().actions.switchToDarkMode
             }
-            title={darkMode() ? copy().actions.switchToLightMode : copy().actions.switchToDarkMode}
+            title={
+              darkMode()
+                ? copy().actions.switchToLightMode
+                : copy().actions.switchToDarkMode
+            }
             class={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
               darkMode()
                 ? "bg-[var(--app-accent)] text-white"

@@ -5,6 +5,7 @@ import { WorkspaceSection } from "../components/workspace-section";
 import { WorkspaceSidebarLayout } from "../components/workspace-sidebar-layout";
 import { ProxyPanel } from "../features/proxy/components/proxy-panel";
 import { SyncPanel } from "../features/sync/components/sync-panel";
+import { SshPanel } from "../features/ssh/components/ssh-panel";
 
 type SidebarWorkspaceProps = {
   sidebarOpen: boolean;
@@ -123,31 +124,7 @@ export function SettingsWorkspace(props: SidebarWorkspaceProps) {
   const renderSettingsContent = () => {
     switch (activeSection()) {
       case "proxy":
-        return (
-          <div class="grid gap-4">
-            <SectionCard eyebrow="Settings / Proxy" title="Routing & Gateway">
-              <div class="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_320px]">
-                <div class="theme-control rounded-3xl p-4">
-                  <p class="theme-text text-sm font-semibold">Execution Path</p>
-                  <p class="theme-text-muted mt-2 text-sm leading-6">
-                    分别控制 API、DB、SSH 是否走代理地址。API 在 proxy 模式下会自动把真实目标放进
-                    `x-ason-url`，并附加 `x-ason-proxy: devx`。
-                  </p>
-                </div>
-
-                <div class="theme-control rounded-3xl p-4">
-                  <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">Mode</p>
-                  <p class="theme-text mt-2 text-lg font-semibold">Proxy Settings</p>
-                  <p class="theme-text-muted mt-3 text-sm leading-6">
-                    这里先管路由和连通性，后面 DB / SSH 工作区接入时会直接复用。
-                  </p>
-                </div>
-              </div>
-            </SectionCard>
-
-            <ProxyPanel />
-          </div>
-        );
+        return <ProxyPanel />;
       case "account":
         return (
           <SettingsPlaceholder
@@ -186,53 +163,7 @@ export function SettingsWorkspace(props: SidebarWorkspaceProps) {
         );
       case "sync":
       default:
-        return (
-          <div class="grid gap-4">
-            <SectionCard eyebrow="Settings / Sync" title="Sync & Backup">
-              <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-                <div class="grid gap-3">
-                  <div class="theme-control rounded-3xl p-4">
-                    <p class="theme-text text-sm font-semibold">Workspace Snapshot</p>
-                    <p class="theme-text-muted mt-2 text-sm leading-6">
-                      管理本地 IndexedDB 快照、云端同步策略和手动导入导出。这里是日常操作入口，
-                      不会再占用 Home 的展示空间。
-                    </p>
-                  </div>
-                  <div class="grid gap-3 md:grid-cols-3">
-                    <div class="theme-control rounded-3xl p-4">
-                      <p class="theme-text text-sm font-semibold">Providers</p>
-                      <p class="theme-text-soft mt-2 text-xs leading-5">
-                        Dropbox / OneDrive / Google Drive / WebDAV / Local
-                      </p>
-                    </div>
-                    <div class="theme-control rounded-3xl p-4">
-                      <p class="theme-text text-sm font-semibold">Local Backup</p>
-                      <p class="theme-text-soft mt-2 text-xs leading-5">
-                        JSON import and export for portable recovery.
-                      </p>
-                    </div>
-                    <div class="theme-control rounded-3xl p-4">
-                      <p class="theme-text text-sm font-semibold">Auto Sync</p>
-                      <p class="theme-text-soft mt-2 text-xs leading-5">
-                        Periodic background sync with provider-specific settings.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="theme-control rounded-3xl p-4">
-                  <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">Mode</p>
-                  <p class="theme-text mt-2 text-lg font-semibold">Operational Settings</p>
-                  <p class="theme-text-muted mt-3 text-sm leading-6">
-                    这部分更偏真实运维操作，所以单独收进设置页会更清晰，也更符合后台产品的结构。
-                  </p>
-                </div>
-              </div>
-            </SectionCard>
-
-            <SyncPanel />
-          </div>
-        );
+        return <SyncPanel />;
     }
   };
 
@@ -245,14 +176,6 @@ export function SettingsWorkspace(props: SidebarWorkspaceProps) {
       contentClass="mt-4 grid gap-4"
       sidebar={
         <>
-        <div class="mb-5 border-b pb-4" style={{ "border-color": "var(--app-border)" }}>
-          <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">Settings</p>
-          <h2 class="theme-text mt-2 text-lg font-semibold">Workspace</h2>
-          <p class="theme-text-soft mt-1 text-sm leading-6">
-            把同步、团队版、赞助和产品说明拆开收纳，Home 就能保持更轻。
-          </p>
-        </div>
-
         <div class="grid gap-1">
           <For each={settingsSections}>
             {(section) => (
@@ -405,68 +328,11 @@ export function ToolsWorkspace(props: SidebarWorkspaceProps) {
 
 export function SshWorkspace(props: SidebarWorkspaceProps) {
   return (
-    <WorkspaceSidebarLayout
+    <SshPanel
       sidebarOpen={props.sidebarOpen}
       sidebarWidth={props.sidebarWidth}
       sidebarResizing={props.sidebarResizing}
-      onResizeStart={props.onSidebarResizeStart}
-      contentClass="theme-workspace-pane grid gap-0 border-l xl:grid-cols-[1fr_0.9fr]"
-      contentStyle={{ "border-color": "var(--app-border)" }}
-      sidebar={
-        <>
-          <div class="mb-5 border-b pb-4" style={{ "border-color": "var(--app-border)" }}>
-            <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">Profiles</p>
-            <h2 class="theme-text mt-2 text-lg font-semibold">SSH</h2>
-            <p class="theme-text-soft mt-1 text-sm leading-6">连接配置、跳板机和终端会话统一放在左侧管理。</p>
-          </div>
-
-          <div class="grid gap-3">
-            <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
-              <p class="theme-text text-sm font-semibold">Staging Web 01</p>
-              <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">deploy · jump enabled</p>
-            </div>
-            <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
-              <p class="theme-text text-sm font-semibold">Production Bastion</p>
-              <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">ops · restricted</p>
-            </div>
-            <div class="theme-sidebar-item rounded-xl px-3 py-2.5">
-              <p class="theme-text text-sm font-semibold">Local Sandbox</p>
-              <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.18em]">testing shell</p>
-            </div>
-          </div>
-        </>
-      }
-    >
-        <WorkspaceSection eyebrow="SSH" title="Terminal Workspace" class="xl:border-r">
-          <div class="theme-code border px-4 py-4" style={{ "border-color": "var(--app-border)" }}>
-            <pre class="theme-text-muted overflow-x-auto font-mono text-sm leading-7">
-              <code>{`devops@staging-web-01:~$ ssh deploy@10.0.1.24
-Connecting...
-Waiting for transport adapter...
-`}</code>
-            </pre>
-          </div>
-        </WorkspaceSection>
-
-        <WorkspaceSection eyebrow="Status" title="Connection Notes" class="border-b">
-          <div
-            class="grid gap-px overflow-hidden border"
-            style={{ "border-color": "var(--app-border)", background: "var(--app-border)" }}
-          >
-            <div class="theme-kv-cell-muted px-4 py-4">
-              <p class="theme-text text-sm font-medium">Profiles</p>
-              <p class="theme-text-soft mt-1 text-xs">Production / Staging / Jump Host</p>
-            </div>
-            <div class="theme-kv-cell-muted px-4 py-4">
-              <p class="theme-text text-sm font-medium">Current state</p>
-              <p class="theme-text-soft mt-1 text-xs">UI shell only, execution pipeline pending</p>
-            </div>
-            <div class="theme-kv-cell-muted px-4 py-4">
-              <p class="theme-text text-sm font-medium">Next step</p>
-              <p class="theme-text-soft mt-1 text-xs">确认 SSH 的平台策略后再接真实连接层</p>
-            </div>
-          </div>
-        </WorkspaceSection>
-    </WorkspaceSidebarLayout>
+      onSidebarResizeStart={props.onSidebarResizeStart}
+    />
   );
 }

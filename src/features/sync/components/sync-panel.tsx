@@ -1,6 +1,5 @@
 import type { JSX } from "solid-js";
 import { Match, Show, Switch, createSignal, onMount } from "solid-js";
-import { SectionCard } from "../../../components/section-card";
 import {
   connectSyncProvider,
   disconnectSyncProvider,
@@ -173,8 +172,7 @@ export function SyncPanel() {
   };
 
   return (
-    <SectionCard eyebrow="Sync & Login" title="Workspace Sync">
-      <div class="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_320px]">
+    <div class="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_320px]">
         <div class="grid gap-4">
           <div class="grid gap-4 md:grid-cols-3">
             <FieldLabel label="Storage Provider" hint="Choose where workspace data should sync.">
@@ -533,7 +531,6 @@ export function SyncPanel() {
             </div>
           </Show>
         </div>
-      </div>
-    </SectionCard>
+    </div>
   );
 }

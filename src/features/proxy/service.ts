@@ -2,6 +2,10 @@ import { loadSettings, type AppSettings } from "../../lib/storage";
 import { loadProxySettingsFromDb, saveProxySettingsToDb } from "./local-db";
 
 type LegacyProxySettings = AppSettings["proxy"] & {
+  relay?: {
+    mode: "none" | "proxy";
+    address: string;
+  };
   db?: {
     mode: "none" | "proxy";
     address: string;
@@ -12,7 +16,7 @@ type LegacyProxySettings = AppSettings["proxy"] & {
   };
 };
 
-export type ProxyTarget = "api" | "relay";
+export type ProxyTarget = "api" | "db" | "ssh";
 
 function normalizeAddress(value: string) {
   const trimmed = value.trim();
@@ -45,8 +49,10 @@ function normalizeAddress(value: string) {
 
 export function getDefaultProxyAddress(target: ProxyTarget) {
   switch (target) {
-    case "relay":
-      return "ws://127.0.0.1:8787";
+    case "db":
+      return "ws://127.0.0.1:8787/db";
+    case "ssh":
+      return "ws://127.0.0.1:8787/ssh";
     case "api":
     default:
       return "http://127.0.0.1:8787/api";
@@ -60,7 +66,8 @@ export function getProxyTestUrl(value: string) {
 
 export async function loadProxySettings(): Promise<AppSettings["proxy"]> {
   const stored = (await loadProxySettingsFromDb()) as LegacyProxySettings | undefined;
-  const migratedStoredRelay = stored?.relay ?? stored?.db ?? stored?.ssh;
+  const migratedStoredDb = stored?.db ?? stored?.relay;
+  const migratedStoredSsh = stored?.ssh ?? stored?.relay;
 
   if (stored) {
     return {
@@ -69,27 +76,42 @@ export async function loadProxySettings(): Promise<AppSettings["proxy"]> {
         ...stored.api,
         address: normalizeAddress(stored.api?.address ?? "")
       },
-      relay: {
-        ...defaultProxySettings.relay,
-        ...migratedStoredRelay,
-        address: normalizeAddress(migratedStoredRelay?.address ?? "")
+      db: {
+        ...defaultProxySettings.db,
+        ...migratedStoredDb,
+        mode: "proxy",
+        address: normalizeAddress(migratedStoredDb?.address ?? "")
+      },
+      ssh: {
+        ...defaultProxySettings.ssh,
+        ...migratedStoredSsh,
+        mode: "proxy",
+        address: normalizeAddress(migratedStoredSsh?.address ?? "")
       }
     };
   }
 
   const legacySettings = await loadSettings();
   const legacyProxy = legacySettings.proxy as LegacyProxySettings;
-  const migratedLegacyRelay = legacyProxy.relay ?? legacyProxy.db ?? legacyProxy.ssh;
+  const migratedLegacyDb = legacyProxy.db ?? legacyProxy.relay;
+  const migratedLegacySsh = legacyProxy.ssh ?? legacyProxy.relay;
   const migrated = {
     api: {
       ...defaultProxySettings.api,
       ...legacySettings.proxy.api,
       address: normalizeAddress(legacySettings.proxy.api.address)
     },
-    relay: {
-      ...defaultProxySettings.relay,
-      ...migratedLegacyRelay,
-      address: normalizeAddress(migratedLegacyRelay?.address ?? "")
+    db: {
+      ...defaultProxySettings.db,
+      ...migratedLegacyDb,
+      mode: "proxy",
+      address: normalizeAddress(migratedLegacyDb?.address ?? "")
+    },
+    ssh: {
+      ...defaultProxySettings.ssh,
+      ...migratedLegacySsh,
+      mode: "proxy",
+      address: normalizeAddress(migratedLegacySsh?.address ?? "")
     }
   } satisfies AppSettings["proxy"];
 
@@ -104,10 +126,17 @@ export async function saveProxySettings(proxy: AppSettings["proxy"]): Promise<Ap
       ...proxy.api,
       address: normalizeAddress(proxy.api.address)
     },
-    relay: {
-      ...defaultProxySettings.relay,
-      ...proxy.relay,
-      address: normalizeAddress(proxy.relay.address)
+    db: {
+      ...defaultProxySettings.db,
+      ...proxy.db,
+      mode: "proxy",
+      address: normalizeAddress(proxy.db.address)
+    },
+    ssh: {
+      ...defaultProxySettings.ssh,
+      ...proxy.ssh,
+      mode: "proxy",
+      address: normalizeAddress(proxy.ssh.address)
     }
   };
 
@@ -125,29 +154,24 @@ export async function testProxyConnection(
     throw new Error("Proxy address is required.");
   }
 
-  if (proxyTarget !== "api") {
-    const base = new URL(normalizedAddress.replace(/^ws:/i, "http:").replace(/^wss:/i, "https:"));
-    const relayTargets = ["/db", "/ssh"];
-
-    for (const path of relayTargets) {
-      const probe = new URL(path, `${base.origin}/`).toString();
-      const response = await fetch(probe, {
-        method: "GET",
-        mode: "cors",
-        cache: "no-store",
-        headers: {
-          "x-ason-proxy": "devx"
-        }
-      });
-
-      if (!response.ok && response.status !== 426) {
-        throw new Error(`Proxy test failed with status ${response.status}.`);
+  if (proxyTarget === "db" || proxyTarget === "ssh") {
+    const wsHttpProbe = normalizedAddress.replace(/^ws:/i, "http:").replace(/^wss:/i, "https:");
+    const response = await fetch(wsHttpProbe, {
+      method: "GET",
+      mode: "cors",
+      cache: "no-store",
+      headers: {
+        "x-ason-proxy": "devx"
       }
+    });
+
+    if (!response.ok && response.status !== 426) {
+      throw new Error(`Proxy test failed with status ${response.status}.`);
     }
 
     return {
       ok: true,
-      status: 426
+      status: response.status
     };
   }
 
@@ -186,7 +210,11 @@ const defaultProxySettings: AppSettings["proxy"] = {
     mode: "none",
     address: ""
   },
-  relay: {
+  db: {
+    mode: "none",
+    address: ""
+  },
+  ssh: {
     mode: "none",
     address: ""
   }

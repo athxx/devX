@@ -242,7 +242,7 @@ export function normalizeRestWorkspace(state: RestWorkspaceState): RestWorkspace
   const activeCollectionId =
     collections.find((collection) => collection.id === state.activeCollectionId)?.id ?? collections[0]?.id ?? "";
   const activeRequestId =
-    requests.find((request) => request.id === state.activeRequestId)?.id ?? requests[0]?.id ?? "";
+    requests.find((request) => request.id === state.activeRequestId)?.id ?? "";
   const requestIds = new Set(requests.map((request) => request.id));
   const openRequestIds = (state.openRequestIds ?? []).filter((requestId) => requestIds.has(requestId));
   const pinnedRequestIds = (state.pinnedRequestIds ?? []).filter((requestId) => requestIds.has(requestId));
@@ -266,7 +266,7 @@ export function normalizeRestWorkspace(state: RestWorkspaceState): RestWorkspace
     collections,
     requests,
     lastResponse,
-    openRequestIds: openRequestIds.length > 0 ? openRequestIds : activeRequestId ? [activeRequestId] : [],
+    openRequestIds,
     pinnedRequestIds,
     activeCollectionId,
     activeRequestId,

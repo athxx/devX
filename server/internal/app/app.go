@@ -54,7 +54,11 @@ func New(cfg config.Config) (*fiber.App, error) {
 	app.All("/api", handlers.ProxyRequest(deps))
 
 	requireProxyWebSocket := func(c fiber.Ctx) error {
-		if c.Get("x-ason-proxy") != "devx" {
+		proxyMarker := strings.TrimSpace(c.Get("x-ason-proxy"))
+		if proxyMarker == "" {
+			proxyMarker = strings.TrimSpace(c.Query("x-ason-proxy"))
+		}
+		if proxyMarker != "devx" {
 			return fiber.NewError(fiber.StatusForbidden, "missing x-ason-proxy=devx")
 		}
 		if ws.IsWebSocketUpgrade(c) {
@@ -64,7 +68,7 @@ func New(cfg config.Config) (*fiber.App, error) {
 	}
 
 	app.Use("/db", requireProxyWebSocket)
-	app.Get("/db", handlers.DBRelay(deps))
+	app.Get("/db", ws.New(handlers.DBRelay(deps)))
 
 	app.Use("/ssh", requireProxyWebSocket)
 	app.Get("/ssh", handlers.SSHRelay(deps))

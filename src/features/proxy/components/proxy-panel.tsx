@@ -1,5 +1,4 @@
 import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
-import { SectionCard } from "../../../components/section-card";
 import { defaultSettings, type AppSettings } from "../../../lib/storage";
 import {
   getDefaultProxyAddress,
@@ -24,10 +23,16 @@ const proxyItems: Array<{
     placeholder: "http://127.0.0.1:8787/api"
   },
   {
-    key: "relay",
-    title: "DB / SSH Proxy",
-    summary: "DB 和 SSH 共用同一个中转服务基地址，系统会分别连接 /db 和 /ssh，例如 ws://127.0.0.1:8787。",
-    placeholder: "ws://127.0.0.1:8787"
+    key: "db",
+    title: "DB Proxy",
+    summary: "填写数据库 WebSocket 中转地址，例如 ws://127.0.0.1:8787/db。",
+    placeholder: "ws://127.0.0.1:8787/db"
+  },
+  {
+    key: "ssh",
+    title: "SSH Proxy",
+    summary: "填写 SSH WebSocket 中转地址，例如 ws://127.0.0.1:8787/ssh。",
+    placeholder: "ws://127.0.0.1:8787/ssh"
   }
 ];
 
@@ -159,16 +164,19 @@ export function ProxyPanel() {
   };
 
   return (
-    <SectionCard eyebrow="Settings / Proxy" title="Proxy Routing">
-      <div class="grid gap-4">
-        <For each={proxyItems}>
-          {(item) => {
-            const current = () => settings()[item.key];
-            const state = () => testingState()[item.key];
+    <div class="grid gap-4">
+      <For each={proxyItems}>
+        {(item) => {
+          const current = () => settings()[item.key];
+          const state = () => testingState()[item.key];
 
-            return (
-              <div class="theme-control rounded-3xl p-4">
-                <div class="grid gap-4 xl:grid-cols-[180px_minmax(0,1fr)_auto] xl:items-end">
+          return (
+            <div class="theme-control rounded-3xl p-4">
+              <div class="grid gap-4 xl:grid-cols-[180px_minmax(0,1fr)_auto] xl:items-end">
+                <Show
+                  when={item.key === "api"}
+                  fallback={<div class="min-w-0"><div class="theme-text text-sm font-medium">{item.title}</div><div class="theme-text-soft mt-2 text-xs leading-5">{item.summary}</div></div>}
+                >
                   <FieldLabel label={item.title} hint={item.summary}>
                     <select
                       class="theme-input rounded-2xl px-3 py-3"
@@ -192,63 +200,64 @@ export function ProxyPanel() {
                       <option value="proxy">Proxy</option>
                     </select>
                   </FieldLabel>
-
-                  <FieldLabel label="Address" hint={item.placeholder}>
-                    <input
-                      class="theme-input rounded-2xl px-3 py-3"
-                      placeholder={item.placeholder}
-                      value={current().address}
-                      disabled={current().mode === "none"}
-                      onInput={(event) =>
-                        updateItem(item.key, (value) => ({
-                          ...value,
-                          address: event.currentTarget.value
-                        }))
-                      }
-                    />
-                  </FieldLabel>
-
-                  <button
-                    class="theme-control rounded-2xl px-4 py-3 text-sm font-semibold transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                    type="button"
-                    disabled={current().mode === "none" || testingTarget() === item.key}
-                    onClick={() => void handleTest(item.key)}
-                  >
-                    {testingTarget() === item.key ? "Testing..." : "Test"}
-                  </button>
-                </div>
-
-                <Show when={state()}>
-                  {(value) => (
-                    <p
-                      class={`mt-3 text-sm font-medium ${
-                        value().ok ? "text-[#28C840]" : "text-[#FF5F57]"
-                      }`}
-                    >
-                      {value().message}
-                    </p>
-                  )}
                 </Show>
+
+                <FieldLabel label="Address" hint={item.placeholder}>
+                  <input
+                    class="theme-input rounded-2xl px-3 py-3"
+                    placeholder={item.placeholder}
+                    value={current().address}
+                    disabled={item.key === "api" && current().mode === "none"}
+                    onInput={(event) =>
+                      updateItem(item.key, (value) => ({
+                        ...value,
+                        mode: item.key === "api" ? value.mode : "proxy",
+                        address: event.currentTarget.value
+                      }))
+                    }
+                  />
+                </FieldLabel>
+
+                <button
+                  class="theme-control rounded-2xl px-4 py-3 text-sm font-semibold transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  type="button"
+                  disabled={(item.key === "api" && current().mode === "none") || testingTarget() === item.key}
+                  onClick={() => void handleTest(item.key)}
+                >
+                  {testingTarget() === item.key ? "Testing..." : "Test"}
+                </button>
               </div>
-            );
-          }}
-        </For>
 
-        <div class="flex items-center gap-3">
-          <button
-            class="theme-control rounded-2xl px-4 py-3 text-sm font-semibold transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-            type="button"
-            disabled={busy()}
-            onClick={() => void handleSave()}
-          >
-            {busy() ? "Saving..." : "Save Proxy Settings"}
-          </button>
+              <Show when={state()}>
+                {(value) => (
+                  <p
+                    class={`mt-3 text-sm font-medium ${
+                      value().ok ? "text-[#28C840]" : "text-[#FF5F57]"
+                    }`}
+                  >
+                    {value().message}
+                  </p>
+                )}
+              </Show>
+            </div>
+          );
+        }}
+      </For>
 
-          <Show when={notice()}>
-            {(value) => <span class="theme-text-soft text-sm">{value()}</span>}
-          </Show>
-        </div>
+      <div class="flex items-center gap-3">
+        <button
+          class="theme-control rounded-2xl px-4 py-3 text-sm font-semibold transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+          type="button"
+          disabled={busy()}
+          onClick={() => void handleSave()}
+        >
+          {busy() ? "Saving..." : "Save Proxy Settings"}
+        </button>
+
+        <Show when={notice()}>
+          {(value) => <span class="theme-text-soft text-sm">{value()}</span>}
+        </Show>
       </div>
-    </SectionCard>
+    </div>
   );
 }

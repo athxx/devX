@@ -3,6 +3,7 @@ module devx/server
 go 1.26.0
 
 require (
+	github.com/creack/pty v1.1.24
 	github.com/fasthttp/websocket v1.5.12
 	github.com/getlantern/systray v1.2.2
 	github.com/gofiber/contrib/v3/websocket v1.1.0

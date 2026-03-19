@@ -32,7 +32,7 @@ export const workspaceCopy: Record<
     tabs: {
       api: "API",
       db: "数据库",
-      ssh: "SSH",
+      ssh: "终端",
       tools: "工具"
     },
     actions: {
@@ -47,10 +47,9 @@ export const workspaceCopy: Record<
   },
   "en-US": {
     tabs: {
-      home: "Home",
       api: "API",
       db: "DB",
-      ssh: "SSH",
+      ssh: "Terminal",
       tools: "Tools"
     },
     actions: {
