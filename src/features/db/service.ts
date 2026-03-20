@@ -37,6 +37,11 @@ type SqlExplorerRow = {
   table_type?: unknown;
 };
 
+type SqlExplorerRoutineRow = {
+  schema_name?: unknown;
+  routine_name?: unknown;
+};
+
 function defaultQueryForKind(kind: DbConnectionKind) {
   switch (kind) {
     case "redis":
@@ -581,11 +586,15 @@ function makeExplorerGroup(
 }
 
 function makeExplorerLeaf(
-  kind: "table" | "view" | "collection" | "key",
+  kind: "table" | "view" | "function" | "collection" | "key",
   label: string,
   query: string,
   description?: string,
   countQuery?: string,
+  options?: {
+    schemaName?: string;
+    qualifiedName?: string;
+  },
 ): DbExplorerNode {
   return {
     id: makeId("db-tree-leaf"),
@@ -594,6 +603,8 @@ function makeExplorerLeaf(
     query,
     description,
     countQuery,
+    schemaName: options?.schemaName,
+    qualifiedName: options?.qualifiedName,
   };
 }
 
@@ -661,6 +672,27 @@ function buildSqlCountQuery(
   )};`;
 }
 
+function buildSqlFunctionQuery(
+  connection: DbConnection,
+  schemaName: string,
+  functionName: string,
+) {
+  const qualifiedName = buildQualifiedSqlName(
+    connection.kind,
+    schemaName,
+    functionName,
+  );
+
+  switch (connection.kind) {
+    case "sqlserver":
+      return `-- Replace parameters as needed\nSELECT ${qualifiedName}();`;
+    case "oracle":
+      return `-- Replace parameters as needed\nSELECT ${qualifiedName}() FROM dual;`;
+    default:
+      return `-- Replace parameters as needed\nSELECT ${qualifiedName}();`;
+  }
+}
+
 function normalizeExplorerTableType(value: unknown) {
   const normalized = String(value ?? "").toUpperCase();
   return normalized.includes("VIEW") ? "view" : "table";
@@ -673,12 +705,14 @@ function asString(value: unknown) {
 function buildSqlExplorerNodes(
   connection: DbConnection,
   rows: SqlExplorerRow[],
+  routineRows: SqlExplorerRoutineRow[] = [],
 ): DbExplorerNode[] {
   const schemas = new Map<
     string,
     {
       tables: DbExplorerNode[];
       views: DbExplorerNode[];
+      functions: DbExplorerNode[];
     }
   >();
 
@@ -697,6 +731,7 @@ function buildSqlExplorerNodes(
       {
         tables: [],
         views: [],
+        functions: [],
       };
     const objectType = normalizeExplorerTableType(row.table_type);
     const leaf = makeExplorerLeaf(
@@ -705,6 +740,14 @@ function buildSqlExplorerNodes(
       buildSqlObjectQuery(connection, schemaName, objectName),
       objectType === "view" ? "View" : "Table",
       buildSqlCountQuery(connection, schemaName, objectName),
+      {
+        schemaName,
+        qualifiedName: buildQualifiedSqlName(
+          connection.kind,
+          schemaName,
+          objectName,
+        ),
+      },
     );
 
     if (objectType === "view") {
@@ -712,6 +755,45 @@ function buildSqlExplorerNodes(
     } else {
       bucket.tables.push(leaf);
     }
+
+    schemas.set(schemaName, bucket);
+  }
+
+  for (const row of routineRows) {
+    const functionName = asString(row.routine_name);
+    if (!functionName) {
+      continue;
+    }
+
+    const schemaName =
+      asString(row.schema_name) ||
+      connection.config.database.trim() ||
+      (connection.kind === "sqlite" ? "main" : "default");
+    const bucket =
+      schemas.get(schemaName) ??
+      {
+        tables: [],
+        views: [],
+        functions: [],
+      };
+
+    bucket.functions.push(
+      makeExplorerLeaf(
+        "function",
+        functionName,
+        buildSqlFunctionQuery(connection, schemaName, functionName),
+        "Function",
+        undefined,
+        {
+          schemaName,
+          qualifiedName: buildQualifiedSqlName(
+            connection.kind,
+            schemaName,
+            functionName,
+          ),
+        },
+      ),
+    );
 
     schemas.set(schemaName, bucket);
   }
@@ -737,6 +819,16 @@ function buildSqlExplorerNodes(
             "category",
             bucket.views.sort((a, b) => a.label.localeCompare(b.label)),
             `${bucket.views.length} objects`,
+          ),
+        );
+      }
+      if (bucket.functions.length > 0) {
+        children.push(
+          makeExplorerGroup(
+            "Functions",
+            "category",
+            bucket.functions.sort((a, b) => a.label.localeCompare(b.label)),
+            `${bucket.functions.length} objects`,
           ),
         );
       }
@@ -845,6 +937,55 @@ function buildSqlExplorerQuery(kind: DbConnectionKind) {
       `;
     default:
       return "SELECT 1;";
+  }
+}
+
+function buildSqlRoutineExplorerQuery(kind: DbConnectionKind) {
+  switch (kind) {
+    case "postgresql":
+    case "gaussdb":
+      return `
+        SELECT
+          routine_schema AS schema_name,
+          routine_name
+        FROM information_schema.routines
+        WHERE routine_type = 'FUNCTION'
+          AND routine_schema NOT IN (
+            'pg_catalog', 'information_schema',
+            'tiger', 'tiger_data', 'topology',
+            'pg_toast', 'pg_temp_1', 'pg_toast_temp_1'
+          )
+        ORDER BY routine_schema, routine_name;
+      `;
+    case "mysql":
+    case "tidb":
+      return `
+        SELECT
+          routine_schema AS schema_name,
+          routine_name
+        FROM information_schema.routines
+        WHERE routine_type = 'FUNCTION'
+          AND routine_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+        ORDER BY routine_schema, routine_name;
+      `;
+    case "sqlserver":
+      return `
+        SELECT
+          ROUTINE_SCHEMA AS schema_name,
+          ROUTINE_NAME AS routine_name
+        FROM INFORMATION_SCHEMA.ROUTINES
+        WHERE ROUTINE_TYPE = 'FUNCTION'
+        ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME;
+      `;
+    case "oracle":
+      return `
+        SELECT USER AS schema_name, OBJECT_NAME AS routine_name
+        FROM USER_OBJECTS
+        WHERE OBJECT_TYPE = 'FUNCTION'
+        ORDER BY OBJECT_NAME;
+      `;
+    default:
+      return null;
   }
 }
 
@@ -1059,9 +1200,32 @@ async function loadSqlExplorer(connection: DbConnection) {
     return [] as DbExplorerNode[];
   }
 
+  const routineQuery = buildSqlRoutineExplorerQuery(connection.kind);
+  let routineRows: SqlExplorerRoutineRow[] = [];
+
+  if (routineQuery) {
+    const routineResult = await executeDbSocketCommand(
+      {
+        id: makeId("db-tree"),
+        type: "sql",
+        payload: {
+          driver: connection.kind,
+          dsn: connection.url,
+          query: routineQuery,
+        },
+      },
+      connection,
+    );
+
+    if (routineResult.kind === "sql" && Array.isArray(routineResult.data.rows)) {
+      routineRows = routineResult.data.rows as SqlExplorerRoutineRow[];
+    }
+  }
+
   return buildSqlExplorerNodes(
     connection,
     (result.data.rows ?? []) as SqlExplorerRow[],
+    routineRows,
   );
 }
 
@@ -1201,6 +1365,28 @@ export async function loadDbExplorerDatabaseChildren(
     return [];
   }
 
+  const routineQuery = buildSqlRoutineExplorerQuery(connection.kind);
+  let routineRows: SqlExplorerRoutineRow[] = [];
+
+  if (routineQuery) {
+    const routineResult = await executeDbSocketCommand(
+      {
+        id: makeId("db-tree"),
+        type: "sql",
+        payload: {
+          driver: connection.kind,
+          dsn,
+          query: routineQuery,
+        },
+      },
+      connection,
+    );
+
+    if (routineResult.kind === "sql" && Array.isArray(routineResult.data.rows)) {
+      routineRows = routineResult.data.rows as SqlExplorerRoutineRow[];
+    }
+  }
+
   const modifiedConnection = {
     ...connection,
     config: { ...connection.config, database: databaseName },
@@ -1209,6 +1395,7 @@ export async function loadDbExplorerDatabaseChildren(
   return buildSqlExplorerNodes(
     modifiedConnection,
     (result.data.rows ?? []) as SqlExplorerRow[],
+    routineRows,
   );
 }
 

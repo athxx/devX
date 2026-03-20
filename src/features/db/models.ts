@@ -74,7 +74,12 @@ export type DbExecutionState =
   | { status: "error"; message: string };
 
 export type DbExplorerGroupKind = "database" | "schema" | "category" | "server";
-export type DbExplorerLeafKind = "table" | "view" | "collection" | "key";
+export type DbExplorerLeafKind =
+  | "table"
+  | "view"
+  | "function"
+  | "collection"
+  | "key";
 
 export type DbExplorerNode =
   | {
@@ -93,6 +98,8 @@ export type DbExplorerNode =
       description?: string;
       query: string;
       countQuery?: string;
+      schemaName?: string;
+      qualifiedName?: string;
     };
 
 export type DbResultPayload =

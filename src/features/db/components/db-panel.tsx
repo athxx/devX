@@ -2,6 +2,7 @@ import type { JSX } from "solid-js";
 import {
   For,
   Show,
+  createEffect,
   createMemo,
   createSignal,
   onCleanup,
@@ -79,6 +80,7 @@ type ExplorerLoadState = {
   error?: string;
 };
 
+type ExplorerGroupNode = Extract<DbExplorerNode, { kind: "group" }>;
 type ExplorerLeafNode = Exclude<DbExplorerNode, { kind: "group" }>;
 
 const databaseKinds: DbConnectionKind[] = [
@@ -93,6 +95,8 @@ const databaseKinds: DbConnectionKind[] = [
   "sqlserver",
   "tidb",
 ];
+
+const sidebarConnectionsHeightStorageKey = "devx-db-sidebar-connections-height";
 
 function getInitialWorkspace(): DbWorkspaceState {
   return {
@@ -261,27 +265,31 @@ function TreeChevronIcon(props: { expanded: boolean }) {
 }
 
 function ExplorerLeafIcon(props: {
-  kind: "table" | "view" | "collection" | "key";
+  kind: "table" | "view" | "function" | "collection" | "key";
 }) {
   return (
     <span
       class={`inline-flex h-5 min-w-[30px] items-center justify-center rounded-full px-2 text-[10px] font-semibold uppercase tracking-[0.14em] ${
         props.kind === "view"
           ? "theme-method-badge theme-method-head"
-          : props.kind === "collection"
-            ? "theme-method-badge theme-method-trace"
-            : props.kind === "key"
-              ? "theme-method-badge theme-method-patch"
-              : "theme-method-badge theme-method-get"
+          : props.kind === "function"
+            ? "theme-method-badge theme-method-post"
+            : props.kind === "collection"
+              ? "theme-method-badge theme-method-trace"
+              : props.kind === "key"
+                ? "theme-method-badge theme-method-patch"
+                : "theme-method-badge theme-method-get"
       }`}
     >
       {props.kind === "view"
         ? "VIEW"
-        : props.kind === "collection"
-          ? "COL"
-          : props.kind === "key"
-            ? "KEY"
-            : "TAB"}
+        : props.kind === "function"
+          ? "FUNC"
+          : props.kind === "collection"
+            ? "COL"
+            : props.kind === "key"
+              ? "KEY"
+              : "TAB"}
     </span>
   );
 }
@@ -330,6 +338,9 @@ export function DbPanel(props: DbPanelProps) {
     getInitialWorkspace(),
   );
   const [filter, setFilter] = createSignal("");
+  const [objectFilter, setObjectFilter] = createSignal("");
+  const [sidebarConnectionsHeight, setSidebarConnectionsHeight] =
+    createSignal(58);
   const [expandedConnectionIds, setExpandedConnectionIds] = createSignal<
     string[]
   >([]);
@@ -381,13 +392,22 @@ export function DbPanel(props: DbPanelProps) {
   const [favoriteNameDraft, setFavoriteNameDraft] = createSignal<string | null>(
     null,
   );
+  const [selectedExplorerRootIds, setSelectedExplorerRootIds] = createSignal<
+    Record<string, string>
+  >({});
+  const [selectedExplorerSchemaIds, setSelectedExplorerSchemaIds] =
+    createSignal<Record<string, string>>({});
   const [connectionDraftState, setConnectionDraftState] = createStore<{
     value: DbConnection | null;
   }>({
     value: null,
   });
+  let sidebarSectionsRef: HTMLDivElement | undefined;
 
   const normalizedFilter = createMemo(() => filter().trim().toLowerCase());
+  const normalizedObjectFilter = createMemo(() =>
+    objectFilter().trim().toLowerCase(),
+  );
   const normalizedSavedConnectionsFilter = createMemo(() =>
     savedConnectionsFilter().trim().toLowerCase(),
   );
@@ -412,9 +432,16 @@ export function DbPanel(props: DbPanelProps) {
       return connectedConnections();
     }
 
-    return connectedConnections().filter((connection) =>
-      getConnectionSearchText(connection).includes(normalizedFilter()),
-    );
+    return connectedConnections().filter((connection) => {
+      if (getConnectionSearchText(connection).includes(normalizedFilter())) {
+        return true;
+      }
+
+      const explorer = explorerByConnectionId()[connection.id];
+      return (explorer?.nodes ?? []).some((node) =>
+        node.label.toLowerCase().includes(normalizedFilter()),
+      );
+    });
   });
   const filteredSavedConnections = createMemo(() => {
     if (!normalizedSavedConnectionsFilter()) {
@@ -498,6 +525,16 @@ export function DbPanel(props: DbPanelProps) {
       setWorkspace(loaded);
     });
 
+    const savedSidebarConnectionsHeight = window.localStorage.getItem(
+      sidebarConnectionsHeightStorageKey,
+    );
+    if (savedSidebarConnectionsHeight) {
+      const parsed = Number(savedSidebarConnectionsHeight);
+      if (Number.isFinite(parsed) && parsed >= 24 && parsed <= 76) {
+        setSidebarConnectionsHeight(parsed);
+      }
+    }
+
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest("[data-db-menu-root]")) {
@@ -514,6 +551,13 @@ export function DbPanel(props: DbPanelProps) {
     onCleanup(() => {
       document.removeEventListener("pointerdown", handlePointerDown);
     });
+  });
+
+  createEffect(() => {
+    window.localStorage.setItem(
+      sidebarConnectionsHeightStorageKey,
+      String(sidebarConnectionsHeight()),
+    );
   });
 
   async function commitWorkspace(mutator: (draft: DbWorkspaceState) => void) {
@@ -600,9 +644,7 @@ export function DbPanel(props: DbPanelProps) {
     } catch {
       // Silently fail - user can retry by collapsing and re-expanding
     } finally {
-      setLoadingExplorerNodeIds((prev) =>
-        prev.filter((id) => id !== node.id),
-      );
+      setLoadingExplorerNodeIds((prev) => prev.filter((id) => id !== node.id));
     }
   }
 
@@ -624,6 +666,20 @@ export function DbPanel(props: DbPanelProps) {
           nodes,
         },
       }));
+      setSelectedExplorerRootIds((current) => {
+        const selectedId = current[connection.id];
+        const nextRoot =
+          nodes.find((node) => node.id === selectedId) ??
+          nodes.find((node) => node.kind === "group") ??
+          null;
+        if (!nextRoot) {
+          return current;
+        }
+        return {
+          ...current,
+          [connection.id]: nextRoot.id,
+        };
+      });
     } catch (error) {
       setExplorerByConnectionId((current) => ({
         ...current,
@@ -641,11 +697,7 @@ export function DbPanel(props: DbPanelProps) {
 
   function toggleConnectionExpanded(connection: DbConnection) {
     const willExpand = !isConnectionExpanded(connection.id);
-    setExpandedConnectionIds((current) =>
-      current.includes(connection.id)
-        ? current.filter((id) => id !== connection.id)
-        : [...current, connection.id],
-    );
+    setExpandedConnectionIds(willExpand ? [connection.id] : []);
 
     if (!willExpand) {
       return;
@@ -658,6 +710,67 @@ export function DbPanel(props: DbPanelProps) {
       explorer.status === "error"
     ) {
       void loadConnectionExplorer(connection);
+    }
+  }
+
+  async function selectConnectedConnection(connection: DbConnection) {
+    await commitWorkspace((draft) => {
+      draft.activeConnectionId = connection.id;
+    });
+  }
+
+  function startSidebarSplitResize(event: PointerEvent) {
+    const container = sidebarSectionsRef;
+    if (!container) {
+      return;
+    }
+
+    event.preventDefault();
+    const rect = container.getBoundingClientRect();
+    const minRatio = 24;
+    const maxRatio = 76;
+
+    const updateRatio = (clientY: number) => {
+      const nextRatio = ((clientY - rect.top) / rect.height) * 100;
+      setSidebarConnectionsHeight(
+        Math.min(maxRatio, Math.max(minRatio, nextRatio)),
+      );
+    };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      updateRatio(moveEvent.clientY);
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    updateRatio(event.clientY);
+  }
+
+  async function selectExplorerRoot(
+    connection: DbConnection,
+    node: ExplorerGroupNode,
+  ) {
+    setWorkspace((current) => ({
+      ...current,
+      activeConnectionId: connection.id,
+    }));
+    setSelectedExplorerRootIds((current) => ({
+      ...current,
+      [connection.id]: node.id,
+    }));
+    setExpandedConnectionIds([connection.id]);
+    void saveDbWorkspace({
+      ...workspace(),
+      activeConnectionId: connection.id,
+    });
+
+    if (node.lazy && node.children.length === 0) {
+      await loadLazyExplorerNode(connection.id, node);
     }
   }
 
@@ -684,6 +797,8 @@ export function DbPanel(props: DbPanelProps) {
 
   function getExplorerPreviewMenuLabel(node: ExplorerLeafNode) {
     switch (node.kind) {
+      case "function":
+        return "Open Function Snippet";
       case "collection":
         return "Find Documents";
       case "key":
@@ -695,6 +810,360 @@ export function DbPanel(props: DbPanelProps) {
     }
   }
 
+  function getExplorerCategoryLabel(kind: ExplorerLeafNode["kind"]) {
+    switch (kind) {
+      case "table":
+        return "Tables";
+      case "view":
+        return "Views";
+      case "function":
+        return "Functions";
+      case "collection":
+        return "Collections";
+      case "key":
+      default:
+        return "Keys";
+    }
+  }
+
+  function makeBrowserCategoryId(parentId: string, label: string) {
+    return `${parentId}::${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  }
+
+  function cloneLeafForSchema(
+    node: ExplorerLeafNode,
+    schemaLabel: string,
+  ): ExplorerLeafNode {
+    return {
+      ...node,
+      id: `${schemaLabel}::${node.id}`,
+      description: node.description
+        ? `${schemaLabel} · ${node.description}`
+        : schemaLabel,
+    };
+  }
+
+  function getSelectedExplorerRoot(connection: DbConnection | null) {
+    if (!connection) return null;
+    const explorer = explorerByConnectionId()[connection.id];
+    const nodes = explorer?.nodes ?? [];
+    const selectedId = selectedExplorerRootIds()[connection.id];
+    return (
+      (nodes.find((node) => node.id === selectedId) as
+        | ExplorerGroupNode
+        | undefined) ??
+      (nodes.find((node) => node.kind === "group") as
+        | ExplorerGroupNode
+        | undefined) ??
+      null
+    );
+  }
+
+  function getSchemaSelectionKey(connectionId: string, rootId: string) {
+    return `${connectionId}:${rootId}`;
+  }
+
+  function getSchemaNodesForRoot(root: ExplorerGroupNode | null) {
+    if (!root) return [] as ExplorerGroupNode[];
+    return root.children.filter(
+      (node): node is ExplorerGroupNode =>
+        node.kind === "group" && node.groupKind === "schema",
+    );
+  }
+
+  function getSelectedSchemaId(
+    connectionId: string,
+    rootId: string,
+    schemaNodes: ExplorerGroupNode[],
+  ) {
+    const key = getSchemaSelectionKey(connectionId, rootId);
+    const selectedId = selectedExplorerSchemaIds()[key];
+    if (
+      selectedId === "__all__" ||
+      schemaNodes.some((schemaNode) => schemaNode.id === selectedId)
+    ) {
+      return selectedId ?? "__all__";
+    }
+    return "__all__";
+  }
+
+  function buildObjectBrowserCategories(
+    connection: DbConnection,
+    root: ExplorerGroupNode | null,
+  ) {
+    if (!root) return [] as ExplorerGroupNode[];
+
+    const schemaNodes = getSchemaNodesForRoot(root);
+    const sourceNodes =
+      schemaNodes.length === 0
+        ? root.children
+        : (() => {
+            const selectedSchemaId = getSelectedSchemaId(
+              connection.id,
+              root.id,
+              schemaNodes,
+            );
+            if (selectedSchemaId !== "__all__") {
+              return (
+                schemaNodes.find(
+                  (schemaNode) => schemaNode.id === selectedSchemaId,
+                )?.children ?? []
+              );
+            }
+
+            const buckets = new Map<string, ExplorerLeafNode[]>();
+            for (const schemaNode of schemaNodes) {
+              for (const child of schemaNode.children) {
+                if (child.kind !== "group" || child.groupKind !== "category") {
+                  continue;
+                }
+                const bucket = buckets.get(child.label) ?? [];
+                for (const leaf of child.children) {
+                  if (leaf.kind === "group") continue;
+                  bucket.push(cloneLeafForSchema(leaf, schemaNode.label));
+                }
+                buckets.set(child.label, bucket);
+              }
+            }
+
+            return Array.from(buckets.entries()).map(([label, children]) => ({
+              id: makeBrowserCategoryId(root.id, label),
+              kind: "group" as const,
+              groupKind: "category" as const,
+              label,
+              description: `${children.length} objects`,
+              children,
+            }));
+          })();
+
+    const categoryNodes = sourceNodes.filter(
+      (node): node is ExplorerGroupNode =>
+        node.kind === "group" && node.groupKind === "category",
+    );
+
+    if (categoryNodes.length > 0) {
+      return categoryNodes
+        .map((categoryNode) => {
+          const children = categoryNode.children.filter((child) => {
+            if (child.kind === "group") {
+              return false;
+            }
+            if (!normalizedObjectFilter()) {
+              return true;
+            }
+            return (
+              child.label.toLowerCase().includes(normalizedObjectFilter()) ||
+              (child.description ?? "")
+                .toLowerCase()
+                .includes(normalizedObjectFilter())
+            );
+          });
+
+          return {
+            ...categoryNode,
+            description: `${children.length} objects`,
+            children,
+          };
+        })
+        .filter((categoryNode) => categoryNode.children.length > 0);
+    }
+
+    const groupedLeaves = new Map<string, ExplorerLeafNode[]>();
+    for (const node of sourceNodes) {
+      if (node.kind === "group") {
+        continue;
+      }
+      if (
+        normalizedObjectFilter() &&
+        !node.label.toLowerCase().includes(normalizedObjectFilter()) &&
+        !(node.description ?? "")
+          .toLowerCase()
+          .includes(normalizedObjectFilter())
+      ) {
+        continue;
+      }
+      const label = getExplorerCategoryLabel(node.kind);
+      const bucket = groupedLeaves.get(label) ?? [];
+      bucket.push(node);
+      groupedLeaves.set(label, bucket);
+    }
+
+    return Array.from(groupedLeaves.entries()).map(([label, children]) => ({
+      id: makeBrowserCategoryId(root.id, label),
+      kind: "group" as const,
+      groupKind: "category" as const,
+      label,
+      description: `${children.length} objects`,
+      children: children.sort((a, b) => a.label.localeCompare(b.label)),
+    }));
+  }
+
+  function getObjectBrowserHeading(categories: ExplorerGroupNode[]) {
+    const labels = categories.map((category) => category.label.toUpperCase());
+    if (labels.length === 0) {
+      return "OBJECTS";
+    }
+    return labels.slice(0, 3).join(", ");
+  }
+
+  function escapeSqlString(value: string) {
+    return value.replace(/'/g, "''");
+  }
+
+  function buildExplorerStructureQuery(
+    connection: DbConnection,
+    node: ExplorerLeafNode,
+  ) {
+    const qualifiedName = node.qualifiedName ?? node.label;
+    const schemaName = node.schemaName ?? "";
+    const objectName = node.label;
+
+    if (node.kind === "function") {
+      switch (connection.kind) {
+        case "postgresql":
+        case "gaussdb":
+        case "mysql":
+        case "tidb":
+          return `SELECT routine_schema, routine_name, routine_type, data_type
+FROM information_schema.routines
+WHERE routine_schema = '${escapeSqlString(schemaName)}'
+  AND routine_name = '${escapeSqlString(objectName)}';`;
+        default:
+          return `-- Function metadata template
+-- ${qualifiedName}`;
+      }
+    }
+
+    switch (connection.kind) {
+      case "sqlite":
+        return `PRAGMA table_info(${qualifiedName});`;
+      case "mysql":
+      case "tidb":
+      case "clickhouse":
+        return `DESCRIBE ${qualifiedName};`;
+      case "sqlserver":
+        return `SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = '${escapeSqlString(schemaName)}'
+  AND TABLE_NAME = '${escapeSqlString(objectName)}'
+ORDER BY ORDINAL_POSITION;`;
+      case "oracle":
+        return `SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT
+FROM USER_TAB_COLUMNS
+WHERE TABLE_NAME = UPPER('${escapeSqlString(objectName)}')
+ORDER BY COLUMN_ID;`;
+      default:
+        return `SELECT column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema = '${escapeSqlString(schemaName)}'
+  AND table_name = '${escapeSqlString(objectName)}'
+ORDER BY ordinal_position;`;
+    }
+  }
+
+  function buildExplorerShowSqlQuery(
+    connection: DbConnection,
+    node: ExplorerLeafNode,
+  ) {
+    const qualifiedName = node.qualifiedName ?? node.label;
+    const schemaName = node.schemaName ?? "";
+    const objectName = node.label;
+
+    if (node.kind === "view") {
+      switch (connection.kind) {
+        case "postgresql":
+        case "gaussdb":
+          return `SELECT pg_get_viewdef('${escapeSqlString(
+            qualifiedName,
+          )}'::regclass, true);`;
+        case "mysql":
+        case "tidb":
+          return `SHOW CREATE VIEW ${qualifiedName};`;
+      }
+    }
+
+    if (node.kind === "function") {
+      switch (connection.kind) {
+        case "postgresql":
+        case "gaussdb":
+          return `SELECT pg_get_functiondef(p.oid)
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = '${escapeSqlString(schemaName)}'
+  AND p.proname = '${escapeSqlString(objectName)}';`;
+        case "mysql":
+        case "tidb":
+          return `SHOW CREATE FUNCTION ${qualifiedName};`;
+        default:
+          return `-- Function DDL template
+-- ${qualifiedName}`;
+      }
+    }
+
+    switch (connection.kind) {
+      case "mysql":
+      case "tidb":
+        return `SHOW CREATE TABLE ${qualifiedName};`;
+      case "clickhouse":
+        return `SHOW CREATE TABLE ${qualifiedName};`;
+      case "sqlite":
+        return `SELECT sql
+FROM sqlite_master
+WHERE type = 'table'
+  AND name = '${escapeSqlString(objectName)}';`;
+      case "postgresql":
+      case "gaussdb":
+        return `-- PostgreSQL table DDL helper
+-- Use pg_dump -s -t ${qualifiedName}
+SELECT column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema = '${escapeSqlString(schemaName)}'
+  AND table_name = '${escapeSqlString(objectName)}'
+ORDER BY ordinal_position;`;
+      default:
+        return `-- DDL helper
+-- ${qualifiedName}`;
+    }
+  }
+
+  function buildExplorerRenameQuery(
+    connection: DbConnection,
+    node: ExplorerLeafNode,
+  ) {
+    const qualifiedName = node.qualifiedName ?? node.label;
+
+    switch (connection.kind) {
+      case "mysql":
+      case "tidb":
+      case "clickhouse":
+        return `RENAME TABLE ${qualifiedName} TO new_${node.label};`;
+      case "sqlserver":
+        return `EXEC sp_rename '${qualifiedName.replace(/'/g, "''")}', 'new_${node.label}';`;
+      default:
+        return `ALTER TABLE ${qualifiedName} RENAME TO new_${node.label};`;
+    }
+  }
+
+  function buildExplorerTruncateQuery(
+    connection: DbConnection,
+    node: ExplorerLeafNode,
+  ) {
+    const qualifiedName = node.qualifiedName ?? node.label;
+    if (connection.kind === "sqlite") {
+      return `DELETE FROM ${qualifiedName};`;
+    }
+    return `TRUNCATE TABLE ${qualifiedName};`;
+  }
+
+  async function copyExplorerNodeName(node: ExplorerLeafNode) {
+    const value = node.qualifiedName ?? node.label;
+    if (!navigator?.clipboard?.writeText) {
+      return;
+    }
+    await navigator.clipboard.writeText(value);
+    closeFloatingMenus();
+  }
+
   async function openExplorerQuery(
     connection: DbConnection,
     node: ExplorerLeafNode,
@@ -702,6 +1171,7 @@ export function DbPanel(props: DbPanelProps) {
     options?: {
       forceNew?: boolean;
       titleSuffix?: string;
+      resultView?: "table" | "raw";
     },
   ) {
     const forceNew = options?.forceNew ?? false;
@@ -718,6 +1188,7 @@ export function DbPanel(props: DbPanelProps) {
     const title = `${connection.name} · ${node.label}${
       options?.titleSuffix ? ` · ${options.titleSuffix}` : ""
     }`;
+    let nextActiveTabId: string | null = existingId;
 
     await commitWorkspace((draft) => {
       if (!draft.connectedConnectionIds.includes(connection.id)) {
@@ -742,7 +1213,15 @@ export function DbPanel(props: DbPanelProps) {
       draft.tabsById[tab.id] = tab;
       draft.openTabIds.push(tab.id);
       draft.activeTabId = tab.id;
+      nextActiveTabId = tab.id;
     });
+
+    if (options?.resultView && nextActiveTabId) {
+      setResultViewByTabId((current) => ({
+        ...current,
+        [nextActiveTabId!]: options.resultView!,
+      }));
+    }
 
     closeFloatingMenus();
   }
@@ -762,6 +1241,18 @@ export function DbPanel(props: DbPanelProps) {
   function resetConnectionExplorer(connectionId: string) {
     setExpandedConnectionIds((current) =>
       current.filter((id) => id !== connectionId),
+    );
+    setSelectedExplorerRootIds((current) => {
+      const next = { ...current };
+      delete next[connectionId];
+      return next;
+    });
+    setSelectedExplorerSchemaIds((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(
+          ([key]) => !key.startsWith(`${connectionId}:`),
+        ),
+      ),
     );
     setExplorerByConnectionId((current) => {
       const next = { ...current };
@@ -786,6 +1277,13 @@ export function DbPanel(props: DbPanelProps) {
 
   async function resetConnectionExplorerCache(connection: DbConnection) {
     setExpandedExplorerNodeIds([]);
+    setSelectedExplorerSchemaIds((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(
+          ([key]) => !key.startsWith(`${connection.id}:`),
+        ),
+      ),
+    );
     setExplorerByConnectionId((current) => {
       const next = { ...current };
       delete next[connection.id];
@@ -804,6 +1302,7 @@ export function DbPanel(props: DbPanelProps) {
     );
 
     setExpandedExplorerNodeIds([]);
+    setSelectedExplorerSchemaIds({});
     setExplorerByConnectionId({});
     closeFloatingMenus();
 
@@ -1993,7 +2492,7 @@ export function DbPanel(props: DbPanelProps) {
     const paddingLeft = `${depth * 14 + 12}px`;
 
     if (node.kind === "group") {
-      const expanded = isExplorerNodeExpanded(node.id);
+      const expanded = () => isExplorerNodeExpanded(node.id);
       const isLazy = Boolean(node.lazy);
       const isNodeLoading = () => loadingExplorerNodeIds().includes(node.id);
       const handleClick = () => {
@@ -2016,13 +2515,10 @@ export function DbPanel(props: DbPanelProps) {
                 handleClick();
               }}
             >
-              <TreeChevronIcon expanded={expanded} />
+              <TreeChevronIcon expanded={expanded()} />
             </button>
             <DatabaseFolderIcon />
-            <button
-              class="min-w-0 flex-1 text-left"
-              onClick={handleClick}
-            >
+            <button class="min-w-0 flex-1 text-left" onClick={handleClick}>
               <div class="flex min-w-0 items-center gap-2">
                 <p class="truncate text-[12px] font-medium">{node.label}</p>
                 <Show when={node.description}>
@@ -2033,7 +2529,7 @@ export function DbPanel(props: DbPanelProps) {
               </div>
             </button>
           </div>
-          <Show when={expanded}>
+          <Show when={expanded()}>
             <div class="grid gap-0.5">
               <Show when={isNodeLoading()}>
                 <div
@@ -2084,21 +2580,27 @@ export function DbPanel(props: DbPanelProps) {
   }
 
   function renderConnectedConnectionRow(connection: DbConnection) {
-    const isActive = activeConnectionId() === connection.id;
-    const expanded = isConnectionExpanded(connection.id);
+    const isActive = () => activeConnectionId() === connection.id;
+    const expanded = () => isConnectionExpanded(connection.id);
     const badge = getConnectionBadge(connection);
-    const explorer = explorerByConnectionId()[connection.id] ?? {
-      status: "idle",
-      nodes: [],
-    };
+    const explorer = () =>
+      explorerByConnectionId()[connection.id] ?? {
+        status: "idle" as const,
+        nodes: [] as DbExplorerNode[],
+      };
+    const selectedRoot = () => getSelectedExplorerRoot(connection);
 
     return (
       <div class="grid gap-1">
         <div
           class={`theme-sidebar-item group flex min-w-0 items-center gap-2 rounded-xl px-2 py-2 ${
-            isActive ? "theme-sidebar-item-active" : ""
+            isActive() ? "theme-sidebar-item-active" : ""
           }`}
-          onClick={() => void focusConnectedConnection(connection)}
+          onClick={() => {
+            void selectConnectedConnection(connection);
+            toggleConnectionExpanded(connection);
+          }}
+          onDblClick={() => void openConnectionTab(connection)}
           onContextMenu={(event) => {
             event.preventDefault();
             setConnectionMenu({
@@ -2117,9 +2619,9 @@ export function DbPanel(props: DbPanelProps) {
               toggleConnectionExpanded(connection);
             }}
           >
-            <TreeChevronIcon expanded={expanded} />
+            <TreeChevronIcon expanded={expanded()} />
           </button>
-          <DatabaseFolderIcon active={isActive} />
+          <DatabaseFolderIcon active={isActive()} />
           <button class="min-w-0 flex-1 text-left">
             <p class="truncate text-[13px] font-medium" title={connection.name}>
               {connection.name}
@@ -2157,33 +2659,231 @@ export function DbPanel(props: DbPanelProps) {
           </div>
         </div>
 
-        <Show when={expanded}>
+        <Show when={expanded()}>
           <div class="grid gap-1">
-            <Show when={explorer.status === "loading"}>
+            <Show when={explorer().status === "loading"}>
               <div class="theme-text-soft px-2 py-1 text-[11px]">
                 Loading objects...
               </div>
             </Show>
-            <Show when={explorer.status === "error"}>
+            <Show when={explorer().status === "error"}>
               <button
                 class="theme-control rounded-lg px-3 py-2 text-left text-[11px]"
                 onClick={() => void loadConnectionExplorer(connection)}
               >
-                {explorer.error || "Failed to load database objects."}
+                {explorer().error || "Failed to load database objects."}
               </button>
             </Show>
             <Show
-              when={explorer.status === "ready" && explorer.nodes.length === 0}
+              when={
+                explorer().status === "ready" && explorer().nodes.length === 0
+              }
             >
               <div class="theme-text-soft px-2 py-1 text-[11px]">
                 No objects found.
               </div>
             </Show>
-            <For each={explorer.nodes}>
-              {(node) => renderExplorerNode(connection, node, 1)}
+            <For each={explorer().nodes}>
+              {(node) =>
+                node.kind === "group" ? (
+                  <button
+                    class={`theme-sidebar-item ml-6 flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
+                      selectedRoot()?.id === node.id
+                        ? "theme-sidebar-item-active"
+                        : ""
+                    }`}
+                    onClick={() => void selectExplorerRoot(connection, node)}
+                  >
+                    <DatabaseFolderIcon
+                      active={selectedRoot()?.id === node.id}
+                    />
+                    <div class="min-w-0 flex-1">
+                      <p class="truncate text-[12px] font-medium">
+                        {node.label}
+                      </p>
+                      <Show
+                        when={
+                          node.description ||
+                          loadingExplorerNodeIds().includes(node.id)
+                        }
+                      >
+                        <p class="theme-text-soft truncate text-[10px]">
+                          {loadingExplorerNodeIds().includes(node.id)
+                            ? "Loading..."
+                            : node.description}
+                        </p>
+                      </Show>
+                    </div>
+                  </button>
+                ) : null
+              }
             </For>
           </div>
         </Show>
+      </div>
+    );
+  }
+
+  function renderObjectBrowserPanel() {
+    const connection = () => {
+      const connId = workspace().activeConnectionId;
+      return (
+        (connId ? (connectionMap().get(connId) ?? null) : null) ??
+        activeConnection() ??
+        connectedConnections()[0] ??
+        null
+      );
+    };
+    const explorer = () => {
+      const conn = connection();
+      return conn
+        ? (explorerByConnectionId()[conn.id] ?? {
+            status: "idle" as const,
+            nodes: [] as DbExplorerNode[],
+          })
+        : null;
+    };
+    const root = () => getSelectedExplorerRoot(connection());
+    const schemaNodes = () => getSchemaNodesForRoot(root());
+    const categories = () => {
+      const conn = connection();
+      const r = root();
+      return conn && r ? buildObjectBrowserCategories(conn, r) : [];
+    };
+    const selectedSchemaId = () => {
+      const conn = connection();
+      const r = root();
+      const sn = schemaNodes();
+      return conn && r ? getSelectedSchemaId(conn.id, r.id, sn) : "__all__";
+    };
+    const totalSchemaObjectCount = () =>
+      schemaNodes().reduce(
+        (total, schemaNode) =>
+          total +
+          schemaNode.children.reduce(
+            (schemaTotal, child) =>
+              schemaTotal +
+              (child.kind === "group" ? child.children.length : 1),
+            0,
+          ),
+        0,
+      );
+    const isRootLoading = () => {
+      const r = root();
+      return r ? loadingExplorerNodeIds().includes(r.id) : false;
+    };
+
+    return (
+      <div class="flex h-full min-h-0 flex-1 flex-col overflow-hidden pt-2">
+        <div class="mb-2 flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">
+              {getObjectBrowserHeading(categories())}
+            </p>
+            <p class="theme-text-soft mt-1 truncate text-[11px]">
+              {root()
+                ? `${connection()?.name} / ${root()!.label}`
+                : "Select a database or schema above"}
+            </p>
+          </div>
+          <Show when={connection()}>
+            <button
+              class="theme-control h-7 rounded-lg px-2.5 text-[11px] font-medium"
+              title="Refresh active connection objects"
+              onClick={() => void refreshConnectionExplorer(connection()!)}
+            >
+              Refresh
+            </button>
+          </Show>
+        </div>
+
+        <div class="mb-2">
+          <input
+            class="theme-input h-8 w-full rounded-md px-2.5 text-sm"
+            placeholder="Search in tables, views, functions"
+            value={objectFilter()}
+            onInput={(event) => setObjectFilter(event.currentTarget.value)}
+          />
+        </div>
+
+        <Show when={schemaNodes().length > 0 && connection() && root()}>
+          <div class="mb-3 flex items-center gap-2">
+            <span class="theme-text-soft shrink-0 text-[11px] font-medium uppercase tracking-[0.16em]">
+              Schema
+            </span>
+            <select
+              class="theme-input h-8 min-w-0 flex-1 rounded-md px-2.5 text-sm"
+              value={selectedSchemaId()}
+              onInput={(event) =>
+                setSelectedExplorerSchemaIds((current) => ({
+                  ...current,
+                  [getSchemaSelectionKey(connection()!.id, root()!.id)]:
+                    event.currentTarget.value,
+                }))
+              }
+            >
+              <option value="__all__">
+                {`All schemas (${totalSchemaObjectCount()})`}
+              </option>
+              <For each={schemaNodes()}>
+                {(schemaNode) => (
+                  <option value={schemaNode.id}>{schemaNode.label}</option>
+                )}
+              </For>
+            </select>
+          </div>
+        </Show>
+
+        <div class="min-h-0 flex-1 overflow-auto">
+          <Show
+            when={connection()}
+            fallback={
+              <div class="theme-text-soft px-2 py-3 text-xs">
+                No active connection.
+              </div>
+            }
+          >
+            <Show when={explorer()?.status === "error"}>
+              <button
+                class="theme-control mb-2 rounded-lg px-3 py-2 text-left text-[11px]"
+                onClick={() => {
+                  const c = connection();
+                  if (c) void loadConnectionExplorer(c);
+                }}
+              >
+                {explorer()?.error || "Failed to load database objects."}
+              </button>
+            </Show>
+            <Show
+              when={root() || explorer()?.status === "error"}
+              fallback={
+                <div class="theme-text-soft px-2 py-3 text-xs">
+                  Pick a database or schema from the Connections section.
+                </div>
+              }
+            >
+              <Show when={root()}>
+                <Show when={isRootLoading()}>
+                  <div class="theme-text-soft px-2 py-2 text-[11px]">
+                    Loading objects...
+                  </div>
+                </Show>
+                <Show when={!isRootLoading() && categories().length === 0}>
+                  <div class="theme-text-soft px-2 py-3 text-xs">
+                    No objects found.
+                  </div>
+                </Show>
+                <div class="grid gap-1">
+                  <For each={categories()}>
+                    {(category) =>
+                      renderExplorerNode(connection()!, category, 0)
+                    }
+                  </For>
+                </div>
+              </Show>
+            </Show>
+          </Show>
+        </div>
       </div>
     );
   }
@@ -2218,214 +2918,106 @@ export function DbPanel(props: DbPanelProps) {
         contentClass="theme-workspace-pane min-h-0 flex flex-col border-l"
         contentStyle={{ "border-color": "var(--app-border)" }}
         sidebar={
-          <>
+          <div
+            ref={sidebarSectionsRef}
+            class="flex min-h-0 flex-col overflow-hidden"
+            style={{
+              height: "calc(100dvh - 52px)",
+              "max-height": "calc(100dvh - 52px)",
+            }}
+          >
             <div
-              class="mb-3 flex items-center gap-1 border-b pb-2"
-              style={{ "border-color": "var(--app-border)" }}
+              class="flex min-h-[220px] flex-col overflow-hidden"
+              style={{ flex: `0 0 ${sidebarConnectionsHeight()}%` }}
             >
-              <For
-                each={
-                  [
-                    {
-                      key: "connections" as SidebarSection,
-                      label: "Connections",
-                    },
-                    { key: "favorites" as SidebarSection, label: "Favorites" },
-                    { key: "history" as SidebarSection, label: "History" },
-                  ] as const
-                }
+              <div
+                class="mb-3 border-b pb-3"
+                style={{ "border-color": "var(--app-border)" }}
               >
-                {(section) => (
-                  <button
-                    class={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition ${
-                      sidebarSection() === section.key
-                        ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
-                        : "theme-text-soft hover:text-[var(--app-text)]"
-                    }`}
-                    onClick={() => setSidebarSection(section.key)}
-                  >
-                    {section.label}
-                  </button>
-                )}
-              </For>
-              <div class="flex-1" />
-              <button
-                class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
-                title="Saved connections"
-                onClick={() => openSavedConnectionsModal()}
-              >
-                <ControlDot variant="warn" />
-              </button>
+                <div class="mb-2 flex items-center justify-between gap-2">
+                  <div>
+                    <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">
+                      Connections
+                    </p>
+                    <p class="theme-text-soft mt-1 text-[11px]">
+                      Connected databases
+                    </p>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <Show when={connectedConnections().length > 0}>
+                      <button
+                        class="theme-control h-7 rounded-lg px-2.5 text-[11px] font-medium"
+                        title="Refresh all object trees"
+                        onClick={() => void refreshAllExplorers()}
+                      >
+                        Refresh
+                      </button>
+                    </Show>
+                    <Show
+                      when={Object.keys(explorerByConnectionId()).length > 0}
+                    >
+                      <button
+                        class="theme-control h-7 rounded-lg px-2.5 text-[11px] font-medium"
+                        title="Reset cached object trees"
+                        onClick={() => void resetAllExplorerCaches()}
+                      >
+                        Reset Cache
+                      </button>
+                    </Show>
+                    <button
+                      class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
+                      title="Saved connections"
+                      onClick={() => openSavedConnectionsModal()}
+                    >
+                      <ControlDot variant="warn" />
+                    </button>
+                  </div>
+                </div>
+
+                <input
+                  class="theme-input h-8 w-full rounded-md px-2.5 text-sm"
+                  placeholder="Search connection or database"
+                  value={filter()}
+                  onInput={(event) => setFilter(event.currentTarget.value)}
+                />
+              </div>
+
+              <div class="min-h-0 flex-1 overflow-auto">
+                <div class="grid gap-1">
+                  <For each={filteredConnectedConnections()}>
+                    {(connection) => renderConnectedConnectionRow(connection)}
+                  </For>
+
+                  <Show when={filteredConnectedConnections().length === 0}>
+                    <div class="theme-text-soft rounded-xl px-2 py-2 text-xs">
+                      {connectedConnections().length === 0
+                        ? "No connected databases. Click the yellow dot to connect."
+                        : "No matches"}
+                    </div>
+                  </Show>
+                </div>
+              </div>
             </div>
 
-            <div class="mb-3">
-              <input
-                class="theme-input h-8 w-full rounded-md px-2.5 text-sm"
-                placeholder={
-                  sidebarSection() === "connections"
-                    ? "Filter connected databases"
-                    : sidebarSection() === "favorites"
-                      ? "Filter favorites"
-                      : "Filter history"
-                }
-                value={filter()}
-                onInput={(event) => setFilter(event.currentTarget.value)}
+            <button
+              class="group relative h-4 shrink-0 cursor-row-resize select-none bg-transparent p-0"
+              title="Resize sidebar sections"
+              onPointerDown={(event) => startSidebarSplitResize(event)}
+            >
+              <span
+                class="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-[var(--app-border)] transition-colors group-hover:bg-[var(--app-accent)]"
+                aria-hidden="true"
               />
+              <span
+                class="absolute left-1/2 top-1/2 h-1.5 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--app-border)] transition-colors group-hover:bg-[var(--app-accent)]"
+                aria-hidden="true"
+              />
+            </button>
+
+            <div class="min-h-[180px] min-w-0 flex-1 overflow-hidden">
+              {renderObjectBrowserPanel()}
             </div>
-
-            <Show when={sidebarSection() === "connections"}>
-              <div class="mb-2 flex items-center justify-between">
-                <p class="theme-text-soft text-[11px] font-medium uppercase tracking-[0.16em]">
-                  Connected
-                </p>
-                <div class="flex items-center gap-1">
-                  <Show when={connectedConnections().length > 0}>
-                    <button
-                      class="theme-text-soft rounded-md px-1.5 py-0.5 text-[10px] hover:text-[var(--app-text)]"
-                      title="Refresh all object trees"
-                      onClick={() => void refreshAllExplorers()}
-                    >
-                      Refresh
-                    </button>
-                  </Show>
-                  <Show when={Object.keys(explorerByConnectionId()).length > 0}>
-                    <button
-                      class="theme-text-soft rounded-md px-1.5 py-0.5 text-[10px] hover:text-[var(--app-text)]"
-                      title="Reset cached object trees"
-                      onClick={() => void resetAllExplorerCaches()}
-                    >
-                      Reset
-                    </button>
-                  </Show>
-                </div>
-              </div>
-              <div class="grid gap-1">
-                <For each={filteredConnectedConnections()}>
-                  {(connection) => renderConnectedConnectionRow(connection)}
-                </For>
-
-                <Show when={filteredConnectedConnections().length === 0}>
-                  <div class="theme-text-soft rounded-xl px-2 py-2 text-xs">
-                    {connectedConnections().length === 0
-                      ? "No connected databases. Click the yellow dot to connect."
-                      : "No matches"}
-                  </div>
-                </Show>
-              </div>
-            </Show>
-
-            <Show when={sidebarSection() === "favorites"}>
-              <div class="grid gap-1">
-                <For each={filteredFavorites()}>
-                  {(fav) => {
-                    const connection = connectionMap().get(fav.connectionId);
-                    const badge = connection
-                      ? getConnectionBadge(connection)
-                      : null;
-                    return (
-                      <button
-                        class="theme-sidebar-item flex min-w-0 items-center gap-2 rounded-xl px-2 py-2 text-left"
-                        onClick={() => void loadFavoriteIntoTab(fav)}
-                        onContextMenu={(event) => {
-                          event.preventDefault();
-                          setFavoriteMenu({
-                            id: fav.id,
-                            x: event.clientX,
-                            y: event.clientY,
-                          });
-                          setConnectionMenu(null);
-                          setExplorerNodeMenu(null);
-                          setTabMenu(null);
-                        }}
-                      >
-                        <Show when={badge}>
-                          <span class={`${badge!.class} shrink-0`}>
-                            {badge!.label}
-                          </span>
-                        </Show>
-                        <div class="min-w-0 flex-1">
-                          <p class="truncate text-[12px] font-medium">
-                            {fav.name}
-                          </p>
-                          <p class="theme-text-soft mt-0.5 truncate text-[10px] font-mono">
-                            {fav.query.slice(0, 80)}
-                          </p>
-                        </div>
-                      </button>
-                    );
-                  }}
-                </For>
-                <Show when={filteredFavorites().length === 0}>
-                  <div class="theme-text-soft rounded-xl px-2 py-3 text-center text-xs">
-                    {(workspace().favorites ?? []).length === 0
-                      ? "No favorites yet. Save a query from the toolbar."
-                      : "No matches"}
-                  </div>
-                </Show>
-              </div>
-            </Show>
-
-            <Show when={sidebarSection() === "history"}>
-              <Show when={(workspace().history ?? []).length > 0}>
-                <div class="mb-2 flex items-center justify-end">
-                  <button
-                    class="theme-text-soft rounded-md px-1.5 py-0.5 text-[10px] hover:text-[var(--app-text)]"
-                    onClick={() => void clearHistory()}
-                  >
-                    Clear
-                  </button>
-                </div>
-              </Show>
-              <div class="grid gap-1">
-                <For each={recentHistory()}>
-                  {(item) => {
-                    const badge = getConnectionBadge({
-                      kind: item.kind,
-                    } as DbConnection);
-                    return (
-                      <button
-                        class="theme-sidebar-item flex min-w-0 items-center gap-2 rounded-xl px-2 py-2 text-left"
-                        onClick={() => void loadHistoryIntoTab(item)}
-                      >
-                        <span class={`${badge.class} shrink-0`}>
-                          {badge.label}
-                        </span>
-                        <div class="min-w-0 flex-1">
-                          <p class="truncate text-[12px] font-mono">
-                            {item.query.slice(0, 80)}
-                          </p>
-                          <div class="mt-0.5 flex items-center gap-2">
-                            <span class="theme-text-soft text-[10px]">
-                              {item.connectionName}
-                            </span>
-                            <span
-                              class={`text-[10px] ${
-                                item.status === "error"
-                                  ? "text-[#ff6f61]"
-                                  : "text-[#28c840]"
-                              }`}
-                            >
-                              {item.status}
-                            </span>
-                            <span class="theme-text-soft text-[10px]">
-                              {new Date(item.executedAt).toLocaleTimeString()}
-                            </span>
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  }}
-                </For>
-                <Show when={recentHistory().length === 0}>
-                  <div class="theme-text-soft rounded-xl px-2 py-3 text-center text-xs">
-                    {(workspace().history ?? []).length === 0
-                      ? "No history yet. Run a query to start tracking."
-                      : "No matches"}
-                  </div>
-                </Show>
-              </div>
-            </Show>
-          </>
+          </div>
         }
       >
         <div class="flex min-h-0 flex-1 flex-col">
@@ -2947,6 +3539,12 @@ export function DbPanel(props: DbPanelProps) {
               )
             : null;
           if (!connection || !node) return null;
+          const qualifiedName = node.qualifiedName ?? node.label;
+          const isTableLike = node.kind === "table" || node.kind === "view";
+          const isSqlObject =
+            node.kind === "table" ||
+            node.kind === "view" ||
+            node.kind === "function";
 
           return (
             <div
@@ -2958,25 +3556,199 @@ export function DbPanel(props: DbPanelProps) {
                 top: `${menu.y}px`,
               }}
             >
-              <button
-                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() =>
-                  void openExplorerQuery(connection, node, node.query)
-                }
-              >
-                {getExplorerPreviewMenuLabel(node)}
-              </button>
+              <Show when={isTableLike}>
+                <>
+                  <button
+                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                    onClick={() =>
+                      void openExplorerQuery(connection, node, node.query, {
+                        forceNew: true,
+                      })
+                    }
+                  >
+                    Open data
+                  </button>
+                </>
+              </Show>
+              <Show when={isSqlObject}>
+                <>
+                  <button
+                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                    onClick={() =>
+                      void openExplorerQuery(
+                        connection,
+                        node,
+                        buildExplorerStructureQuery(connection, node),
+                        {
+                          forceNew: true,
+                          titleSuffix: "Structure",
+                        },
+                      )
+                    }
+                  >
+                    Open structure
+                  </button>
+                  <button
+                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                    onClick={() =>
+                      void openExplorerQuery(
+                        connection,
+                        node,
+                        buildExplorerShowSqlQuery(connection, node),
+                        {
+                          forceNew: true,
+                          titleSuffix: "SQL",
+                        },
+                      )
+                    }
+                  >
+                    Show SQL
+                  </button>
+                </>
+              </Show>
+              <Show when={isTableLike || isSqlObject}>
+                <div
+                  class="my-1 h-px"
+                  style={{ background: "var(--app-border)" }}
+                />
+              </Show>
+              <Show when={isTableLike}>
+                <>
+                  <button
+                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                    onClick={() =>
+                      void openExplorerQuery(connection, node, node.query, {
+                        forceNew: true,
+                        titleSuffix: "Select",
+                      })
+                    }
+                  >
+                    Select template
+                  </button>
+                  <button
+                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                    onClick={() =>
+                      void openExplorerQuery(
+                        connection,
+                        node,
+                        `INSERT INTO ${qualifiedName} ()\nVALUES ();`,
+                        {
+                          forceNew: true,
+                          titleSuffix: "Insert",
+                        },
+                      )
+                    }
+                  >
+                    Insert template
+                  </button>
+                  <button
+                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                    onClick={() =>
+                      void openExplorerQuery(
+                        connection,
+                        node,
+                        `UPDATE ${qualifiedName}\nSET \nWHERE ;`,
+                        {
+                          forceNew: true,
+                          titleSuffix: "Update",
+                        },
+                      )
+                    }
+                  >
+                    Update template
+                  </button>
+                  <button
+                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                    onClick={() =>
+                      void openExplorerQuery(
+                        connection,
+                        node,
+                        `DELETE FROM ${qualifiedName}\nWHERE ;`,
+                        {
+                          forceNew: true,
+                          titleSuffix: "Delete",
+                        },
+                      )
+                    }
+                  >
+                    Delete template
+                  </button>
+                </>
+              </Show>
               <Show when={node.countQuery}>
                 <button
                   class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
                   onClick={() =>
                     void openExplorerQuery(connection, node, node.countQuery!, {
+                      forceNew: true,
                       titleSuffix: "Count",
                     })
                   }
                 >
                   COUNT(*)
                 </button>
+              </Show>
+              <Show when={node.kind === "table"}>
+                <>
+                  <div
+                    class="my-1 h-px"
+                    style={{ background: "var(--app-border)" }}
+                  />
+                  <button
+                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                    onClick={() =>
+                      void openExplorerQuery(
+                        connection,
+                        node,
+                        `DROP TABLE ${qualifiedName};`,
+                        {
+                          forceNew: true,
+                          titleSuffix: "Drop",
+                        },
+                      )
+                    }
+                  >
+                    Drop table
+                  </button>
+                  <button
+                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                    onClick={() =>
+                      void openExplorerQuery(
+                        connection,
+                        node,
+                        buildExplorerRenameQuery(connection, node),
+                        {
+                          forceNew: true,
+                          titleSuffix: "Rename",
+                        },
+                      )
+                    }
+                  >
+                    Rename table
+                  </button>
+                  <button
+                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                    onClick={() =>
+                      void openExplorerQuery(
+                        connection,
+                        node,
+                        buildExplorerTruncateQuery(connection, node),
+                        {
+                          forceNew: true,
+                          titleSuffix: "Truncate",
+                        },
+                      )
+                    }
+                  >
+                    Truncate table
+                  </button>
+                  <button
+                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                    onClick={() => void copyExplorerNodeName(node)}
+                  >
+                    Copy table name
+                  </button>
+                </>
               </Show>
               <button
                 class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
