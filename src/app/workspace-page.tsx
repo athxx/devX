@@ -14,6 +14,7 @@ import {
   HomeWorkspace,
   SettingsWorkspace,
   ToolsWorkspace,
+  VaultWorkspace,
 } from "./workspace-sections";
 import {
   workspaceCopy,
@@ -24,7 +25,14 @@ import { RestPlayground } from "../features/rest/components/rest-playground";
 import { startSyncScheduler } from "../features/sync/service";
 
 type WorkspacePlatform = "extension" | "web";
-type WorkspaceTab = "home" | "api" | "db" | "tools" | "ssh" | "settings";
+type WorkspaceTab =
+  | "home"
+  | "api"
+  | "db"
+  | "tools"
+  | "ssh"
+  | "settings"
+  | "vault";
 
 type WorkspacePageProps = {
   platform: WorkspacePlatform;
@@ -40,15 +48,10 @@ const topTabs = [
 
 function HomeIcon() {
   return (
-    <svg
-      aria-hidden="true"
-      class="h-4 w-4"
-      viewBox="0 0 24 24"
-      xmlns="http://www.w3.org/2000/svg"
-    >
+    <svg aria-hidden="true" class="h-4 w-4" viewBox="0 0 24 24">
       <path
         d="M9.686.764c1.272-1.02 3.348-1.02 4.632.011l8.315 6.648c.923.744 1.524 2.315 1.332 3.49l-1.596 9.552c-.288 1.691-1.932 3.084-3.648 3.084H5.283c-1.728 0-3.36-1.38-3.648-3.084L.04 10.914c-.204-1.176.396-2.747 1.332-3.491L9.686.763zm2.316 9.214a3 3 0 1 0 0 5.999 3 3 0 0 0 0-5.999z"
-        fill="#FFBF00"
+        fill="#F8941D"
       />
     </svg>
   );
@@ -74,6 +77,40 @@ function SettingsIcon() {
         d="M9.5 12a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0z"
         stroke="#676767"
         stroke-width="1.5"
+      />
+    </svg>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      class="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M7.75 10V8.5a4.25 4.25 0 1 1 8.5 0V10"
+        stroke="#676767"
+        stroke-width="1.5"
+        stroke-linecap="round"
+      />
+      <rect
+        x="5"
+        y="10"
+        width="14"
+        height="10"
+        rx="2.5"
+        stroke="#676767"
+        stroke-width="1.5"
+      />
+      <path
+        d="M12 14.25v1.5"
+        stroke="#676767"
+        stroke-width="1.5"
+        stroke-linecap="round"
       />
     </svg>
   );
@@ -302,12 +339,25 @@ export function WorkspacePage(_props: WorkspacePageProps) {
             }`}
             style={{ "border-color": "var(--app-border)" }}
             onClick={() => setDarkMode((value) => !value)}
+            >
+              <span
+                class={`h-2.5 w-2.5 rounded-full transition ${
+                  darkMode() ? "bg-white" : "bg-[var(--app-accent)]"
+                }`}
+              />
+            </button>
+          <button
+            aria-label="Open vault"
+            title="Open vault"
+            class={`inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
+              activeTab() === "vault"
+                ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
+                : "theme-control"
+            }`}
+            style={{ "border-color": "var(--app-border)" }}
+            onClick={() => setActiveTab("vault")}
           >
-            <span
-              class={`h-2.5 w-2.5 rounded-full transition ${
-                darkMode() ? "bg-white" : "bg-[var(--app-accent)]"
-              }`}
-            />
+            <LockIcon />
           </button>
           <button
             aria-label={copy().actions.openSettings}
@@ -372,6 +422,14 @@ export function WorkspacePage(_props: WorkspacePageProps) {
       </div>
       <div style={tabPanelStyle("settings")}>
         <SettingsWorkspace
+          sidebarOpen={sidebarOpen()}
+          sidebarWidth={sidebarWidth()}
+          sidebarResizing={sidebarResizing()}
+          onSidebarResizeStart={handleSidebarResizeStart}
+        />
+      </div>
+      <div style={tabPanelStyle("vault")}>
+        <VaultWorkspace
           sidebarOpen={sidebarOpen()}
           sidebarWidth={sidebarWidth()}
           sidebarResizing={sidebarResizing()}

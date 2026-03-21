@@ -1,4 +1,4 @@
-import { getStoredValue, setStoredValue } from "./platform-storage";
+import { readDevxSection, writeDevxSection } from "./indexed-db";
 
 export type AppSettings = {
   workspaceName: string;
@@ -44,26 +44,8 @@ export const defaultSettings: AppSettings = {
   }
 };
 
-const SETTINGS_KEY = "app-settings";
-
 export async function loadSettings(): Promise<AppSettings> {
-  const stored = await getStoredValue<Partial<AppSettings>>(SETTINGS_KEY, "sync");
-  const legacyProxy = (stored?.proxy ?? {}) as Partial<AppSettings["proxy"]> & {
-    relay?: {
-      mode?: "none" | "proxy";
-      address?: string;
-    };
-    db?: {
-      mode?: "none" | "proxy";
-      address?: string;
-    };
-    ssh?: {
-      mode?: "none" | "proxy";
-      address?: string;
-    };
-  };
-  const migratedDb = legacyProxy.db ?? legacyProxy.relay;
-  const migratedSsh = legacyProxy.ssh ?? legacyProxy.relay;
+  const stored = await readDevxSection<Partial<AppSettings>>(["settings"]);
 
   return {
     ...defaultSettings,
@@ -71,26 +53,30 @@ export async function loadSettings(): Promise<AppSettings> {
     proxy: {
       api: {
         ...defaultSettings.proxy.api,
-        ...legacyProxy.api
+        ...stored?.proxy?.api,
       },
       db: {
         ...defaultSettings.proxy.db,
-        ...migratedDb
+        ...stored?.proxy?.db,
       },
       ssh: {
         ...defaultSettings.proxy.ssh,
-        ...migratedSsh
-      }
-    }
+        ...stored?.proxy?.ssh,
+      },
+    },
   };
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
-  await setStoredValue(SETTINGS_KEY, settings, "sync");
+  const current = (await readDevxSection<Record<string, unknown>>(["settings"])) ?? {};
+  await writeDevxSection(["settings"], {
+    ...current,
+    ...settings,
+  });
 }
 
 export async function ensureDefaultSettings(): Promise<void> {
-  const stored = await getStoredValue<Partial<AppSettings>>(SETTINGS_KEY, "sync");
+  const stored = await readDevxSection<Partial<AppSettings>>(["settings"]);
 
   if (!stored) {
     await saveSettings(defaultSettings);

@@ -1819,7 +1819,7 @@ export function SshPanel(props: SshPanelProps) {
                       setProfileMoveMenuId(null);
                     }}
                   >
-                    <ControlDot variant="menu" />
+                    <ControlDot size="small" variant="menu" />
                   </button>
                   <Show when={headerMenuOpen()}>
                     <div
@@ -1841,7 +1841,7 @@ export function SshPanel(props: SshPanelProps) {
                   title="Add profile"
                   onClick={() => openCreateModal(null)}
                 >
-                  <ControlDot variant="add" />
+                  <ControlDot size="small" variant="add" />
                 </button>
               </div>
             </div>
@@ -1912,7 +1912,7 @@ export function SshPanel(props: SshPanelProps) {
                                 void connectToProfile(profile);
                               }}
                             >
-                              <ControlDot variant="warn" />
+                              <ControlDot size="small" variant="warn" />
                             </button>
                           }
                         >
@@ -1924,7 +1924,7 @@ export function SshPanel(props: SshPanelProps) {
                               void disconnectProfile(profile.id);
                             }}
                           >
-                            <ControlDot variant="delete" />
+                            <ControlDot size="small" variant="delete" />
                           </button>
                         </Show>
                       </div>
@@ -1989,7 +1989,7 @@ export function SshPanel(props: SshPanelProps) {
                                 void connectToProfile(profile);
                               }}
                             >
-                              <ControlDot variant="warn" />
+                              <ControlDot size="small" variant="warn" />
                             </button>
                           }
                         >
@@ -2001,7 +2001,7 @@ export function SshPanel(props: SshPanelProps) {
                               void disconnectProfile(profile.id);
                             }}
                           >
-                            <ControlDot variant="delete" />
+                            <ControlDot size="small" variant="delete" />
                           </button>
                         </Show>
                         <Show when={profileMenuId() === profile.id}>
@@ -2184,7 +2184,7 @@ export function SshPanel(props: SshPanelProps) {
                               setProfileMoveMenuId(null);
                             }}
                           >
-                            <ControlDot variant="menu" />
+                            <ControlDot size="small" variant="menu" />
                           </button>
                           <Show when={folderMenuId() === entry.folder.id}>
                             <div
@@ -2245,7 +2245,7 @@ export function SshPanel(props: SshPanelProps) {
                             title="Add profile"
                             onClick={() => openCreateModal(entry.folder.id)}
                           >
-                            <ControlDot variant="add" />
+                            <ControlDot size="small" variant="add" />
                           </button>
                         </div>
                       </div>
@@ -2310,7 +2310,10 @@ export function SshPanel(props: SshPanelProps) {
                                           void connectToProfile(profile);
                                         }}
                                       >
-                                        <ControlDot variant="warn" />
+                                        <ControlDot
+                                          size="small"
+                                          variant="warn"
+                                        />
                                       </button>
                                     }
                                   >
@@ -2322,7 +2325,10 @@ export function SshPanel(props: SshPanelProps) {
                                         void disconnectProfile(profile.id);
                                       }}
                                     >
-                                      <ControlDot variant="delete" />
+                                      <ControlDot
+                                        size="small"
+                                        variant="delete"
+                                      />
                                     </button>
                                   </Show>
                                   <Show when={profileMenuId() === profile.id}>
@@ -2478,7 +2484,9 @@ export function SshPanel(props: SshPanelProps) {
                 items={tabItems()}
                 draggedId={draggedTabId()}
                 dropTargetId={tabDropTargetId()}
-                renderCloseIcon={() => <ControlDot variant="delete" />}
+                renderCloseIcon={() => (
+                  <ControlDot size="small" variant="delete" />
+                )}
                 renderPinIcon={() => <PinIcon />}
                 onTabOpen={(tabId) => activateTab(tabId)}
                 onTabClose={(tabId) => closeTab(tabId)}
@@ -2749,7 +2757,7 @@ export function SshPanel(props: SshPanelProps) {
                     type="button"
                     onClick={() => setEditingProfile(null)}
                   >
-                    <ControlDot variant="delete" />
+                    <ControlDot size="small" variant="delete" />
                   </button>
                 </div>
 

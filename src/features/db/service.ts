@@ -13,9 +13,12 @@ import type {
   DbWorkspaceState,
 } from "./models";
 
-type LegacyDbWorkspaceState = Partial<DbWorkspaceState> & {
-  connections?: DbConnection[];
-  folders?: unknown[];
+type StoredDbConnection = Omit<DbConnection, "config"> & {
+  config?: Partial<DbConnectionConfig>;
+};
+
+type StoredDbWorkspaceState = Omit<DbWorkspaceState, "savedConnections"> & {
+  savedConnections?: StoredDbConnection[];
 };
 
 type DbSocketResponse = {
@@ -30,6 +33,17 @@ type DbSocketCommandMessage = {
   type: string;
   payload: Record<string, unknown>;
 };
+
+type PendingDbSocketRequest = {
+  kind: DbConnectionKind;
+  resolve: (value: DbResultPayload) => void;
+  reject: (reason?: unknown) => void;
+};
+
+let dbRelaySocket: WebSocket | null = null;
+let dbRelaySocketUrl: string | null = null;
+let dbRelaySocketPromise: Promise<WebSocket> | null = null;
+const pendingDbSocketRequests = new Map<string, PendingDbSocketRequest>();
 
 type SqlExplorerRow = {
   schema_name?: unknown;
@@ -61,33 +75,6 @@ function defaultQueryForKind(kind: DbConnectionKind) {
     case "sqlserver":
     default:
       return "SELECT 1;";
-  }
-}
-
-function defaultNameForKind(kind: DbConnectionKind) {
-  switch (kind) {
-    case "redis":
-      return "Redis";
-    case "postgresql":
-      return "PostgreSQL";
-    case "mysql":
-      return "MySQL";
-    case "mongodb":
-      return "MongoDB";
-    case "clickhouse":
-      return "ClickHouse";
-    case "gaussdb":
-      return "GaussDB";
-    case "oracle":
-      return "Oracle";
-    case "sqlite":
-      return "SQLite";
-    case "sqlserver":
-      return "SQL Server";
-    case "tidb":
-      return "TiDB";
-    default:
-      return "Database";
   }
 }
 
@@ -168,6 +155,17 @@ function appendUrlOptions(url: URL, options: string) {
   }
 }
 
+function formatSearchParams(
+  url: URL,
+  ignoredKeys: string[] = [],
+): string {
+  const params = new URLSearchParams(url.search);
+  for (const key of ignoredKeys) {
+    params.delete(key);
+  }
+  return params.toString();
+}
+
 function formatKeywordValue(value: string) {
   const normalized = value.trim();
   if (!normalized) {
@@ -199,6 +197,154 @@ function buildKeywordDsn(parts: Array<[string, string]>, options: string) {
   }
 
   return result.join(" ");
+}
+
+function parseKeywordDsn(raw: string) {
+  const values = new Map<string, string>();
+  const pattern = /(\w+)=('(?:\\.|[^'])*'|"(?:\\.|[^"])*"|[^\s]+)/g;
+  for (const match of raw.matchAll(pattern)) {
+    const key = match[1]?.trim();
+    let value = match[2] ?? "";
+    if (!key) continue;
+    if (
+      (value.startsWith("'") && value.endsWith("'")) ||
+      (value.startsWith('"') && value.endsWith('"'))
+    ) {
+      value = value.slice(1, -1);
+    }
+    value = value.replace(/\\'/g, "'").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+    values.set(key, value);
+  }
+  return values;
+}
+
+function parseMySqlStyleDsn(
+  raw: string,
+  kind: DbConnectionKind,
+): DbConnectionConfig {
+  const fallback = defaultConnectionConfig(kind);
+  const match =
+    raw.match(
+      /^(?:(?<auth>[^@/]+)@)?tcp\((?<address>[^)]*)\)\/(?<database>[^?]*)(?:\?(?<query>.*))?$/u,
+    ) ?? [];
+  const groups = "groups" in match ? match.groups ?? {} : {};
+  const address = String(groups.address ?? "");
+  const lastColon = address.lastIndexOf(":");
+  const host = lastColon >= 0 ? address.slice(0, lastColon) : address;
+  const port = lastColon >= 0 ? address.slice(lastColon + 1) : fallback.port;
+  const auth = String(groups.auth ?? "");
+  const authSeparator = auth.indexOf(":");
+  return {
+    ...fallback,
+    host: host || fallback.host,
+    port,
+    username: authSeparator >= 0 ? auth.slice(0, authSeparator) : auth,
+    password: authSeparator >= 0 ? auth.slice(authSeparator + 1) : "",
+    database: decodeURIComponent(String(groups.database ?? "")),
+    options: String(groups.query ?? ""),
+  };
+}
+
+function parseStandardUrlConnection(
+  raw: string,
+  kind: DbConnectionKind,
+): DbConnectionConfig {
+  const fallback = defaultConnectionConfig(kind);
+  try {
+    const url = new URL(raw);
+    const pathname = url.pathname.replace(/^\/+/, "");
+    return {
+      ...fallback,
+      host: decodeURIComponent(url.hostname || fallback.host),
+      port: url.port || fallback.port,
+      username: decodeURIComponent(url.username),
+      password: decodeURIComponent(url.password),
+      database:
+        kind === "oracle"
+          ? decodeURIComponent(pathname || fallback.serviceName)
+          : decodeURIComponent(pathname),
+      filePath: kind === "sqlite" ? decodeURIComponent(raw) : fallback.filePath,
+      authSource:
+        kind === "mongodb"
+          ? url.searchParams.get("authSource") ?? fallback.authSource
+          : fallback.authSource,
+      serviceName:
+        kind === "oracle"
+          ? decodeURIComponent(pathname || fallback.serviceName)
+          : fallback.serviceName,
+      options:
+        kind === "mongodb"
+          ? formatSearchParams(url, ["authSource"])
+          : formatSearchParams(url),
+    };
+  } catch {
+    if (kind === "sqlite") {
+      return {
+        ...fallback,
+        filePath: raw.trim() || fallback.filePath,
+      };
+    }
+    return fallback;
+  }
+}
+
+function parsePostgresConnectionString(
+  raw: string,
+  kind: DbConnectionKind,
+): DbConnectionConfig {
+  const fallback = defaultConnectionConfig(kind);
+  if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(raw)) {
+    return parseStandardUrlConnection(raw, kind);
+  }
+
+  const values = parseKeywordDsn(raw);
+  const reservedKeys = new Set(["host", "port", "user", "password", "dbname"]);
+  const options = Array.from(values.entries())
+    .filter(([key]) => !reservedKeys.has(key))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("&");
+
+  return {
+    ...fallback,
+    host: values.get("host") || fallback.host,
+    port: values.get("port") || fallback.port,
+    username: values.get("user") || "",
+    password: values.get("password") || "",
+    database: values.get("dbname") || "",
+    options,
+  };
+}
+
+function parseDbConnectionUrl(
+  kind: DbConnectionKind,
+  raw: string,
+): DbConnectionConfig {
+  const normalized = raw.trim();
+  if (!normalized) {
+    return defaultConnectionConfig(kind);
+  }
+
+  switch (kind) {
+    case "postgresql":
+    case "gaussdb":
+      return parsePostgresConnectionString(normalized, kind);
+    case "mysql":
+    case "tidb":
+      return parseMySqlStyleDsn(normalized, kind);
+    case "mongodb":
+    case "redis":
+    case "sqlserver":
+    case "oracle":
+    case "clickhouse":
+      return parseStandardUrlConnection(normalized, kind);
+    case "sqlite":
+      return {
+        ...defaultConnectionConfig(kind),
+        filePath: normalized,
+      };
+    default:
+      return defaultConnectionConfig(kind);
+  }
 }
 
 function buildMySqlStyleDsn(
@@ -270,7 +416,15 @@ export function buildDbConnectionUrl(
               password ? `:${encodeCredentialPart(password)}` : ""
             }@`
           : "";
-      const dbPath = database ? `/${encodeURIComponent(database)}` : "";
+      const shouldKeepSlash =
+        Boolean(database) ||
+        Boolean(config.authSource.trim()) ||
+        parseOptionEntries(config.options).length > 0;
+      const dbPath = database
+        ? `/${encodeURIComponent(database)}`
+        : shouldKeepSlash
+          ? "/"
+          : "";
       const url = new URL(
         `mongodb://${auth}${host}${port ? `:${port}` : ""}${dbPath}`,
       );
@@ -285,16 +439,20 @@ export function buildDbConnectionUrl(
     case "tidb":
       return buildMySqlStyleDsn(connection, true);
     case "postgresql":
-      return buildKeywordDsn(
-        [
-          ["host", host],
-          ["port", port],
-          ["user", username],
-          ["password", password],
-          ["dbname", database],
-        ],
-        config.options,
-      );
+      {
+        const auth =
+          username || password
+            ? `${encodeCredentialPart(username)}${
+                password ? `:${encodeCredentialPart(password)}` : ""
+              }@`
+            : "";
+        const dbPath = database ? `/${encodeURIComponent(database)}` : "";
+        const url = new URL(
+          `postgresql://${auth}${host}${port ? `:${port}` : ""}${dbPath}`,
+        );
+        appendUrlOptions(url, config.options);
+        return url.toString();
+      }
     case "gaussdb":
       return buildKeywordDsn(
         [
@@ -364,16 +522,32 @@ function normalizeConnectionConfig(
   };
 }
 
-function normalizeConnection(connection: Partial<DbConnection> | null | undefined) {
-  const safeConnection: Partial<DbConnection> = connection ?? {};
+function normalizeConnection(
+  connection:
+    | (Omit<Partial<DbConnection>, "config"> & {
+        config?: Partial<DbConnectionConfig>;
+      })
+    | null
+    | undefined,
+): DbConnection {
+  const safeConnection = connection ?? {};
   const kind = safeConnection.kind ?? "postgresql";
-  const config = normalizeConnectionConfig(safeConnection.config, kind);
+  const baseConfig = safeConnection.url?.trim()
+    ? parseDbConnectionUrl(kind, safeConnection.url)
+    : defaultConnectionConfig(kind);
+  const config = normalizeConnectionConfig(
+    {
+      ...baseConfig,
+      ...safeConnection.config,
+    },
+    kind,
+  );
   const fallbackUrl =
     safeConnection.url?.trim() || buildDbConnectionUrl({ kind, config, url: "" });
 
   return {
     id: safeConnection.id ?? makeId("db-conn"),
-    name: safeConnection.name?.trim() || defaultNameForKind(kind),
+    name: safeConnection.name?.trim() || config.host.trim(),
     kind,
     url: fallbackUrl,
     config,
@@ -401,15 +575,14 @@ function normalizeTab(
 }
 
 function normalizeWorkspace(
-  workspace: LegacyDbWorkspaceState | null | undefined,
+  workspace: StoredDbWorkspaceState | null | undefined,
 ): DbWorkspaceState {
   const savedConnectionsSource = Array.isArray(workspace?.savedConnections)
     ? workspace.savedConnections
-    : Array.isArray(workspace?.connections)
-      ? workspace.connections
-      : [];
-  const savedConnections = savedConnectionsSource.map(normalizeConnection);
-  const connectionsById = new Map(
+    : [];
+  const savedConnections: DbConnection[] =
+    savedConnectionsSource.map(normalizeConnection);
+  const connectionsById: Map<string, DbConnection> = new Map(
     savedConnections.map((connection) => [connection.id, connection]),
   );
   const connectionIds = new Set(savedConnections.map((connection) => connection.id));
@@ -477,24 +650,29 @@ function normalizeWorkspace(
 
 export async function loadDbWorkspace(): Promise<DbWorkspaceState> {
   const stored = await loadDbWorkspaceFromDb();
-  const normalized = normalizeWorkspace(stored);
+  const normalized = normalizeWorkspace(
+    stored as StoredDbWorkspaceState | null | undefined,
+  );
 
-  if (!stored || JSON.stringify(stored) !== JSON.stringify(normalized)) {
-    await saveDbWorkspaceToDb(normalized);
+  const serialized = serializeWorkspaceForStorage(normalized);
+  if (!stored || JSON.stringify(stored) !== JSON.stringify(serialized)) {
+    await saveDbWorkspaceToDb(serialized);
   }
 
   return normalized;
 }
 
 export async function saveDbWorkspace(workspace: DbWorkspaceState): Promise<void> {
-  await saveDbWorkspaceToDb(normalizeWorkspace(workspace));
+  await saveDbWorkspaceToDb(
+    serializeWorkspaceForStorage(normalizeWorkspace(workspace)),
+  );
 }
 
 export function createDbConnection(kind: DbConnectionKind): DbConnection {
   const config = defaultConnectionConfig(kind);
   return {
     id: makeId("db-conn"),
-    name: `New ${defaultNameForKind(kind)}`,
+    name: ``,
     kind,
     url: buildDbConnectionUrl({ kind, config, url: "" }),
     config,
@@ -537,6 +715,21 @@ export function createDbHistoryItem(
     query,
     executedAt: new Date().toISOString(),
     status,
+  };
+}
+
+function serializeWorkspaceForStorage(
+  workspace: DbWorkspaceState,
+): StoredDbWorkspaceState {
+  return {
+    ...workspace,
+    savedConnections: workspace.savedConnections.map((connection) => ({
+      id: connection.id,
+      name: connection.name,
+      kind: connection.kind,
+      url: buildDbConnectionUrl(connection) || connection.url.trim(),
+      defaultQuery: connection.defaultQuery,
+    })),
   };
 }
 
@@ -855,6 +1048,16 @@ function buildMongoCollectionCountQuery(collectionName: string) {
   return `db.${collectionName}.aggregate([{ $count: "total" }])`;
 }
 
+function buildMongoDatabaseListCommand(): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "mongoListDatabases",
+    payload: {
+      uri: "",
+    },
+  };
+}
+
 function quoteRedisArgument(value: string) {
   return /[\s"'`]/u.test(value)
     ? JSON.stringify(value)
@@ -989,6 +1192,56 @@ function buildSqlRoutineExplorerQuery(kind: DbConnectionKind) {
   }
 }
 
+async function loadSqlExplorerContents(
+  connection: DbConnection,
+  dsn = connection.url,
+) {
+  const result = await executeDbSocketCommand(
+    {
+      id: makeId("db-tree"),
+      type: "sql",
+      payload: {
+        driver: connection.kind,
+        dsn,
+        query: buildSqlExplorerQuery(connection.kind),
+      },
+    },
+    connection,
+  );
+
+  if (result.kind !== "sql") {
+    return [] as DbExplorerNode[];
+  }
+
+  const routineQuery = buildSqlRoutineExplorerQuery(connection.kind);
+  let routineRows: SqlExplorerRoutineRow[] = [];
+
+  if (routineQuery) {
+    const routineResult = await executeDbSocketCommand(
+      {
+        id: makeId("db-tree"),
+        type: "sql",
+        payload: {
+          driver: connection.kind,
+          dsn,
+          query: routineQuery,
+        },
+      },
+      connection,
+    );
+
+    if (routineResult.kind === "sql" && Array.isArray(routineResult.data.rows)) {
+      routineRows = routineResult.data.rows as SqlExplorerRoutineRow[];
+    }
+  }
+
+  return buildSqlExplorerNodes(
+    connection,
+    (result.data.rows ?? []) as SqlExplorerRow[],
+    routineRows,
+  );
+}
+
 function buildDbCommandMessage(tab: DbTab, connection: DbConnection): DbSocketCommandMessage {
   if (connection.kind === "redis") {
     const parts = splitRedisCommand(tab.query.trim());
@@ -1036,6 +1289,7 @@ function buildDbTestCommandMessage(connection: DbConnection): DbSocketCommandMes
         url: connection.url,
         command: "PING",
         arguments: [],
+        timeoutMs: 3000,
       },
     };
   }
@@ -1071,26 +1325,57 @@ async function executeDbSocketCommand(
     throw new Error("未配置 DB Proxy，请先到 Settings → Proxy 填写地址。");
   }
 
+  const ws = await getDbRelaySocket(relayUrl);
+
   return new Promise<DbResultPayload>((resolve, reject) => {
+    pendingDbSocketRequests.set(message.id, {
+      kind: connection.kind,
+      resolve,
+      reject,
+    });
+
+    try {
+      ws.send(JSON.stringify(message));
+    } catch (error) {
+      pendingDbSocketRequests.delete(message.id);
+      reject(
+        error instanceof Error ? error : new Error("DB websocket send failed"),
+      );
+    }
+  });
+}
+
+function rejectPendingDbSocketRequests(error: Error) {
+  for (const [id, pending] of pendingDbSocketRequests.entries()) {
+    pending.reject(error);
+    pendingDbSocketRequests.delete(id);
+  }
+}
+
+async function getDbRelaySocket(relayUrl: string): Promise<WebSocket> {
+  if (
+    dbRelaySocket &&
+    dbRelaySocket.readyState === WebSocket.OPEN &&
+    dbRelaySocketUrl === relayUrl
+  ) {
+    return dbRelaySocket;
+  }
+
+  if (dbRelaySocketPromise && dbRelaySocketUrl === relayUrl) {
+    return dbRelaySocketPromise;
+  }
+
+  if (dbRelaySocket && dbRelaySocket.readyState <= WebSocket.OPEN) {
+    dbRelaySocket.close();
+  }
+
+  dbRelaySocketUrl = relayUrl;
+  dbRelaySocketPromise = new Promise<WebSocket>((resolve, reject) => {
     const ws = new WebSocket(relayUrl);
-    let settled = false;
-
-    const cleanup = () => {
-      ws.onopen = null;
-      ws.onmessage = null;
-      ws.onerror = null;
-      ws.onclose = null;
-
-      if (
-        ws.readyState === WebSocket.OPEN ||
-        ws.readyState === WebSocket.CONNECTING
-      ) {
-        ws.close();
-      }
-    };
 
     ws.onopen = () => {
-      ws.send(JSON.stringify(message));
+      dbRelaySocket = ws;
+      resolve(ws);
     };
 
     ws.onmessage = (event) => {
@@ -1099,58 +1384,95 @@ async function executeDbSocketCommand(
       try {
         response = JSON.parse(event.data as string) as DbSocketResponse;
       } catch {
-        if (!settled) {
-          settled = true;
-          cleanup();
-          reject(new Error("Invalid DB relay response."));
-        }
         return;
       }
+
+      if (!response.id) {
+        return;
+      }
+
+      const pending = pendingDbSocketRequests.get(response.id);
+      if (!pending) {
+        return;
+      }
+
+      pendingDbSocketRequests.delete(response.id);
 
       if (response.type === "error") {
-        if (!settled) {
-          settled = true;
-          cleanup();
-          reject(new Error(response.error || "DB relay error"));
-        }
+        pending.reject(new Error(response.error || "DB relay error"));
         return;
       }
 
-      if (response.id !== message.id) {
-        return;
-      }
-
-      if (!settled) {
-        settled = true;
-        cleanup();
-        resolve({
-          kind:
-            connection.kind === "redis"
-              ? "redis"
-              : connection.kind === "mongodb"
-                ? "mongo"
-                : "sql",
-          data: (response.data ?? {}) as Record<string, unknown>,
-        } as DbResultPayload);
-      }
+      pending.resolve({
+        kind:
+          pending.kind === "redis"
+            ? "redis"
+            : pending.kind === "mongodb"
+              ? "mongo"
+              : "sql",
+        data: (response.data ?? {}) as Record<string, unknown>,
+      } as DbResultPayload);
     };
 
     ws.onerror = () => {
-      if (!settled) {
-        settled = true;
-        cleanup();
-        reject(new Error("DB websocket error"));
+      const error = new Error("DB websocket error");
+      if (dbRelaySocket === ws) {
+        dbRelaySocket = null;
       }
+      dbRelaySocketPromise = null;
+      rejectPendingDbSocketRequests(error);
+      reject(error);
     };
 
     ws.onclose = () => {
-      if (!settled) {
-        settled = true;
-        cleanup();
-        reject(new Error("DB websocket closed unexpectedly"));
+      if (dbRelaySocket === ws) {
+        dbRelaySocket = null;
       }
+      dbRelaySocketPromise = null;
+      rejectPendingDbSocketRequests(
+        new Error("DB websocket closed unexpectedly"),
+      );
     };
   });
+
+  try {
+    return await dbRelaySocketPromise;
+  } finally {
+    dbRelaySocketPromise = null;
+  }
+}
+
+export async function disconnectDbConnection(connection: DbConnection) {
+  const message: DbSocketCommandMessage =
+    connection.kind === "mongodb"
+      ? {
+          id: makeId("db-disconnect"),
+          type: "dbDisconnect",
+          payload: {
+            kind: connection.kind,
+            uri: buildDbConnectionUrl(connection) || connection.url.trim(),
+          },
+        }
+      : connection.kind === "redis"
+        ? {
+            id: makeId("db-disconnect"),
+            type: "dbDisconnect",
+            payload: {
+              kind: connection.kind,
+              url: buildDbConnectionUrl(connection) || connection.url.trim(),
+            },
+          }
+        : {
+            id: makeId("db-disconnect"),
+            type: "dbDisconnect",
+            payload: {
+              kind: connection.kind,
+              driver: connection.kind,
+              dsn: buildDbConnectionUrl(connection) || connection.url.trim(),
+            },
+          };
+
+  await executeDbSocketCommand(message, connection);
 }
 
 async function loadSqlExplorer(connection: DbConnection) {
@@ -1183,60 +1505,53 @@ async function loadSqlExplorer(connection: DbConnection) {
     }
   }
 
-  const result = await executeDbSocketCommand(
-    {
-      id: makeId("db-tree"),
-      type: "sql",
-      payload: {
-        driver: connection.kind,
-        dsn: connection.url,
-        query: buildSqlExplorerQuery(connection.kind),
-      },
-    },
-    connection,
-  );
-
-  if (result.kind !== "sql") {
-    return [] as DbExplorerNode[];
-  }
-
-  const routineQuery = buildSqlRoutineExplorerQuery(connection.kind);
-  let routineRows: SqlExplorerRoutineRow[] = [];
-
-  if (routineQuery) {
-    const routineResult = await executeDbSocketCommand(
+  if (connection.kind === "mysql" || connection.kind === "tidb") {
+    const listDbResult = await executeDbSocketCommand(
       {
         id: makeId("db-tree"),
         type: "sql",
         payload: {
           driver: connection.kind,
           dsn: connection.url,
-          query: routineQuery,
+          query: "SHOW DATABASES;",
         },
       },
       connection,
     );
 
-    if (routineResult.kind === "sql" && Array.isArray(routineResult.data.rows)) {
-      routineRows = routineResult.data.rows as SqlExplorerRoutineRow[];
+    if (listDbResult.kind === "sql" && Array.isArray(listDbResult.data.rows)) {
+      const hiddenDatabases = new Set([
+        "information_schema",
+        "mysql",
+        "performance_schema",
+        "sys",
+      ]);
+      const databases = (listDbResult.data.rows as Array<Record<string, unknown>>)
+        .map((row) => asString(row.Database ?? row.database))
+        .filter((databaseName) => databaseName && !hiddenDatabases.has(databaseName));
+
+      if (databases.length > 0) {
+        return databases.map((databaseName) =>
+          makeExplorerGroup(databaseName, "database", [], undefined, true),
+        );
+      }
     }
   }
 
-  return buildSqlExplorerNodes(
-    connection,
-    (result.data.rows ?? []) as SqlExplorerRow[],
-    routineRows,
-  );
+  return loadSqlExplorerContents(connection);
 }
 
-async function loadMongoExplorer(connection: DbConnection) {
+async function loadMongoCollectionsForDatabase(
+  connection: DbConnection,
+  databaseName: string,
+) {
   const result = await executeDbSocketCommand(
     {
       id: makeId("db-tree"),
       type: "mongoListCollections",
       payload: {
         uri: connection.url,
-        database: connection.config.database.trim() || "test",
+        database: databaseName,
       },
     },
     connection,
@@ -1269,26 +1584,102 @@ async function loadMongoExplorer(connection: DbConnection) {
 
   return [
     makeExplorerGroup(
-      connection.config.database.trim() || "test",
-      "database",
+      "Collections",
+      "category",
       collectionNodes,
       `${collectionNodes.length} collections`,
     ),
   ];
 }
 
+async function loadMongoExplorer(connection: DbConnection) {
+  const command = buildMongoDatabaseListCommand();
+  command.payload.uri = connection.url;
+
+  const result = await executeDbSocketCommand(command, connection);
+
+  if (result.kind !== "mongo" || !Array.isArray(result.data.result)) {
+    return [] as DbExplorerNode[];
+  }
+
+  const databaseNodes = result.data.result
+    .map((item) => {
+      const name =
+        item && typeof item === "object"
+          ? asString((item as Record<string, unknown>).name)
+          : "";
+      if (!name) {
+        return null;
+      }
+
+      return makeExplorerGroup(name, "database", [], undefined, true);
+    })
+    .filter((node): node is DbExplorerNode => Boolean(node))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return databaseNodes;
+}
+
 async function loadRedisExplorer(connection: DbConnection) {
+  let databaseCount = 16;
+
+  try {
+    const result = await executeDbSocketCommand(
+      {
+        id: makeId("db-tree"),
+        type: "redis",
+        payload: {
+          url: connection.url,
+          command: "CONFIG",
+          arguments: ["GET", "databases"],
+          timeoutMs: 3000,
+        },
+      },
+      connection,
+    );
+
+    if (result.kind === "redis") {
+      const payload = result.data.result;
+      if (Array.isArray(payload) && payload.length >= 2) {
+        const parsedCount = Number.parseInt(asString(payload[1]), 10);
+        if (Number.isFinite(parsedCount) && parsedCount > 0) {
+          databaseCount = parsedCount;
+        }
+      }
+    }
+  } catch {
+    databaseCount = 16;
+  }
+
+  return Array.from({ length: databaseCount }, (_, index) =>
+    makeExplorerGroup(`db${index}`, "database", [], undefined, true),
+  );
+}
+
+async function loadRedisDatabaseChildren(
+  connection: DbConnection,
+  databaseName: string,
+) {
+  const databaseIndex = databaseName.replace(/^db/i, "").trim();
+  const scopedConnection = {
+    ...connection,
+    config: {
+      ...connection.config,
+      database: databaseIndex,
+    },
+  };
   const result = await executeDbSocketCommand(
     {
       id: makeId("db-tree"),
       type: "redis",
       payload: {
-        url: connection.url,
+        url: buildDbConnectionUrl(scopedConnection),
         command: "KEYS",
         arguments: ["*"],
+        timeoutMs: 3000,
       },
     },
-    connection,
+    scopedConnection,
   );
 
   if (result.kind !== "redis" || !Array.isArray(result.data.result)) {
@@ -1345,58 +1736,45 @@ export async function loadDbExplorerDatabaseChildren(
   connection: DbConnection,
   databaseName: string,
 ): Promise<DbExplorerNode[]> {
-  const baseDsn = buildDbConnectionUrl(connection) || connection.url.trim();
-  const dsn = switchDsnDatabase(connection.kind, baseDsn, databaseName);
-
-  const result = await executeDbSocketCommand(
-    {
-      id: makeId("db-tree"),
-      type: "sql",
-      payload: {
-        driver: connection.kind,
-        dsn,
-        query: buildSqlExplorerQuery(connection.kind),
-      },
-    },
-    connection,
-  );
-
-  if (result.kind !== "sql") {
-    return [];
+  if (connection.kind === "mongodb") {
+    return loadMongoCollectionsForDatabase(connection, databaseName);
   }
 
-  const routineQuery = buildSqlRoutineExplorerQuery(connection.kind);
-  let routineRows: SqlExplorerRoutineRow[] = [];
-
-  if (routineQuery) {
-    const routineResult = await executeDbSocketCommand(
-      {
-        id: makeId("db-tree"),
-        type: "sql",
-        payload: {
-          driver: connection.kind,
-          dsn,
-          query: routineQuery,
-        },
-      },
-      connection,
-    );
-
-    if (routineResult.kind === "sql" && Array.isArray(routineResult.data.rows)) {
-      routineRows = routineResult.data.rows as SqlExplorerRoutineRow[];
-    }
+  if (connection.kind === "redis") {
+    return loadRedisDatabaseChildren(connection, databaseName);
   }
 
   const modifiedConnection = {
     ...connection,
     config: { ...connection.config, database: databaseName },
   };
+  const dsn =
+    modifiedConnection.kind === "postgresql" || modifiedConnection.kind === "gaussdb"
+      ? switchDsnDatabase(
+          modifiedConnection.kind,
+          buildDbConnectionUrl(connection) || connection.url.trim(),
+          databaseName,
+        )
+      : buildDbConnectionUrl(modifiedConnection);
 
-  return buildSqlExplorerNodes(
-    modifiedConnection,
-    (result.data.rows ?? []) as SqlExplorerRow[],
-    routineRows,
+  const nodes = await loadSqlExplorerContents(
+    { ...modifiedConnection, url: dsn },
+    dsn,
   );
+
+  if (modifiedConnection.kind === "mysql" || modifiedConnection.kind === "tidb") {
+    const matchingRoot = nodes.find(
+      (node) =>
+        node.kind === "group" &&
+        node.groupKind === "database" &&
+        node.label === databaseName,
+    );
+    if (matchingRoot && matchingRoot.kind === "group") {
+      return matchingRoot.children;
+    }
+  }
+
+  return nodes;
 }
 
 export async function testDbConnection(connection: DbConnection) {

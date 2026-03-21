@@ -1,12 +1,9 @@
-import { loadIndexedDbValue, saveIndexedDbValue } from "../../lib/indexed-db";
-import type { DbWorkspaceState } from "./models";
+import { readDevxSection, writeDevxSection } from "../../lib/indexed-db";
 
-const DB_WORKSPACE_KEY = "db-workspace";
-
-export async function loadDbWorkspaceFromDb(): Promise<DbWorkspaceState | null> {
-  return (await loadIndexedDbValue<DbWorkspaceState>(DB_WORKSPACE_KEY)) ?? null;
+export async function loadDbWorkspaceFromDb(): Promise<unknown | null> {
+  return (await readDevxSection<unknown>(["db"])) ?? null;
 }
 
-export async function saveDbWorkspaceToDb(workspace: DbWorkspaceState): Promise<void> {
-  await saveIndexedDbValue(DB_WORKSPACE_KEY, workspace);
+export async function saveDbWorkspaceToDb(workspace: unknown): Promise<void> {
+  await writeDevxSection(["db"], workspace);
 }

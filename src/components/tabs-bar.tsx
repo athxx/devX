@@ -28,6 +28,26 @@ type TabsBarProps = {
 };
 
 export function TabsBar(props: TabsBarProps) {
+  let hoverOpenTimer: number | null = null;
+
+  const clearHoverOpenTimer = () => {
+    if (hoverOpenTimer !== null) {
+      window.clearTimeout(hoverOpenTimer);
+      hoverOpenTimer = null;
+    }
+  };
+
+  const scheduleHoverOpen = (id: string, active: boolean) => {
+    clearHoverOpenTimer();
+    if (active) {
+      return;
+    }
+    hoverOpenTimer = window.setTimeout(() => {
+      hoverOpenTimer = null;
+      props.onTabOpen(id);
+    }, 400);
+  };
+
   return (
     <div class="overflow-visible">
       <div
@@ -63,6 +83,8 @@ export function TabsBar(props: TabsBarProps) {
               onDragOver={(event) => props.onTabDragOver(item.id, event)}
               onDrop={(event) => props.onTabDrop(item.id, event)}
               onDragEnd={props.onDragEnd}
+              onMouseEnter={() => scheduleHoverOpen(item.id, item.active)}
+              onMouseLeave={clearHoverOpenTimer}
               onContextMenu={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -70,28 +92,32 @@ export function TabsBar(props: TabsBarProps) {
               }}
             >
               <button
-                class="flex h-full w-full min-w-0 items-center justify-center gap-1.5 px-9 py-2 text-center"
-                onClick={() => props.onTabOpen(item.id)}
+                class="flex h-full w-full min-w-0 items-center justify-center gap-1.5 px-8 py-1.5 text-center"
+                onClick={() => {
+                  clearHoverOpenTimer();
+                  props.onTabOpen(item.id);
+                }}
               >
                 <span class={`${item.badgeClass} shrink-0`}>
                   {item.badgeLabel}
                 </span>
-                <span class="truncate text-center text-sm font-medium">
+                <span class="truncate text-center text-[13px] font-medium leading-5">
                   {item.name}
                 </span>
               </button>
 
               <Show when={item.pinned}>
-                <span class="pointer-events-none absolute right-1.5 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center text-[var(--app-accent)]">
+                <span class="pointer-events-none absolute right-1.5 top-1/2 inline-flex h-4 w-4 -translate-y-1/2 items-center justify-center text-[var(--app-accent)]">
                   {props.renderPinIcon()}
                 </span>
               </Show>
 
               <Show when={!item.pinned}>
                 <button
-                  class="absolute left-1.5 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
+                  class="absolute left-1.5 top-1/2 inline-flex h-4 w-4 -translate-y-1/2 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
                   onClick={(event) => {
                     event.stopPropagation();
+                    clearHoverOpenTimer();
                     props.onTabClose(item.id);
                   }}
                 >

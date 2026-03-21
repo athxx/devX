@@ -1,10 +1,8 @@
-import { loadIndexedDbValue, saveIndexedDbValue } from "../../lib/indexed-db";
+import { readDevxSection, writeDevxSection } from "../../lib/indexed-db";
 import type { SshProfile, SshWorkspaceState } from "./models";
 
-const SSH_PROFILES_KEY = "ssh-profiles";
-
 export async function loadSshWorkspace(): Promise<SshWorkspaceState | null> {
-  const stored = await loadIndexedDbValue<SshWorkspaceState | SshProfile[]>(SSH_PROFILES_KEY);
+  const stored = await readDevxSection<SshWorkspaceState | SshProfile[]>(["ssh"]);
   if (!stored) {
     return null;
   }
@@ -20,5 +18,5 @@ export async function loadSshWorkspace(): Promise<SshWorkspaceState | null> {
 }
 
 export async function saveSshWorkspace(workspace: SshWorkspaceState): Promise<void> {
-  await saveIndexedDbValue(SSH_PROFILES_KEY, workspace);
+  await writeDevxSection(["ssh"], workspace);
 }

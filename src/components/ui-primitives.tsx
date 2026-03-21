@@ -2,11 +2,12 @@ import type { JSX } from "solid-js";
 import { Show } from "solid-js";
 
 export function ControlDot(props: {
+  size: "small" | "mid" | "big";
   variant: "add" | "delete" | "menu" | "warn";
 }) {
   return (
     <span
-      class={`traffic-dot traffic-dot-${props.variant}`}
+      class={`traffic-dot-${props.size} traffic-dot-${props.variant}`}
       aria-hidden="true"
     />
   );

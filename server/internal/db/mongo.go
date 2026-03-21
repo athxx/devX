@@ -5,11 +5,17 @@ import (
 	"fmt"
 	neturl "net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
+var (
+	mongoClientsMu sync.Mutex
+	mongoClients   = map[string]*mongo.Client{}
 )
 
 type MongoQueryRequest struct {
@@ -43,6 +49,11 @@ type MongoListCollectionsRequest struct {
 	TimeoutMs int    `json:"timeoutMs"`
 }
 
+type MongoListDatabasesRequest struct {
+	URI       string `json:"uri"`
+	TimeoutMs int    `json:"timeoutMs"`
+}
+
 func RunMongoQuery(ctx context.Context, request MongoQueryRequest, fallbackTimeout time.Duration) (MongoQueryResponse, error) {
 	if request.URI == "" || request.Database == "" || request.Collection == "" || request.Action == "" {
 		return MongoQueryResponse{}, fmt.Errorf("uri, database, collection, and action are required")
@@ -55,15 +66,10 @@ func RunMongoQuery(ctx context.Context, request MongoQueryRequest, fallbackTimeo
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	client, err := mongo.Connect(timeoutCtx, options.Client().ApplyURI(request.URI))
+	client, err := getOrCreateMongoClient(timeoutCtx, request.URI)
 	if err != nil {
 		return MongoQueryResponse{}, fmt.Errorf("connect mongo: %w", err)
 	}
-	defer func() {
-		disconnectCtx, cancelDisconnect := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancelDisconnect()
-		_ = client.Disconnect(disconnectCtx)
-	}()
 
 	collection := client.Database(request.Database).Collection(request.Collection)
 	filter, err := toBSONMap(request.Filter)
@@ -191,15 +197,10 @@ func PingMongo(ctx context.Context, request MongoPingRequest, fallbackTimeout ti
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	client, err := mongo.Connect(timeoutCtx, options.Client().ApplyURI(request.URI))
+	client, err := getOrCreateMongoClient(timeoutCtx, request.URI)
 	if err != nil {
 		return MongoQueryResponse{}, fmt.Errorf("connect mongo: %w", err)
 	}
-	defer func() {
-		disconnectCtx, cancelDisconnect := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancelDisconnect()
-		_ = client.Disconnect(disconnectCtx)
-	}()
 
 	database := strings.TrimSpace(request.Database)
 	if database == "" {
@@ -233,15 +234,10 @@ func ListMongoCollections(ctx context.Context, request MongoListCollectionsReque
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	client, err := mongo.Connect(timeoutCtx, options.Client().ApplyURI(request.URI))
+	client, err := getOrCreateMongoClient(timeoutCtx, request.URI)
 	if err != nil {
 		return MongoQueryResponse{}, fmt.Errorf("connect mongo: %w", err)
 	}
-	defer func() {
-		disconnectCtx, cancelDisconnect := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancelDisconnect()
-		_ = client.Disconnect(disconnectCtx)
-	}()
 
 	database := strings.TrimSpace(request.Database)
 	if database == "" {
@@ -259,6 +255,40 @@ func ListMongoCollections(ctx context.Context, request MongoListCollectionsReque
 
 	result := make([]map[string]any, 0, len(collections))
 	for _, name := range collections {
+		result = append(result, map[string]any{"name": name})
+	}
+
+	return MongoQueryResponse{
+		Result:     result,
+		DurationMs: time.Since(start).Milliseconds(),
+	}, nil
+}
+
+func ListMongoDatabases(ctx context.Context, request MongoListDatabasesRequest, fallbackTimeout time.Duration) (MongoQueryResponse, error) {
+	if strings.TrimSpace(request.URI) == "" {
+		return MongoQueryResponse{}, fmt.Errorf("uri is required")
+	}
+
+	timeout := fallbackTimeout
+	if request.TimeoutMs > 0 {
+		timeout = time.Duration(request.TimeoutMs) * time.Millisecond
+	}
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	client, err := getOrCreateMongoClient(timeoutCtx, request.URI)
+	if err != nil {
+		return MongoQueryResponse{}, fmt.Errorf("connect mongo: %w", err)
+	}
+
+	start := time.Now()
+	databases, err := client.ListDatabaseNames(timeoutCtx, bson.D{})
+	if err != nil {
+		return MongoQueryResponse{}, err
+	}
+
+	result := make([]map[string]any, 0, len(databases))
+	for _, name := range databases {
 		result = append(result, map[string]any{"name": name})
 	}
 
@@ -321,4 +351,47 @@ func mongoDatabaseNameFromURI(rawURL string) string {
 		return "test"
 	}
 	return name
+}
+
+func getOrCreateMongoClient(ctx context.Context, uri string) (*mongo.Client, error) {
+	mongoClientsMu.Lock()
+	client, ok := mongoClients[uri]
+	mongoClientsMu.Unlock()
+	if ok {
+		return client, nil
+	}
+
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	if err != nil {
+		return nil, err
+	}
+
+	mongoClientsMu.Lock()
+	if existing, exists := mongoClients[uri]; exists {
+		mongoClientsMu.Unlock()
+		disconnectCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = client.Disconnect(disconnectCtx)
+		return existing, nil
+	}
+	mongoClients[uri] = client
+	mongoClientsMu.Unlock()
+
+	return client, nil
+}
+
+func DisconnectMongoClient(uri string) error {
+	mongoClientsMu.Lock()
+	client, ok := mongoClients[uri]
+	if ok {
+		delete(mongoClients, uri)
+	}
+	mongoClientsMu.Unlock()
+	if !ok {
+		return nil
+	}
+
+	disconnectCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return client.Disconnect(disconnectCtx)
 }

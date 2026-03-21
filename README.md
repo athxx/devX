@@ -1,5 +1,7 @@
 # DevX
 
+License: source-available, all rights reserved. Personal non-commercial evaluation and testing are permitted, but commercial use, redistribution, public deployment, and sharing with third parties require prior written permission. See [LICENSE](./LICENSE) and [LICENSE.zh-CN.md](./LICENSE.zh-CN.md).
+
 Developer-facing toolbox starter built with SolidJS, UnoCSS, Vite, and Chrome Extension Manifest V3. The main workspace now supports both a normal web entry and a Chrome extension entry.
 
 ## Planning docs

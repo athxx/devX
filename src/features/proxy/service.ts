@@ -1,20 +1,5 @@
-import { loadSettings, type AppSettings } from "../../lib/storage";
+import type { AppSettings } from "../../lib/storage";
 import { loadProxySettingsFromDb, saveProxySettingsToDb } from "./local-db";
-
-type LegacyProxySettings = AppSettings["proxy"] & {
-  relay?: {
-    mode: "none" | "proxy";
-    address: string;
-  };
-  db?: {
-    mode: "none" | "proxy";
-    address: string;
-  };
-  ssh?: {
-    mode: "none" | "proxy";
-    address: string;
-  };
-};
 
 export type ProxyTarget = "api" | "db" | "ssh";
 
@@ -65,9 +50,7 @@ export function getProxyTestUrl(value: string) {
 }
 
 export async function loadProxySettings(): Promise<AppSettings["proxy"]> {
-  const stored = (await loadProxySettingsFromDb()) as LegacyProxySettings | undefined;
-  const migratedStoredDb = stored?.db ?? stored?.relay;
-  const migratedStoredSsh = stored?.ssh ?? stored?.relay;
+  const stored = await loadProxySettingsFromDb();
 
   if (stored) {
     return {
@@ -78,45 +61,38 @@ export async function loadProxySettings(): Promise<AppSettings["proxy"]> {
       },
       db: {
         ...defaultProxySettings.db,
-        ...migratedStoredDb,
+        ...stored.db,
         mode: "proxy",
-        address: normalizeAddress(migratedStoredDb?.address ?? "")
+        address: normalizeAddress(stored.db?.address ?? "")
       },
       ssh: {
         ...defaultProxySettings.ssh,
-        ...migratedStoredSsh,
+        ...stored.ssh,
         mode: "proxy",
-        address: normalizeAddress(migratedStoredSsh?.address ?? "")
+        address: normalizeAddress(stored.ssh?.address ?? "")
       }
     };
   }
 
-  const legacySettings = await loadSettings();
-  const legacyProxy = legacySettings.proxy as LegacyProxySettings;
-  const migratedLegacyDb = legacyProxy.db ?? legacyProxy.relay;
-  const migratedLegacySsh = legacyProxy.ssh ?? legacyProxy.relay;
-  const migrated = {
+  const seed = {
     api: {
       ...defaultProxySettings.api,
-      ...legacySettings.proxy.api,
-      address: normalizeAddress(legacySettings.proxy.api.address)
+      address: normalizeAddress(defaultProxySettings.api.address)
     },
     db: {
       ...defaultProxySettings.db,
-      ...migratedLegacyDb,
       mode: "proxy",
-      address: normalizeAddress(migratedLegacyDb?.address ?? "")
+      address: normalizeAddress(defaultProxySettings.db.address)
     },
     ssh: {
       ...defaultProxySettings.ssh,
-      ...migratedLegacySsh,
       mode: "proxy",
-      address: normalizeAddress(migratedLegacySsh?.address ?? "")
+      address: normalizeAddress(defaultProxySettings.ssh.address)
     }
   } satisfies AppSettings["proxy"];
 
-  await saveProxySettingsToDb(migrated);
-  return migrated;
+  await saveProxySettingsToDb(seed);
+  return seed;
 }
 
 export async function saveProxySettings(proxy: AppSettings["proxy"]): Promise<AppSettings["proxy"]> {

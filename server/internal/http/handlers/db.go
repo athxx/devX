@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log"
 
 	ws "github.com/gofiber/contrib/v3/websocket"
 	"github.com/gofiber/fiber/v3"
@@ -124,20 +125,30 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 	case "redis":
 		var request dbrunner.RedisCommandRequest
 		if err := json.Unmarshal(command.Payload, &request); err != nil {
+			log.Printf("[db-relay] invalid redis payload id=%s: %v", command.ID, err)
 			return conn.WriteJSON(fiber.Map{
 				"id":    command.ID,
 				"type":  "error",
 				"error": "invalid redis payload",
 			})
 		}
+		log.Printf(
+			"[db-relay] redis id=%s command=%s args=%v url=%s",
+			command.ID,
+			request.Command,
+			request.Arguments,
+			request.URL,
+		)
 		result, err := dbrunner.RunRedisCommand(context.Background(), request, deps.Config.RedisTimeout)
 		if err != nil {
+			log.Printf("[db-relay] redis failed id=%s: %v", command.ID, err)
 			return conn.WriteJSON(fiber.Map{
 				"id":    command.ID,
 				"type":  "error",
 				"error": err.Error(),
 			})
 		}
+		log.Printf("[db-relay] redis ok id=%s durationMs=%d", command.ID, result.DurationMs)
 		return conn.WriteJSON(fiber.Map{
 			"id":   command.ID,
 			"type": "redis",
@@ -209,6 +220,28 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 			"type": "mongo",
 			"data": result,
 		})
+	case "mongoListDatabases":
+		var request dbrunner.MongoListDatabasesRequest
+		if err := json.Unmarshal(command.Payload, &request); err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": "invalid mongo list databases payload",
+			})
+		}
+		result, err := dbrunner.ListMongoDatabases(context.Background(), request, deps.Config.MongoTimeout)
+		if err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": err.Error(),
+			})
+		}
+		return conn.WriteJSON(fiber.Map{
+			"id":   command.ID,
+			"type": "mongo",
+			"data": result,
+		})
 	case "mongoShell":
 		var request struct {
 			URL     string `json:"url"`
@@ -241,6 +274,39 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 			"id":   command.ID,
 			"type": "mongo",
 			"data": result,
+		})
+	case "dbDisconnect":
+		var request struct {
+			Kind   string `json:"kind"`
+			Driver string `json:"driver"`
+			DSN    string `json:"dsn"`
+			URL    string `json:"url"`
+			URI    string `json:"uri"`
+		}
+		if err := json.Unmarshal(command.Payload, &request); err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": "invalid disconnect payload",
+			})
+		}
+		if err := dbrunner.DisconnectConnection(
+			request.Kind,
+			request.Driver,
+			request.DSN,
+			request.URL,
+			request.URI,
+		); err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": err.Error(),
+			})
+		}
+		return conn.WriteJSON(fiber.Map{
+			"id":   command.ID,
+			"type": "sql",
+			"data": fiber.Map{"ok": true},
 		})
 	default:
 		return conn.WriteJSON(fiber.Map{

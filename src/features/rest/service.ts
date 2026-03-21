@@ -1,4 +1,3 @@
-import { getStoredValue, setStoredValue } from "../../lib/platform-storage";
 import { cloneValue, makeId } from "../../lib/utils";
 import { loadProxySettings } from "../proxy/service";
 import { loadRestWorkspaceFromDb, saveRestWorkspaceToDb } from "./local-db";
@@ -15,8 +14,6 @@ import type {
   ResponseSummary,
   RestWorkspaceState
 } from "./models";
-
-const REST_WORKSPACE_KEY = "rest-workspace";
 
 export function createKeyValueEntry(
   partial: Partial<KeyValueEntry> = {}
@@ -113,53 +110,19 @@ export function createDefaultRestWorkspace(): RestWorkspaceState {
 }
 
 export async function loadRestWorkspace(): Promise<RestWorkspaceState> {
-  const localState = await getStoredValue<RestWorkspaceState>(REST_WORKSPACE_KEY, "local");
+  const indexedDbState = await loadRestWorkspaceFromDb();
 
-  if (localState) {
-    const normalized = normalizeRestWorkspace(localState);
-
-    try {
-      await saveRestWorkspaceToDb(normalized);
-    } catch {
-      // Keep the local mirror as the fallback source of truth.
-    }
-
-    return normalized;
-  }
-
-  try {
-    const indexedDbState = await loadRestWorkspaceFromDb();
-
-    if (indexedDbState) {
-      const normalized = normalizeRestWorkspace(indexedDbState);
-      await setStoredValue(REST_WORKSPACE_KEY, normalized, "local");
-      return normalized;
-    }
-  } catch {
-    // Fall through to default workspace seed.
+  if (indexedDbState) {
+    return normalizeRestWorkspace(indexedDbState);
   }
 
   const seed = createDefaultRestWorkspace();
-
-  try {
-    await saveRestWorkspaceToDb(seed);
-  } catch {
-    // Local mirror below remains the fallback.
-  }
-
-  await setStoredValue(REST_WORKSPACE_KEY, seed, "local");
-
+  await saveRestWorkspaceToDb(seed);
   return seed;
 }
 
 export async function saveRestWorkspace(state: RestWorkspaceState): Promise<void> {
-  try {
-    await saveRestWorkspaceToDb(state);
-  } catch {
-    // Local mirror below remains the fallback.
-  }
-
-  await setStoredValue(REST_WORKSPACE_KEY, state, "local");
+  await saveRestWorkspaceToDb(state);
 }
 
 function normalizeCollectionFolders(

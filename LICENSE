@@ -1,0 +1,95 @@
+DevX Source-Available License
+Version 1.0
+
+Copyright (c) 2026 Athan Xiao
+All rights reserved.
+
+This software and all associated source code, assets, documentation, build outputs,
+and related materials (collectively, the "Software") are made available by the
+copyright holder solely under the terms of this License.
+
+By using, copying, downloading, accessing, modifying, building, running, or otherwise
+interacting with the Software, you agree to be bound by this License. If you do not
+agree, you must not use the Software.
+
+1. Limited Permission
+
+Subject to your continued compliance with this License, the copyright holder grants you
+a limited, revocable, non-exclusive, non-transferable, non-sublicensable permission to:
+
+- view and inspect the source code;
+- download and copy the Software for personal, non-commercial evaluation, study, and testing;
+- modify the Software for your own personal, non-commercial evaluation and internal testing.
+
+2. Conditions
+
+You may exercise the limited permission above only if all of the following are true:
+
+- your use is strictly non-commercial;
+- your use does not provide services to any third party;
+- you do not distribute, publish, transfer, sublicense, rent, lease, sell, or otherwise make the Software available to any third party;
+- you do not remove, alter, or obscure any copyright, attribution, or license notice.
+
+3. Commercial Use Prohibited
+
+Commercial use of the Software is prohibited without the copyright holder's prior written permission.
+
+For the purposes of this License, "commercial use" includes, without limitation:
+
+- selling, licensing, sublicensing, or otherwise monetizing the Software;
+- using the Software in exchange for payment or other consideration;
+- using the Software in connection with paid services, consulting, support, hosting, managed services, or customer work;
+- using the Software within a business operation, for production purposes, or for the benefit of a commercial organization;
+- offering the Software, or a modified version of it, as a hosted or network-accessible service;
+- using the Software to develop, operate, support, or enhance a commercial product or service.
+
+4. Redistribution Prohibited
+
+You may not redistribute the Software or any portion of it without the copyright holder's prior written permission.
+
+This prohibition includes, without limitation:
+
+- sharing source code with any third party;
+- publishing the Software in a public or private repository;
+- mirroring, reposting, forwarding, transmitting, or uploading the Software to any website, forum, package registry, file-sharing service, cloud drive, or similar platform;
+- distributing compiled builds, containers, installers, bundles, or modified versions;
+- providing access to the Software to coworkers, clients, contractors, affiliates, communities, or any other third party.
+
+5. No Public Deployment or Third-Party Access
+
+You may not deploy, host, or operate the Software for access or use by any third party without prior written permission from the copyright holder.
+
+This includes, without limitation:
+
+- public demos;
+- shared internal tools for teams or organizations;
+- customer-facing or partner-facing systems;
+- software-as-a-service, platform-as-a-service, or similar hosted offerings.
+
+6. Derivative Works
+
+You may create modifications solely for your own personal, non-commercial evaluation and internal testing, but you may not distribute, publish, sublicense, sell, or otherwise provide such modifications to any third party without prior written permission.
+
+7. Ownership
+
+The Software is licensed, not sold. No ownership rights are transferred. Except for the limited permission expressly granted in this License, the copyright holder retains all rights, title, and interest in and to the Software.
+
+8. Termination
+
+This License terminates automatically and immediately if you breach any term of this License. Upon termination, you must stop using the Software and delete all copies in your possession or control.
+
+9. No Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. THE ENTIRE RISK ARISING OUT OF USE OR PERFORMANCE OF THE SOFTWARE REMAINS WITH YOU.
+
+10. Limitation of Liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COPYRIGHT HOLDER SHALL NOT BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OF OR OTHER DEALINGS IN THE SOFTWARE.
+
+11. Permission Requests
+
+For commercial use, redistribution, public deployment, sublicensing, or any use not expressly permitted by this License, you must obtain prior written permission from the copyright holder.
+
+12. Entire License
+
+This License is the complete and exclusive statement of permission for the Software and supersedes any informal statements, comments, or descriptions that conflict with it.

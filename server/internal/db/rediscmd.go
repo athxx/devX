@@ -3,9 +3,15 @@ package db
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+)
+
+var (
+	redisClientsMu sync.Mutex
+	redisClients   = map[string]*redis.Client{}
 )
 
 type RedisCommandRequest struct {
@@ -28,13 +34,10 @@ func RunRedisCommand(ctx context.Context, request RedisCommandRequest, fallbackT
 		return RedisCommandResponse{}, fmt.Errorf("command is required")
 	}
 
-	options, err := redis.ParseURL(request.URL)
+	client, err := getOrCreateRedisClient(request.URL)
 	if err != nil {
-		return RedisCommandResponse{}, fmt.Errorf("parse redis url: %w", err)
+		return RedisCommandResponse{}, err
 	}
-
-	client := redis.NewClient(options)
-	defer client.Close()
 
 	timeout := fallbackTimeout
 	if request.TimeoutMs > 0 {
@@ -57,4 +60,44 @@ func RunRedisCommand(ctx context.Context, request RedisCommandRequest, fallbackT
 		Result:     result,
 		DurationMs: time.Since(start).Milliseconds(),
 	}, nil
+}
+
+func getOrCreateRedisClient(rawURL string) (*redis.Client, error) {
+	redisClientsMu.Lock()
+	client, ok := redisClients[rawURL]
+	redisClientsMu.Unlock()
+	if ok {
+		return client, nil
+	}
+
+	options, err := redis.ParseURL(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse redis url: %w", err)
+	}
+
+	client = redis.NewClient(options)
+
+	redisClientsMu.Lock()
+	if existing, exists := redisClients[rawURL]; exists {
+		redisClientsMu.Unlock()
+		_ = client.Close()
+		return existing, nil
+	}
+	redisClients[rawURL] = client
+	redisClientsMu.Unlock()
+
+	return client, nil
+}
+
+func DisconnectRedisClient(rawURL string) error {
+	redisClientsMu.Lock()
+	client, ok := redisClients[rawURL]
+	if ok {
+		delete(redisClients, rawURL)
+	}
+	redisClientsMu.Unlock()
+	if !ok {
+		return nil
+	}
+	return client.Close()
 }

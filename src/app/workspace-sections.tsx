@@ -1,9 +1,12 @@
 import type { JSX } from "solid-js";
-import { For, Show, createSignal } from "solid-js";
+import { For, Show, createSignal, onMount } from "solid-js";
 import { SectionCard } from "../components/section-card";
 import { WorkspaceSection } from "../components/workspace-section";
 import { WorkspaceSidebarLayout } from "../components/workspace-sidebar-layout";
+import { loadDbWorkspace } from "../features/db/service";
 import { ProxyPanel } from "../features/proxy/components/proxy-panel";
+import { loadRestWorkspace } from "../features/rest/service";
+import { loadSshWorkspace } from "../features/ssh/service";
 import { SyncPanel } from "../features/sync/components/sync-panel";
 
 type SidebarWorkspaceProps = {
@@ -103,6 +106,286 @@ function SettingsPlaceholder(props: {
         </div>
       </div>
     </SectionCard>
+  );
+}
+
+type VaultSectionId = "all" | "db" | "ssh" | "api";
+
+type VaultEntry = {
+  id: string;
+  section: Exclude<VaultSectionId, "all">;
+  title: string;
+  kind: string;
+  secret: string;
+  account?: string;
+  detail?: string;
+};
+
+export function VaultWorkspace(props: SidebarWorkspaceProps) {
+  const [activeSection, setActiveSection] = createSignal<VaultSectionId>("all");
+  const [entries, setEntries] = createSignal<VaultEntry[]>([]);
+  const [revealedIds, setRevealedIds] = createSignal<string[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [error, setError] = createSignal<string | null>(null);
+
+  const refreshEntries = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const [dbWorkspace, sshWorkspace, restWorkspace] = await Promise.all([
+        loadDbWorkspace(),
+        loadSshWorkspace(),
+        loadRestWorkspace(),
+      ]);
+
+      const nextEntries: VaultEntry[] = [];
+
+      for (const connection of dbWorkspace.savedConnections) {
+        const password = connection.config.password.trim();
+        if (!password) continue;
+
+        nextEntries.push({
+          id: `db:${connection.id}`,
+          section: "db",
+          title: connection.name || connection.config.host || connection.kind,
+          kind: `${connection.kind} password`,
+          secret: password,
+          account: connection.config.username.trim() || undefined,
+          detail: connection.url,
+        });
+      }
+
+      for (const profile of sshWorkspace.profiles) {
+        if (profile.password?.trim()) {
+          nextEntries.push({
+            id: `ssh-password:${profile.id}`,
+            section: "ssh",
+            title: profile.name || profile.host || "SSH Profile",
+            kind: "SSH password",
+            secret: profile.password.trim(),
+            account: profile.username?.trim() || undefined,
+            detail: profile.host?.trim() || undefined,
+          });
+        }
+
+        if (profile.passphrase?.trim()) {
+          nextEntries.push({
+            id: `ssh-passphrase:${profile.id}`,
+            section: "ssh",
+            title: profile.name || profile.host || "SSH Profile",
+            kind: "SSH key passphrase",
+            secret: profile.passphrase.trim(),
+            account: profile.username?.trim() || undefined,
+            detail: profile.host?.trim() || undefined,
+          });
+        }
+
+        if (profile.privateKey?.trim()) {
+          nextEntries.push({
+            id: `ssh-private-key:${profile.id}`,
+            section: "ssh",
+            title: profile.name || profile.host || "SSH Profile",
+            kind: "SSH private key",
+            secret: profile.privateKey.trim(),
+            account: profile.username?.trim() || undefined,
+            detail: profile.host?.trim() || undefined,
+          });
+        }
+      }
+
+      for (const request of restWorkspace.requests) {
+        switch (request.auth.type) {
+          case "bearer":
+            if (request.auth.token.trim()) {
+              nextEntries.push({
+                id: `api-bearer:${request.id}`,
+                section: "api",
+                title: request.name,
+                kind: "Bearer token",
+                secret: request.auth.token.trim(),
+                detail: request.url,
+              });
+            }
+            break;
+          case "basic":
+            if (request.auth.password.trim()) {
+              nextEntries.push({
+                id: `api-basic:${request.id}`,
+                section: "api",
+                title: request.name,
+                kind: "Basic auth password",
+                secret: request.auth.password.trim(),
+                account: request.auth.username.trim() || undefined,
+                detail: request.url,
+              });
+            }
+            break;
+          case "api-key":
+            if (request.auth.value.trim()) {
+              nextEntries.push({
+                id: `api-key:${request.id}`,
+                section: "api",
+                title: request.name,
+                kind: `API key (${request.auth.addTo})`,
+                secret: request.auth.value.trim(),
+                account: request.auth.key.trim() || undefined,
+                detail: request.url,
+              });
+            }
+            break;
+          default:
+            break;
+        }
+      }
+
+      setEntries(nextEntries);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Failed to load saved vault entries.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const sectionMeta = [
+    { id: "all" as const, title: "All", summary: "显示所有已保存凭据。" },
+    { id: "db" as const, title: "Database", summary: "数据库连接里记住的密码。" },
+    { id: "ssh" as const, title: "SSH", summary: "SSH 的密码、私钥和口令。" },
+    { id: "api" as const, title: "API", summary: "REST 请求里保存的 token 和密钥。" },
+  ];
+
+  const filteredEntries = () =>
+    activeSection() === "all"
+      ? entries()
+      : entries().filter((entry) => entry.section === activeSection());
+
+  const toggleReveal = (id: string) => {
+    setRevealedIds((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
+  };
+
+  onMount(() => {
+    void refreshEntries();
+  });
+
+  return (
+    <WorkspaceSidebarLayout
+      sidebarOpen={props.sidebarOpen}
+      sidebarWidth={props.sidebarWidth}
+      sidebarResizing={props.sidebarResizing}
+      onResizeStart={props.onSidebarResizeStart}
+      contentClass="mt-4 grid gap-4"
+      sidebar={
+        <div class="grid gap-1">
+          <For each={sectionMeta}>
+            {(section) => (
+              <button
+                class={`theme-sidebar-item w-full rounded-xl px-3 py-2.5 text-left ${
+                  activeSection() === section.id
+                    ? "theme-sidebar-item-active"
+                    : ""
+                }`}
+                onClick={() => setActiveSection(section.id)}
+              >
+                <p class="theme-text text-sm font-semibold">{section.title}</p>
+                <p class="theme-text-soft mt-1 text-xs leading-5">
+                  {section.summary}
+                </p>
+              </button>
+            )}
+          </For>
+        </div>
+      }
+    >
+      <SectionCard eyebrow="Vault" title="Saved Passwords">
+        <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+          <div class="grid gap-3">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <p class="theme-text text-sm font-semibold">Vault Items</p>
+                <p class="theme-text-soft mt-1 text-xs leading-5">
+                  这里展示当前应用已经记住的密码、令牌和私钥类敏感信息。
+                </p>
+              </div>
+              <button
+                class="theme-control rounded-xl px-3 py-2 text-sm font-medium"
+                onClick={() => void refreshEntries()}
+              >
+                Refresh
+              </button>
+            </div>
+
+            <Show when={error()}>
+              <div class="theme-warn rounded-2xl px-4 py-3 text-sm">{error()}</div>
+            </Show>
+
+            <Show when={loading()}>
+              <div class="theme-control rounded-3xl px-4 py-6 text-sm">
+                Loading vault entries...
+              </div>
+            </Show>
+
+            <Show when={!loading() && filteredEntries().length === 0}>
+              <div class="theme-control rounded-3xl px-4 py-6 text-sm">
+                No saved passwords found in this section.
+              </div>
+            </Show>
+
+            <For each={filteredEntries()}>
+              {(entry) => {
+                const revealed = () => revealedIds().includes(entry.id);
+                return (
+                  <div class="theme-control rounded-3xl p-4">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <p class="theme-text text-sm font-semibold">{entry.title}</p>
+                        <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.16em]">
+                          {entry.kind}
+                        </p>
+                      </div>
+                      <button
+                        class="theme-control rounded-xl px-3 py-1.5 text-xs font-medium"
+                        onClick={() => toggleReveal(entry.id)}
+                      >
+                        {revealed() ? "Hide" : "Reveal"}
+                      </button>
+                    </div>
+                    <Show when={entry.account}>
+                      <p class="theme-text-soft mt-3 text-xs">{entry.account}</p>
+                    </Show>
+                    <pre class="theme-code mt-3 overflow-auto rounded-2xl border px-3 py-3 text-xs leading-6">
+                      {revealed() ? entry.secret : "•".repeat(Math.max(8, Math.min(entry.secret.length, 24)))}
+                    </pre>
+                    <Show when={entry.detail}>
+                      <p class="theme-text-soft mt-3 break-all text-xs leading-5">
+                        {entry.detail}
+                      </p>
+                    </Show>
+                  </div>
+                );
+              }}
+            </For>
+          </div>
+
+          <div class="theme-control rounded-3xl p-4">
+            <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">
+              Summary
+            </p>
+            <p class="theme-text mt-2 text-lg font-semibold">{entries().length}</p>
+            <p class="theme-text-muted mt-3 text-sm leading-6">
+              这里是一个应用内的 vault 视图，专门集中查看当前已经保存下来的凭据。
+            </p>
+          </div>
+        </div>
+      </SectionCard>
+    </WorkspaceSidebarLayout>
   );
 }
 

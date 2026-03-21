@@ -310,7 +310,7 @@ export function KeyValueTableEditor(props: {
                     class="inline-flex h-6 w-6 items-center justify-center"
                     onClick={() => props.onRemove?.(row().id)}
                   >
-                    <ControlDot variant="delete" />
+                    <ControlDot size="small" variant="delete" />
                   </button>
                 </div>
               </Show>
@@ -563,7 +563,7 @@ export function FormDataTableEditor(props: {
                             });
                           }}
                         >
-                          <ControlDot variant="delete" />
+                          <ControlDot size="small" variant="delete" />
                         </button>
                       </Show>
                       <input
@@ -595,7 +595,7 @@ export function FormDataTableEditor(props: {
                   class="inline-flex h-6 w-6 items-center justify-center"
                   onClick={() => props.onRemove(row().id)}
                 >
-                  <ControlDot variant="delete" />
+                  <ControlDot size="small" variant="delete" />
                 </button>
               </div>
             </>

@@ -1,3 +1,4 @@
+import { DEVX_SECTION_STORES, type DevxSectionMeta } from "../../lib/indexed-db";
 import type { SyncProviderType, SyncSettings, WorkspaceSnapshot } from "./types";
 
 type GoogleDriveFileListResponse = {
@@ -27,6 +28,26 @@ function getWebDavUrl(settings: SyncSettings) {
   return `${endpoint}${normalizedPath}`;
 }
 
+function getWebDavBasePath(settings: SyncSettings) {
+  const remotePath = settings.webdav.remotePath.trim() || "/devx/workspace.json";
+  const normalizedPath = remotePath.startsWith("/") ? remotePath : `/${remotePath}`;
+
+  if (normalizedPath.endsWith(".json")) {
+    const segments = normalizedPath.split("/");
+    segments.pop();
+    return segments.join("/") || "/";
+  }
+
+  return normalizedPath.replace(/\/$/, "") || "/";
+}
+
+function getWebDavFileUrl(settings: SyncSettings, fileName: string) {
+  const endpoint = settings.webdav.endpoint.trim().replace(/\/$/, "");
+  const basePath = getWebDavBasePath(settings);
+  const normalizedBase = basePath === "/" ? "" : basePath;
+  return `${endpoint}${normalizedBase}/${fileName}`;
+}
+
 function getWebDavHeaders(settings: SyncSettings) {
   const basic = btoa(`${settings.webdav.username}:${settings.webdav.password}`);
 
@@ -41,6 +62,105 @@ async function parseJsonResponse(response: Response): Promise<WorkspaceSnapshot 
   }
 
   return (await response.json()) as WorkspaceSnapshot;
+}
+
+type WebDavManifest = {
+  version: 1;
+  updatedAt: string;
+  sections: Partial<Record<(typeof DEVX_SECTION_STORES)[number], DevxSectionMeta>>;
+};
+
+async function downloadWebDavSnapshot(
+  settings: SyncSettings
+): Promise<WorkspaceSnapshot | undefined> {
+  const response = await fetch(getWebDavFileUrl(settings, "manifest.json"), {
+    headers: getWebDavHeaders(settings)
+  });
+
+  if (response.status === 404) {
+    return undefined;
+  }
+
+  if (!response.ok) {
+    throw new Error("Failed to load WebDAV manifest.");
+  }
+
+  const manifest = (await response.json()) as WebDavManifest;
+  const snapshot: WorkspaceSnapshot = {
+    version: manifest.version,
+    updatedAt: manifest.updatedAt
+  };
+
+  await Promise.all(
+    DEVX_SECTION_STORES.map(async (storeName) => {
+      if (!manifest.sections[storeName]) {
+        return;
+      }
+
+      const sectionResponse = await fetch(
+        getWebDavFileUrl(settings, `${storeName}.json`),
+        {
+          headers: getWebDavHeaders(settings)
+        }
+      );
+
+      if (!sectionResponse.ok) {
+        throw new Error(`Failed to load ${storeName}.json from WebDAV.`);
+      }
+
+      (snapshot as Record<string, unknown>)[storeName] =
+        (await sectionResponse.json()) as WorkspaceSnapshot[typeof storeName];
+    })
+  );
+
+  return snapshot;
+}
+
+async function uploadWebDavSnapshot(
+  settings: SyncSettings,
+  snapshot: WorkspaceSnapshot
+): Promise<void> {
+  const manifest: WebDavManifest = {
+    version: 1,
+    updatedAt: snapshot.updatedAt,
+    sections: {}
+  };
+
+  for (const storeName of DEVX_SECTION_STORES) {
+    const section = snapshot[storeName];
+
+    if (!section) {
+      continue;
+    }
+
+    manifest.sections[storeName] = section.meta;
+
+    const response = await fetch(getWebDavFileUrl(settings, `${storeName}.json`), {
+      method: "PUT",
+      headers: {
+        ...getWebDavHeaders(settings),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(section)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to upload ${storeName}.json to WebDAV.`);
+    }
+  }
+
+  const manifestResponse = await fetch(getWebDavFileUrl(settings, "manifest.json"), {
+    method: "PUT",
+    headers: {
+      ...getWebDavHeaders(settings),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(manifest)
+  });
+
+  if (!manifestResponse.ok) {
+    throw new Error("Failed to upload WebDAV manifest.");
+  }
 }
 
 async function findGoogleDriveSnapshotFile(settings: SyncSettings): Promise<string | undefined> {
@@ -207,15 +327,7 @@ export async function downloadRemoteSnapshot(
       return parseJsonResponse(response);
     }
     case "webdav": {
-      const response = await fetch(getWebDavUrl(settings), {
-        headers: getWebDavHeaders(settings)
-      });
-
-      if (response.status === 404) {
-        return undefined;
-      }
-
-      return parseJsonResponse(response);
+      return downloadWebDavSnapshot(settings);
     }
   }
 }
@@ -327,18 +439,7 @@ export async function uploadRemoteSnapshot(
       return;
     }
     case "webdav": {
-      const response = await fetch(getWebDavUrl(settings), {
-        method: "PUT",
-        headers: {
-          ...getWebDavHeaders(settings),
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(snapshot)
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to upload snapshot to WebDAV.");
-      }
+      await uploadWebDavSnapshot(settings, snapshot);
     }
   }
 }

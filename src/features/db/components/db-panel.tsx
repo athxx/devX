@@ -30,6 +30,7 @@ import {
   createDbFavorite,
   createDbHistoryItem,
   createDbTab,
+  disconnectDbConnection,
   executeDbTab,
   loadDbWorkspace,
   loadDbExplorer,
@@ -116,7 +117,7 @@ function getConnectionBadge(connection: DbConnection) {
   switch (connection.kind) {
     case "redis":
       return {
-        label: "RED",
+        label: "RDS",
         class: "theme-method-badge theme-method-patch",
       };
     case "postgresql":
@@ -1164,6 +1165,119 @@ ORDER BY ordinal_position;`;
     closeFloatingMenus();
   }
 
+  async function openConnectionActionQuery(
+    connection: DbConnection,
+    label: string,
+    query: string,
+    options?: {
+      forceNew?: boolean;
+      resultView?: "table" | "raw";
+    },
+  ) {
+    const forceNew = options?.forceNew ?? true;
+    const activeTabId = workspace().activeTabId;
+    const existingId = !forceNew
+      ? activeTabId &&
+        workspace().tabsById[activeTabId]?.connectionId === connection.id
+        ? activeTabId
+        : (workspace().openTabIds.find(
+            (tabId) =>
+              workspace().tabsById[tabId]?.connectionId === connection.id,
+          ) ?? null)
+      : null;
+    const title = `${connection.name} · ${label}`;
+    let nextActiveTabId: string | null = existingId;
+
+    await commitWorkspace((draft) => {
+      if (!draft.connectedConnectionIds.includes(connection.id)) {
+        draft.connectedConnectionIds = [
+          connection.id,
+          ...draft.connectedConnectionIds,
+        ];
+      }
+
+      draft.activeConnectionId = connection.id;
+
+      if (existingId && draft.tabsById[existingId]) {
+        draft.tabsById[existingId].title = title;
+        draft.tabsById[existingId].query = query;
+        draft.activeTabId = existingId;
+        return;
+      }
+
+      const tab = createDbTab(connection);
+      tab.title = title;
+      tab.query = query;
+      draft.tabsById[tab.id] = tab;
+      draft.openTabIds.push(tab.id);
+      draft.activeTabId = tab.id;
+      nextActiveTabId = tab.id;
+    });
+
+    if (options?.resultView && nextActiveTabId) {
+      setResultViewByTabId((current) => ({
+        ...current,
+        [nextActiveTabId!]: options.resultView!,
+      }));
+    }
+
+    closeFloatingMenus();
+  }
+
+  function canCreateDatabase(connection: DbConnection) {
+    return (
+      connection.kind !== "redis" &&
+      connection.kind !== "sqlite" &&
+      connection.kind !== "oracle"
+    );
+  }
+
+  function canShowConnectionSummary(connection: DbConnection) {
+    return connection.kind !== "redis";
+  }
+
+  function buildCreateDatabaseTemplate(connection: DbConnection) {
+    switch (connection.kind) {
+      case "postgresql":
+      case "gaussdb":
+        return "CREATE DATABASE new_database;";
+      case "mysql":
+      case "tidb":
+        return "CREATE DATABASE `new_database`;";
+      case "sqlserver":
+        return "CREATE DATABASE [new_database];";
+      case "clickhouse":
+        return "CREATE DATABASE new_database;";
+      case "mongodb":
+        return "use new_database\n\ndb.createCollection(\"sample_collection\")";
+      default:
+        return "CREATE DATABASE new_database;";
+    }
+  }
+
+  function buildConnectionSummaryQuery(connection: DbConnection) {
+    switch (connection.kind) {
+      case "postgresql":
+      case "gaussdb":
+        return "SELECT name, setting, unit, short_desc FROM pg_settings ORDER BY name;";
+      case "mysql":
+      case "tidb":
+        return "SHOW VARIABLES;";
+      case "sqlserver":
+        return "SELECT name, value_in_use, description FROM sys.configurations ORDER BY name;";
+      case "clickhouse":
+        return "SELECT name, value, changed, description FROM system.settings ORDER BY name;";
+      case "oracle":
+        return "SELECT name, value, display_value, description FROM v$parameter ORDER BY name";
+      case "sqlite":
+        return "PRAGMA compile_options;";
+      case "mongodb":
+        return "db.adminCommand({ getCmdLineOpts: 1 })";
+      default:
+        return "SELECT 1;";
+    }
+  }
+
   async function openExplorerQuery(
     connection: DbConnection,
     node: ExplorerLeafNode,
@@ -1266,15 +1380,6 @@ ORDER BY ordinal_position;`;
     await loadConnectionExplorer(connection);
   }
 
-  async function refreshAllExplorers() {
-    closeFloatingMenus();
-    await Promise.all(
-      connectedConnections().map((connection) =>
-        loadConnectionExplorer(connection),
-      ),
-    );
-  }
-
   async function resetConnectionExplorerCache(connection: DbConnection) {
     setExpandedExplorerNodeIds([]);
     setSelectedExplorerSchemaIds((current) =>
@@ -1293,24 +1398,6 @@ ORDER BY ordinal_position;`;
     if (isConnectionExpanded(connection.id)) {
       await loadConnectionExplorer(connection);
     }
-  }
-
-  async function resetAllExplorerCaches() {
-    const expandedIds = new Set(expandedConnectionIds());
-    const expandedConnections = connectedConnections().filter((connection) =>
-      expandedIds.has(connection.id),
-    );
-
-    setExpandedExplorerNodeIds([]);
-    setSelectedExplorerSchemaIds({});
-    setExplorerByConnectionId({});
-    closeFloatingMenus();
-
-    await Promise.all(
-      expandedConnections.map((connection) =>
-        loadConnectionExplorer(connection),
-      ),
-    );
   }
 
   function clearTabArtifacts(tabIds: string[]) {
@@ -1417,23 +1504,6 @@ ORDER BY ordinal_position;`;
     setConnectionDraftState("value", next);
   }
 
-  function updateConnectionDraft<K extends keyof DbConnection>(
-    key: K,
-    value: DbConnection[K],
-  ) {
-    const current = connectionDraftState.value;
-    if (!current) return;
-
-    setConnectionDraftState("value", key, value);
-
-    if (key === "url" || key === "kind") {
-      return;
-    }
-
-    const next = cloneValue({ ...current, [key]: value });
-    setConnectionDraftState("value", "url", buildDbConnectionUrl(next));
-  }
-
   function updateConnectionDraftConfig<K extends keyof DbConnectionConfig>(
     key: K,
     value: DbConnectionConfig[K],
@@ -1464,10 +1534,8 @@ ORDER BY ordinal_position;`;
       name:
         draftConnection.name.trim() ||
         getConnectionTypeLabel(draftConnection.kind),
-      url: buildDbConnectionUrl(draftConnection) || draftConnection.url.trim(),
-      defaultQuery:
-        draftConnection.defaultQuery.trim() ||
-        createDbConnection(draftConnection.kind).defaultQuery,
+      url: buildDbConnectionUrl(draftConnection),
+      defaultQuery: createDbConnection(draftConnection.kind).defaultQuery,
     };
 
     if (mode === "create") {
@@ -1733,17 +1801,25 @@ ORDER BY ordinal_position;`;
       targetConnection.name =
         targetConnection.name.trim() ||
         getConnectionTypeLabel(targetConnection.kind);
-      targetConnection.defaultQuery = targetTab.query;
       targetConnection.url = buildDbConnectionUrl(targetConnection);
       targetTab.title = targetConnection.name;
     });
   }
 
   async function disconnectConnection(connectionId: string) {
+    const connection = connectionMap().get(connectionId);
     const removedTabIds = Object.values(workspace().tabsById)
       .filter((tab) => tab.connectionId === connectionId)
       .map((tab) => tab.id);
     clearTabArtifacts(removedTabIds);
+
+    if (connection) {
+      try {
+        await disconnectDbConnection(connection);
+      } catch {
+        // Keep local disconnect responsive even if server-side cleanup fails.
+      }
+    }
 
     await commitWorkspace((draft) => {
       draft.connectedConnectionIds = draft.connectedConnectionIds.filter(
@@ -1775,10 +1851,19 @@ ORDER BY ordinal_position;`;
   }
 
   async function removeSavedConnection(connectionId: string) {
+    const connection = connectionMap().get(connectionId);
     const removedTabIds = Object.values(workspace().tabsById)
       .filter((tab) => tab.connectionId === connectionId)
       .map((tab) => tab.id);
     clearTabArtifacts(removedTabIds);
+
+    if (connection && workspace().connectedConnectionIds.includes(connectionId)) {
+      try {
+        await disconnectDbConnection(connection);
+      } catch {
+        // Removing saved state should still succeed if pooled cleanup fails.
+      }
+    }
 
     await commitWorkspace((draft) => {
       draft.savedConnections = draft.savedConnections.filter(
@@ -2654,7 +2739,7 @@ ORDER BY ordinal_position;`;
                 setTabMenu(null);
               }}
             >
-              <ControlDot variant="menu" />
+              <ControlDot size="small" variant="menu" />
             </button>
           </div>
         </div>
@@ -2687,7 +2772,7 @@ ORDER BY ordinal_position;`;
               {(node) =>
                 node.kind === "group" ? (
                   <button
-                    class={`theme-sidebar-item ml-6 flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
+                    class={`theme-sidebar-item ml-6 flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 text-left ${
                       selectedRoot()?.id === node.id
                         ? "theme-sidebar-item-active"
                         : ""
@@ -2698,21 +2783,9 @@ ORDER BY ordinal_position;`;
                       active={selectedRoot()?.id === node.id}
                     />
                     <div class="min-w-0 flex-1">
-                      <p class="truncate text-[12px] font-medium">
+                      <p class="truncate text-[11px] font-medium leading-5">
                         {node.label}
                       </p>
-                      <Show
-                        when={
-                          node.description ||
-                          loadingExplorerNodeIds().includes(node.id)
-                        }
-                      >
-                        <p class="theme-text-soft truncate text-[10px]">
-                          {loadingExplorerNodeIds().includes(node.id)
-                            ? "Loading..."
-                            : node.description}
-                        </p>
-                      </Show>
                     </div>
                   </button>
                 ) : null
@@ -2888,26 +2961,6 @@ ORDER BY ordinal_position;`;
     );
   }
 
-  function renderEmptyState() {
-    return (
-      <div class="flex min-h-0 flex-1 items-center justify-center p-6">
-        <div class="theme-control max-w-md rounded-[28px] px-6 py-7 text-center">
-          <p class="theme-text text-lg font-semibold">No database connected</p>
-          <p class="theme-text-soft mt-2 text-sm leading-6">
-            Click the yellow dot in the Connections header, choose a saved
-            database, and connect it first.
-          </p>
-          <button
-            class="theme-button-primary mt-5 rounded-xl px-4 py-2 text-sm font-semibold"
-            onClick={() => openSavedConnectionsModal()}
-          >
-            Open Saved Connections
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <>
       <WorkspaceSidebarLayout
@@ -2935,43 +2988,16 @@ ORDER BY ordinal_position;`;
                 style={{ "border-color": "var(--app-border)" }}
               >
                 <div class="mb-2 flex items-center justify-between gap-2">
-                  <div>
-                    <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">
-                      Connections
-                    </p>
-                    <p class="theme-text-soft mt-1 text-[11px]">
-                      Connected databases
-                    </p>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <Show when={connectedConnections().length > 0}>
-                      <button
-                        class="theme-control h-7 rounded-lg px-2.5 text-[11px] font-medium"
-                        title="Refresh all object trees"
-                        onClick={() => void refreshAllExplorers()}
-                      >
-                        Refresh
-                      </button>
-                    </Show>
-                    <Show
-                      when={Object.keys(explorerByConnectionId()).length > 0}
-                    >
-                      <button
-                        class="theme-control h-7 rounded-lg px-2.5 text-[11px] font-medium"
-                        title="Reset cached object trees"
-                        onClick={() => void resetAllExplorerCaches()}
-                      >
-                        Reset Cache
-                      </button>
-                    </Show>
-                    <button
-                      class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
-                      title="Saved connections"
-                      onClick={() => openSavedConnectionsModal()}
-                    >
-                      <ControlDot variant="warn" />
-                    </button>
-                  </div>
+                  <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">
+                    Connections
+                  </p>
+                  <button
+                    class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
+                    title="Saved connections"
+                    onClick={() => openSavedConnectionsModal()}
+                  >
+                    <ControlDot size="small" variant="warn" />
+                  </button>
                 </div>
 
                 <input
@@ -3030,7 +3056,9 @@ ORDER BY ordinal_position;`;
                 items={tabItems()}
                 draggedId={draggedTabId()}
                 dropTargetId={tabDropTargetId()}
-                renderCloseIcon={() => <ControlDot variant="delete" />}
+                renderCloseIcon={() => (
+                  <ControlDot size="small" variant="delete" />
+                )}
                 renderPinIcon={() => <PinIcon />}
                 onTabOpen={(tabId) =>
                   void commitWorkspace((draft) => {
@@ -3083,7 +3111,7 @@ ORDER BY ordinal_position;`;
 
           <Show
             when={activeTab() && activeConnection()}
-            fallback={renderEmptyState()}
+            fallback={<div class="min-h-0 flex-1" />}
           >
             <div
               class="border-b px-3 py-2"
@@ -3208,10 +3236,12 @@ ORDER BY ordinal_position;`;
         <div
           class="fixed inset-0 z-[320] flex items-center justify-center bg-[rgba(15,23,42,0.3)] px-4 py-6"
           data-db-menu-root
+          onClick={() => closeSavedConnectionsModal()}
         >
           <div
             class="theme-panel-soft w-full max-w-3xl rounded-[22px] border p-5 shadow-[0_24px_60px_rgba(15,23,42,0.24)]"
             style={{ "border-color": "var(--app-border)" }}
+            onClick={(event) => event.stopPropagation()}
           >
             <div
               class="flex items-start justify-between gap-4 border-b pb-4"
@@ -3224,16 +3254,12 @@ ORDER BY ordinal_position;`;
                 <h3 class="theme-text mt-2 text-lg font-semibold">
                   Connect a database
                 </h3>
-                <p class="theme-text-soft mt-1 text-sm">
-                  Double-click a saved connection, or use the button on the
-                  right to test and connect it.
-                </p>
               </div>
               <button
                 class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
                 onClick={() => closeSavedConnectionsModal()}
               >
-                <ControlDot variant="delete" />
+                <ControlDot size="small" variant="delete" />
               </button>
             </div>
 
@@ -3250,7 +3276,7 @@ ORDER BY ordinal_position;`;
                 class="theme-button-primary h-9 rounded-xl px-4 text-sm font-semibold"
                 onClick={() => openCreateConnectionModal("postgresql", true)}
               >
-                New Connection
+                New
               </button>
             </div>
 
@@ -3312,7 +3338,11 @@ ORDER BY ordinal_position;`;
                             Edit
                           </button>
                           <button
-                            class="theme-control rounded-xl px-3 py-1.5 text-sm font-medium text-[#ff6f61]"
+                            class="rounded-xl border px-3 py-1.5 text-sm font-medium text-white transition hover:brightness-110"
+                            style={{
+                              background: "#ff5f57",
+                              "border-color": "rgba(255, 95, 87, 0.5)",
+                            }}
                             disabled={isPending}
                             onClick={() =>
                               void removeSavedConnection(connection.id)
@@ -3321,7 +3351,11 @@ ORDER BY ordinal_position;`;
                             Delete
                           </button>
                           <button
-                            class="theme-button-primary rounded-xl px-3 py-1.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                            class="rounded-xl border px-3 py-1.5 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                            style={{
+                              background: "#28c840",
+                              "border-color": "rgba(40, 200, 64, 0.5)",
+                            }}
                             disabled={Boolean(pendingConnectionId())}
                             onClick={() =>
                               void connectSavedConnection(connection)
@@ -3382,7 +3416,7 @@ ORDER BY ordinal_position;`;
                 class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
                 onClick={() => closeConnectionModal()}
               >
-                <ControlDot variant="delete" />
+                <ControlDot size="small" variant="delete" />
               </button>
             </div>
 
@@ -3391,7 +3425,7 @@ ORDER BY ordinal_position;`;
                 {renderConfigField(
                   "Alias",
                   () => connectionDraftState.value!.name,
-                  (value) => updateConnectionDraft("name", value),
+                  (value) => setConnectionDraftState("value", "name", value),
                 )}
                 <label class="grid gap-1">
                   <span class="theme-text-soft text-[11px] uppercase tracking-[0.16em]">
@@ -3418,35 +3452,6 @@ ORDER BY ordinal_position;`;
               </div>
 
               {renderConnectionDraftForm(connectionDraftState.value!)}
-
-              <label class="grid gap-1">
-                <span class="theme-text-soft text-[11px] uppercase tracking-[0.16em]">
-                  Default Query
-                </span>
-                <textarea
-                  class="theme-input min-h-[120px] rounded-[18px] px-3 py-2 font-mono text-sm leading-6"
-                  value={connectionDraftState.value!.defaultQuery}
-                  onInput={(event) =>
-                    updateConnectionDraft(
-                      "defaultQuery",
-                      event.currentTarget.value,
-                    )
-                  }
-                />
-              </label>
-
-              <label class="grid gap-1">
-                <span class="theme-text-soft text-[11px] uppercase tracking-[0.16em]">
-                  Connection String
-                </span>
-                <input
-                  class="theme-input h-8 rounded-md px-2.5 text-sm"
-                  value={connectionDraftState.value!.url}
-                  onInput={(event) =>
-                    updateConnectionDraft("url", event.currentTarget.value)
-                  }
-                />
-              </label>
             </div>
 
             <div class="mt-5 flex items-center justify-end gap-2">
@@ -3460,7 +3465,7 @@ ORDER BY ordinal_position;`;
                 class="theme-success h-8 rounded-md px-3 text-sm font-semibold"
                 onClick={() => void saveConnectionDraft()}
               >
-                Save Connection
+                Save
               </button>
             </div>
           </div>
@@ -3484,45 +3489,55 @@ ORDER BY ordinal_position;`;
             >
               <button
                 class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() => void openConnectionTab(connection)}
-              >
-                Open
-              </button>
-              <button
-                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
                 onClick={() => void openConnectionTab(connection, true)}
               >
-                New Query Tab
+                New Query
               </button>
               <button
                 class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
                 onClick={() => void refreshConnectionExplorer(connection)}
               >
-                Refresh Objects
+                Refresh
               </button>
-              <button
-                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() => void resetConnectionExplorerCache(connection)}
-              >
-                Reset Object Cache
-              </button>
-              <button
-                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() => openEditConnectionModal(connection)}
-              >
-                Edit Saved Connection
-              </button>
+              <Show when={canCreateDatabase(connection)}>
+                <button
+                  class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                  onClick={() =>
+                    void openConnectionActionQuery(
+                      connection,
+                      "Create Database",
+                      buildCreateDatabaseTemplate(connection),
+                      { forceNew: true, resultView: "raw" },
+                    )
+                  }
+                >
+                  Create Database
+                </button>
+              </Show>
+              <Show when={canShowConnectionSummary(connection)}>
+                <button
+                  class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                  onClick={() =>
+                    void openConnectionActionQuery(
+                      connection,
+                      "Summary",
+                      buildConnectionSummaryQuery(connection),
+                      {
+                        forceNew: true,
+                        resultView:
+                          connection.kind === "mongodb" ? "raw" : "table",
+                      },
+                    )
+                  }
+                >
+                  Summary
+                </button>
+              </Show>
               <button
                 class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
                 onClick={() => void disconnectConnection(connection.id)}
               >
                 Disconnect
-              </button>
-              <button
-                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm text-[#ff3b30]"
-                onClick={() => void removeSavedConnection(connection.id)}
-              >
-                Delete Saved Connection
               </button>
             </div>
           );

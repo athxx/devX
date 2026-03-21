@@ -2,10 +2,13 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
+	oracle "github.com/oracle-samples/gorm-oracle/oracle"
 	"gorm.io/driver/clickhouse"
 	"gorm.io/driver/gaussdb"
 	"gorm.io/driver/mysql"
@@ -13,7 +16,11 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
-	oracle "github.com/oracle-samples/gorm-oracle/oracle"
+)
+
+var (
+	sqlConnectionsMu sync.Mutex
+	sqlConnections   = map[string]*gorm.DB{}
 )
 
 type SQLQueryRequest struct {
@@ -48,21 +55,10 @@ func QuerySQL(ctx context.Context, request SQLQueryRequest, fallbackTimeout time
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	dialector, err := buildDialector(request.Driver, request.DSN)
+	gormDB, sqlDB, err := getOrCreateSQLConnection(request.Driver, request.DSN)
 	if err != nil {
 		return SQLQueryResponse{}, err
 	}
-
-	gormDB, err := gorm.Open(dialector, &gorm.Config{})
-	if err != nil {
-		return SQLQueryResponse{}, fmt.Errorf("open database: %w", err)
-	}
-
-	sqlDB, err := gormDB.DB()
-	if err != nil {
-		return SQLQueryResponse{}, fmt.Errorf("access sql db: %w", err)
-	}
-	defer sqlDB.Close()
 
 	if request.MaxOpenConns > 0 {
 		sqlDB.SetMaxOpenConns(request.MaxOpenConns)
@@ -121,6 +117,71 @@ func QuerySQL(ctx context.Context, request SQLQueryRequest, fallbackTimeout time
 		LastInsertID: 0,
 		DurationMs:   time.Since(start).Milliseconds(),
 	}, nil
+}
+
+func getOrCreateSQLConnection(driver, dsn string) (*gorm.DB, *sql.DB, error) {
+	key := strings.ToLower(strings.TrimSpace(driver)) + "\x00" + dsn
+
+	sqlConnectionsMu.Lock()
+	gormDB, ok := sqlConnections[key]
+	sqlConnectionsMu.Unlock()
+	if ok {
+		sqlDB, err := gormDB.DB()
+		if err != nil {
+			return nil, nil, fmt.Errorf("access sql db: %w", err)
+		}
+		return gormDB, sqlDB, nil
+	}
+
+	dialector, err := buildDialector(driver, dsn)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	gormDB, err = gorm.Open(dialector, &gorm.Config{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("open database: %w", err)
+	}
+
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		return nil, nil, fmt.Errorf("access sql db: %w", err)
+	}
+
+	sqlConnectionsMu.Lock()
+	if existing, exists := sqlConnections[key]; exists {
+		sqlConnectionsMu.Unlock()
+		_ = sqlDB.Close()
+		existingDB, existingErr := existing.DB()
+		if existingErr != nil {
+			return nil, nil, fmt.Errorf("access sql db: %w", existingErr)
+		}
+		return existing, existingDB, nil
+	}
+	sqlConnections[key] = gormDB
+	sqlConnectionsMu.Unlock()
+
+	return gormDB, sqlDB, nil
+}
+
+func DisconnectSQLConnection(driver, dsn string) error {
+	key := strings.ToLower(strings.TrimSpace(driver)) + "\x00" + dsn
+
+	sqlConnectionsMu.Lock()
+	gormDB, ok := sqlConnections[key]
+	if ok {
+		delete(sqlConnections, key)
+	}
+	sqlConnectionsMu.Unlock()
+	if !ok {
+		return nil
+	}
+
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		return fmt.Errorf("access sql db: %w", err)
+	}
+	return sqlDB.Close()
 }
 
 func buildDialector(driver, dsn string) (gorm.Dialector, error) {
