@@ -21,12 +21,15 @@ import (
 var (
 	sqlConnectionsMu sync.Mutex
 	sqlConnections   = map[string]*gorm.DB{}
+	sqlSessionsMu    sync.Mutex
+	sqlSessions      = map[string]*sql.Tx{}
 )
 
 type SQLQueryRequest struct {
 	Driver       string `json:"driver"`
 	DSN          string `json:"dsn"`
 	Query        string `json:"query"`
+	SessionID    string `json:"sessionId"`
 	MaxOpenConns int    `json:"maxOpenConns"`
 	MaxIdleConns int    `json:"maxIdleConns"`
 	TimeoutMs    int    `json:"timeoutMs"`
@@ -69,42 +72,34 @@ func QuerySQL(ctx context.Context, request SQLQueryRequest, fallbackTimeout time
 
 	start := time.Now()
 	queryType := classifySQL(request.Query)
+	if strings.TrimSpace(request.SessionID) != "" {
+		tx, err := getSQLSession(request.SessionID)
+		if err != nil {
+			return SQLQueryResponse{}, err
+		}
+		if queryType == "query" {
+			rows, err := tx.QueryContext(timeoutCtx, request.Query)
+			if err != nil {
+				return SQLQueryResponse{}, err
+			}
+			defer rows.Close()
+			return scanSQLRows(rows, start)
+		}
+
+		result, err := tx.ExecContext(timeoutCtx, request.Query)
+		if err != nil {
+			return SQLQueryResponse{}, err
+		}
+		return buildSQLExecResponse(result, start)
+	}
+
 	if queryType == "query" {
 		rows, err := gormDB.WithContext(timeoutCtx).Raw(request.Query).Rows()
 		if err != nil {
 			return SQLQueryResponse{}, err
 		}
 		defer rows.Close()
-
-		columns, err := rows.Columns()
-		if err != nil {
-			return SQLQueryResponse{}, err
-		}
-
-		resultRows := make([]map[string]any, 0)
-		for rows.Next() {
-			values := make([]any, len(columns))
-			pointers := make([]any, len(columns))
-			for index := range values {
-				pointers[index] = &values[index]
-			}
-
-			if err := rows.Scan(pointers...); err != nil {
-				return SQLQueryResponse{}, err
-			}
-
-			row := make(map[string]any, len(columns))
-			for index, column := range columns {
-				row[column] = normalizeSQLValue(values[index])
-			}
-			resultRows = append(resultRows, row)
-		}
-
-		return SQLQueryResponse{
-			Columns:    columns,
-			Rows:       resultRows,
-			DurationMs: time.Since(start).Milliseconds(),
-		}, rows.Err()
+		return scanSQLRows(rows, start)
 	}
 
 	result := gormDB.WithContext(timeoutCtx).Exec(request.Query)
@@ -115,6 +110,48 @@ func QuerySQL(ctx context.Context, request SQLQueryRequest, fallbackTimeout time
 	return SQLQueryResponse{
 		AffectedRows: result.RowsAffected,
 		LastInsertID: 0,
+		DurationMs:   time.Since(start).Milliseconds(),
+	}, nil
+}
+
+func scanSQLRows(rows *sql.Rows, start time.Time) (SQLQueryResponse, error) {
+	columns, err := rows.Columns()
+	if err != nil {
+		return SQLQueryResponse{}, err
+	}
+
+	resultRows := make([]map[string]any, 0)
+	for rows.Next() {
+		values := make([]any, len(columns))
+		pointers := make([]any, len(columns))
+		for index := range values {
+			pointers[index] = &values[index]
+		}
+
+		if err := rows.Scan(pointers...); err != nil {
+			return SQLQueryResponse{}, err
+		}
+
+		row := make(map[string]any, len(columns))
+		for index, column := range columns {
+			row[column] = normalizeSQLValue(values[index])
+		}
+		resultRows = append(resultRows, row)
+	}
+
+	return SQLQueryResponse{
+		Columns:    columns,
+		Rows:       resultRows,
+		DurationMs: time.Since(start).Milliseconds(),
+	}, rows.Err()
+}
+
+func buildSQLExecResponse(result sql.Result, start time.Time) (SQLQueryResponse, error) {
+	affectedRows, _ := result.RowsAffected()
+	lastInsertID, _ := result.LastInsertId()
+	return SQLQueryResponse{
+		AffectedRows: affectedRows,
+		LastInsertID: lastInsertID,
 		DurationMs:   time.Since(start).Milliseconds(),
 	}, nil
 }
@@ -182,6 +219,67 @@ func DisconnectSQLConnection(driver, dsn string) error {
 		return fmt.Errorf("access sql db: %w", err)
 	}
 	return sqlDB.Close()
+}
+
+func BeginSQLSession(ctx context.Context, sessionID, driver, dsn string) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return fmt.Errorf("sessionId is required")
+	}
+	if strings.TrimSpace(dsn) == "" {
+		return fmt.Errorf("dsn is required")
+	}
+
+	gormDB, _, err := getOrCreateSQLConnection(driver, dsn)
+	if err != nil {
+		return err
+	}
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		return fmt.Errorf("access sql db: %w", err)
+	}
+	tx, err := sqlDB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	sqlSessionsMu.Lock()
+	if existing, ok := sqlSessions[sessionID]; ok {
+		sqlSessionsMu.Unlock()
+		_ = tx.Rollback()
+		_ = existing.Rollback()
+		return fmt.Errorf("session already exists")
+	}
+	sqlSessions[sessionID] = tx
+	sqlSessionsMu.Unlock()
+	return nil
+}
+
+func FinishSQLSession(sessionID string, commit bool) error {
+	tx, err := getSQLSession(sessionID)
+	if err != nil {
+		return err
+	}
+	defer removeSQLSession(sessionID)
+	if commit {
+		return tx.Commit()
+	}
+	return tx.Rollback()
+}
+
+func getSQLSession(sessionID string) (*sql.Tx, error) {
+	sqlSessionsMu.Lock()
+	tx, ok := sqlSessions[sessionID]
+	sqlSessionsMu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("transaction session not found")
+	}
+	return tx, nil
+}
+
+func removeSQLSession(sessionID string) {
+	sqlSessionsMu.Lock()
+	delete(sqlSessions, sessionID)
+	sqlSessionsMu.Unlock()
 }
 
 func buildDialector(driver, dsn string) (gorm.Dialector, error) {

@@ -32,6 +32,7 @@ import {
   updateSshFolder,
   updateSshProfile,
 } from "../service";
+import { loadSshUiTempState, saveSshUiTempState } from "../local-db";
 
 type SshPanelProps = {
   sidebarOpen: boolean;
@@ -143,44 +144,26 @@ function getProfileStatusDotClass(status: SessionState["status"]) {
   return "bg-[#7f7f85]";
 }
 
-function loadExpandedFolders() {
-  const raw = window.localStorage.getItem(expandedFoldersStorageKey);
-  if (!raw) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string")
-      : [];
-  } catch {
-    return [];
-  }
+async function loadExpandedFolders() {
+  const parsed = await loadSshUiTempState<unknown>(expandedFoldersStorageKey)
+  return Array.isArray(parsed)
+    ? parsed.filter((item): item is string => typeof item === "string")
+    : []
 }
 
-function loadPersistedSshUiState(): PersistedSshUiState | null {
-  const raw = window.localStorage.getItem(sshUiStateStorageKey);
-  if (!raw) {
-    return null;
+async function loadPersistedSshUiState(): Promise<PersistedSshUiState | null> {
+  const parsed = await loadSshUiTempState<unknown>(sshUiStateStorageKey)
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    !Array.isArray((parsed as PersistedSshUiState).openTabIds) ||
+    !Array.isArray((parsed as PersistedSshUiState).pinnedTabIds) ||
+    typeof (parsed as PersistedSshUiState).tabsById !== "object" ||
+    typeof (parsed as PersistedSshUiState).panesById !== "object"
+  ) {
+    return null
   }
-
-  try {
-    const parsed = JSON.parse(raw) as PersistedSshUiState;
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      !Array.isArray(parsed.openTabIds) ||
-      !Array.isArray(parsed.pinnedTabIds) ||
-      typeof parsed.tabsById !== "object" ||
-      typeof parsed.panesById !== "object"
-    ) {
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
+  return parsed as PersistedSshUiState
 }
 
 function cloneLayoutNode(node: TerminalLayoutNode): TerminalLayoutNode {
@@ -723,10 +706,13 @@ export function SshPanel(props: SshPanelProps) {
   }
 
   onMount(() => {
-    setExpandedFolderIds(loadExpandedFolders());
-    void loadSshWorkspace().then((loaded) => {
+    void Promise.all([loadExpandedFolders(), loadSshWorkspace(), loadPersistedSshUiState()]).then(([
+      expandedFolders,
+      loaded,
+      persisted,
+    ]) => {
+      setExpandedFolderIds(expandedFolders);
       setWorkspace(loaded);
-      const persisted = loadPersistedSshUiState();
       const validProfileIds = new Set(
         loaded.profiles.map((profile) => profile.id),
       );
@@ -794,10 +780,7 @@ export function SshPanel(props: SshPanelProps) {
   });
 
   createEffect(() => {
-    window.localStorage.setItem(
-      expandedFoldersStorageKey,
-      JSON.stringify(expandedFolderIds()),
-    );
+    void saveSshUiTempState(expandedFoldersStorageKey, expandedFolderIds());
   });
 
   createEffect(() => {
@@ -827,16 +810,13 @@ export function SshPanel(props: SshPanelProps) {
         ]),
     ) as Record<string, TerminalPane>;
 
-    window.localStorage.setItem(
-      sshUiStateStorageKey,
-      JSON.stringify({
-        openTabIds: openTabIds(),
-        pinnedTabIds: pinnedTabIds(),
-        activeTabId: activeTabId(),
-        tabsById: serializedTabs,
-        panesById: serializedPanes,
-      } satisfies PersistedSshUiState),
-    );
+    void saveSshUiTempState(sshUiStateStorageKey, {
+      openTabIds: openTabIds(),
+      pinnedTabIds: pinnedTabIds(),
+      activeTabId: activeTabId(),
+      tabsById: serializedTabs,
+      panesById: serializedPanes,
+    } satisfies PersistedSshUiState);
   });
 
   createEffect(() => {

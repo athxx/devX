@@ -1,6 +1,13 @@
 import { cloneValue, makeId } from "../../lib/utils";
 import { loadProxySettings } from "../proxy/service";
-import { loadRestWorkspaceFromDb, saveRestWorkspaceToDb } from "./local-db";
+import {
+  loadRestPersistentStateFromDb,
+  loadRestTempStateFromDb,
+  saveRestPersistentStateToDb,
+  saveRestTempStateToDb,
+  type RestPersistentState,
+  type RestTempState,
+} from "./local-db";
 import type {
   Collection,
   CollectionFolder,
@@ -49,26 +56,20 @@ export function createRequestDraft(collectionId: string, partial: Partial<Reques
 }
 
 export function createDefaultRestWorkspace(): RestWorkspaceState {
-  const coreCollectionId = makeId("collection");
+  const defaultCollectionId = makeId("collection");
   const envDevelopmentId = makeId("env");
   const envStagingId = makeId("env");
-  const request = createRequestDraft(coreCollectionId, {
-    name: "List Users",
-    method: "GET",
-    url: "{{baseUrl}}/users",
-    query: [createKeyValueEntry({ key: "_limit", value: "{{limit}}" })]
-  });
 
   return {
     collections: [
       {
-        id: coreCollectionId,
-        name: "Core APIs",
+        id: defaultCollectionId,
+        name: "Default",
         folders: [],
-        requestIds: [request.id]
+        requestIds: []
       }
     ],
-    requests: [request],
+    requests: [],
     environments: [
       {
         id: envDevelopmentId,
@@ -101,28 +102,60 @@ export function createDefaultRestWorkspace(): RestWorkspaceState {
     ],
     history: [],
     lastResponse: null,
-    openRequestIds: [request.id],
+    openRequestIds: [],
     pinnedRequestIds: [],
-    activeCollectionId: coreCollectionId,
-    activeRequestId: request.id,
+    activeCollectionId: defaultCollectionId,
+    activeRequestId: "",
     activeEnvironmentId: envDevelopmentId
   };
 }
 
 export async function loadRestWorkspace(): Promise<RestWorkspaceState> {
-  const indexedDbState = await loadRestWorkspaceFromDb();
+  const [persistentState, tempState] = await Promise.all([
+    loadRestPersistentStateFromDb(),
+    loadRestTempStateFromDb(),
+  ]);
+  const indexedDbState = {
+    ...(persistentState ?? {}),
+    ...(tempState ?? {}),
+  } as RestWorkspaceState;
 
-  if (indexedDbState) {
+  if (persistentState) {
     return normalizeRestWorkspace(indexedDbState);
   }
 
   const seed = createDefaultRestWorkspace();
-  await saveRestWorkspaceToDb(seed);
+  await saveRestWorkspace(seed);
   return seed;
 }
 
 export async function saveRestWorkspace(state: RestWorkspaceState): Promise<void> {
-  await saveRestWorkspaceToDb(state);
+  await Promise.all([
+    saveRestPersistentStateToDb(serializeRestPersistentState(state)),
+    saveRestTempStateToDb(serializeRestTempState(state)),
+  ]);
+}
+
+function serializeRestPersistentState(
+  state: RestWorkspaceState,
+): RestPersistentState {
+  return {
+    collections: state.collections,
+    requests: state.requests,
+    environments: state.environments,
+  };
+}
+
+function serializeRestTempState(state: RestWorkspaceState): RestTempState {
+  return {
+    history: state.history,
+    lastResponse: state.lastResponse,
+    openRequestIds: state.openRequestIds,
+    pinnedRequestIds: state.pinnedRequestIds,
+    activeCollectionId: state.activeCollectionId,
+    activeRequestId: state.activeRequestId,
+    activeEnvironmentId: state.activeEnvironmentId,
+  };
 }
 
 function normalizeCollectionFolders(

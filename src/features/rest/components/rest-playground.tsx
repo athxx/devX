@@ -52,6 +52,7 @@ import {
   resolveTemplate,
   saveRestWorkspace,
 } from "../service";
+import { loadRestUiValueFromDb, saveRestUiValueToDb } from "../local-db";
 
 type SidebarPanelId = "collections" | "environments" | "history";
 type EditorTabId = "params" | "headers" | "body" | "auth";
@@ -1751,11 +1752,6 @@ export function RestPlayground(props: RestPlaygroundProps) {
       return;
     }
 
-    if (workspace.collections.length <= 1) {
-      window.alert("At least one collection is required.");
-      return;
-    }
-
     if (!window.confirm(`Delete collection "${collection.name}"?`)) {
       return;
     }
@@ -2627,10 +2623,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
     const handlePointerUp = () => {
       setMainPaneResizing(false);
-      window.localStorage.setItem(
-        mainPaneSplitStorageKey,
-        String(mainPaneSplit()),
-      );
+      void saveRestUiValueToDb(mainPaneSplitStorageKey, mainPaneSplit());
       window.removeEventListener("mousemove", handlePointerMove);
       window.removeEventListener("mouseup", handlePointerUp);
     };
@@ -2648,41 +2641,32 @@ export function RestPlayground(props: RestPlaygroundProps) {
       (event.currentTarget as HTMLTextAreaElement).offsetHeight,
     );
     setter(nextHeight);
-    window.localStorage.setItem(storageKey, String(nextHeight));
+    void saveRestUiValueToDb(storageKey, nextHeight);
   }
 
   onMount(() => {
     let disposed = false;
 
-    const savedMainPaneSplit = window.localStorage.getItem(
-      mainPaneSplitStorageKey,
-    );
-    if (savedMainPaneSplit) {
+    void loadRestUiValueFromDb<number>(mainPaneSplitStorageKey).then((savedMainPaneSplit) => {
       const parsed = Number(savedMainPaneSplit);
       if (!Number.isNaN(parsed)) {
         setMainPaneSplit(clampMainPaneSplit(parsed));
       }
-    }
+    });
 
-    const savedPreRequestHeight = window.localStorage.getItem(
-      preRequestScriptHeightStorageKey,
-    );
-    if (savedPreRequestHeight) {
+    void loadRestUiValueFromDb<number>(preRequestScriptHeightStorageKey).then((savedPreRequestHeight) => {
       const parsed = Number(savedPreRequestHeight);
       if (!Number.isNaN(parsed)) {
         setPreRequestScriptHeight(clampScriptEditorHeight(parsed));
       }
-    }
+    });
 
-    const savedPostResponseHeight = window.localStorage.getItem(
-      postResponseScriptHeightStorageKey,
-    );
-    if (savedPostResponseHeight) {
+    void loadRestUiValueFromDb<number>(postResponseScriptHeightStorageKey).then((savedPostResponseHeight) => {
       const parsed = Number(savedPostResponseHeight);
       if (!Number.isNaN(parsed)) {
         setPostResponseScriptHeight(clampScriptEditorHeight(parsed));
       }
-    }
+    });
 
     loadRestWorkspace()
       .then((state) => {

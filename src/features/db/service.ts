@@ -1,15 +1,27 @@
 import { makeId } from "../../lib/utils";
 import { loadProxySettings } from "../proxy/service";
-import { loadDbWorkspaceFromDb, saveDbWorkspaceToDb } from "./local-db";
+import {
+  loadDbPersistentStateFromDb,
+  loadDbTempStateFromDb,
+  saveDbPersistentStateToDb,
+  saveDbTempStateToDb,
+} from "./local-db";
 import type {
   DbConnection,
   DbConnectionConfig,
+  DbExecutionState,
+  DbObjectConstraint,
+  DbObjectDetail,
+  DbObjectForeignKey,
+  DbObjectIndex,
   DbExplorerNode,
   DbConnectionKind,
   DbFavoriteQuery,
   DbQueryHistoryItem,
   DbResultPayload,
   DbTab,
+  DbTabSource,
+  DbTabType,
   DbWorkspaceState,
 } from "./models";
 
@@ -17,9 +29,14 @@ type StoredDbConnection = Omit<DbConnection, "config"> & {
   config?: Partial<DbConnectionConfig>;
 };
 
-type StoredDbWorkspaceState = Omit<DbWorkspaceState, "savedConnections"> & {
+type StoredDbTempState = Omit<DbWorkspaceState, "savedConnections" | "favorites">;
+
+type StoredDbPersistentState = {
   savedConnections?: StoredDbConnection[];
+  favorites?: DbFavoriteQuery[];
 };
+
+type StoredDbWorkspaceState = StoredDbTempState & StoredDbPersistentState;
 
 type DbSocketResponse = {
   id?: string;
@@ -49,11 +66,16 @@ type SqlExplorerRow = {
   schema_name?: unknown;
   table_name?: unknown;
   table_type?: unknown;
+  SCHEMA_NAME?: unknown;
+  TABLE_NAME?: unknown;
+  TABLE_TYPE?: unknown;
 };
 
 type SqlExplorerRoutineRow = {
   schema_name?: unknown;
   routine_name?: unknown;
+  SCHEMA_NAME?: unknown;
+  ROUTINE_NAME?: unknown;
 };
 
 function defaultQueryForKind(kind: DbConnectionKind) {
@@ -550,6 +572,7 @@ function normalizeConnection(
     name: safeConnection.name?.trim() || config.host.trim(),
     kind,
     url: fallbackUrl,
+    environment: safeConnection.environment ?? "local",
     config,
     defaultQuery:
       safeConnection.defaultQuery?.trim() || defaultQueryForKind(kind),
@@ -569,9 +592,72 @@ function normalizeTab(
   return {
     id: tab.id ?? makeId("db-tab"),
     connectionId: tab.connectionId,
+    databaseName:
+      typeof tab.databaseName === 'string'
+        ? tab.databaseName.trim() || null
+        : connection?.config.database.trim() || null,
     title: tab.title?.trim() || connection?.name || "Query",
     query: tab.query ?? connection?.defaultQuery ?? "",
+    type: normalizeDbTabType(tab.type, connection, tab.source),
+    source: normalizeTabSource(tab.source),
+    transactionSessionId:
+      typeof tab.transactionSessionId === "string" ? tab.transactionSessionId : null,
   };
+}
+
+function defaultDbTabTypeForConnection(connection: DbConnection | undefined): DbTabType {
+  return 'query';
+}
+
+function normalizeDbTabType(
+  type: DbTabType | null | undefined,
+  connection: DbConnection | undefined,
+  source: Partial<DbTabSource> | null | undefined,
+): DbTabType {
+  if (
+    type === 'query' ||
+    type === 'data' ||
+    type === 'structure' ||
+    type === 'redis' ||
+    type === 'mongo' ||
+    type === 'raw'
+  ) {
+    return type;
+  }
+
+  if (source?.nodeId && source?.nodeKind && source?.label) {
+    if (source.nodeKind === 'table' || source.nodeKind === 'view') {
+      return 'data';
+    }
+
+    if (source.nodeKind === 'key') {
+      return 'redis';
+    }
+
+    if (source.nodeKind === 'collection') {
+      return 'mongo';
+    }
+  }
+
+  return defaultDbTabTypeForConnection(connection);
+}
+
+function normalizeTabSource(source: Partial<DbTabSource> | null | undefined) {
+  if (!source?.nodeId || !source?.nodeKind || !source?.label) {
+    return undefined;
+  }
+
+  return {
+    nodeId: source.nodeId,
+    nodeKind: source.nodeKind,
+    label: source.label,
+    schemaName: source.schemaName,
+    qualifiedName: source.qualifiedName,
+    page: Number.isFinite(source.page) ? Math.max(1, Number(source.page)) : 1,
+    pageSize: Number.isFinite(source.pageSize)
+      ? Math.max(1, Number(source.pageSize))
+      : 50,
+  } satisfies DbTabSource;
 }
 
 function normalizeWorkspace(
@@ -649,23 +735,38 @@ function normalizeWorkspace(
 }
 
 export async function loadDbWorkspace(): Promise<DbWorkspaceState> {
-  const stored = await loadDbWorkspaceFromDb();
+  const [storedPersistent, storedTemp] = await Promise.all([
+    loadDbPersistentStateFromDb(),
+    loadDbTempStateFromDb(),
+  ]);
+  const stored = {
+    ...(storedTemp && typeof storedTemp === 'object' ? storedTemp : {}),
+    ...(storedPersistent && typeof storedPersistent === 'object'
+      ? storedPersistent
+      : {}),
+  } as StoredDbWorkspaceState;
   const normalized = normalizeWorkspace(
-    stored as StoredDbWorkspaceState | null | undefined,
+    stored,
   );
 
-  const serialized = serializeWorkspaceForStorage(normalized);
-  if (!stored || JSON.stringify(stored) !== JSON.stringify(serialized)) {
-    await saveDbWorkspaceToDb(serialized);
+  const serializedPersistent = serializeWorkspaceForStorage(normalized);
+  const serializedTemp = serializeDbTempState(normalized);
+  if (JSON.stringify(storedPersistent ?? null) !== JSON.stringify(serializedPersistent)) {
+    await saveDbPersistentStateToDb(serializedPersistent);
+  }
+  if (JSON.stringify(storedTemp ?? null) !== JSON.stringify(serializedTemp)) {
+    await saveDbTempStateToDb(serializedTemp);
   }
 
   return normalized;
 }
 
 export async function saveDbWorkspace(workspace: DbWorkspaceState): Promise<void> {
-  await saveDbWorkspaceToDb(
-    serializeWorkspaceForStorage(normalizeWorkspace(workspace)),
-  );
+  const normalized = normalizeWorkspace(workspace);
+  await Promise.all([
+    saveDbPersistentStateToDb(serializeWorkspaceForStorage(normalized)),
+    saveDbTempStateToDb(serializeDbTempState(normalized)),
+  ]);
 }
 
 export function createDbConnection(kind: DbConnectionKind): DbConnection {
@@ -675,17 +776,24 @@ export function createDbConnection(kind: DbConnectionKind): DbConnection {
     name: ``,
     kind,
     url: buildDbConnectionUrl({ kind, config, url: "" }),
+    environment: "local",
     config,
     defaultQuery: defaultQueryForKind(kind),
   };
 }
 
-export function createDbTab(connection: DbConnection): DbTab {
+export function createDbTab(
+  connection: DbConnection,
+  type: DbTabType = defaultDbTabTypeForConnection(connection),
+): DbTab {
   return {
     id: makeId("db-tab"),
     connectionId: connection.id,
+    databaseName: connection.config.database.trim() || null,
     title: connection.name,
     query: connection.defaultQuery,
+    type,
+    transactionSessionId: null,
   };
 }
 
@@ -706,6 +814,7 @@ export function createDbHistoryItem(
   connection: DbConnection,
   query: string,
   status: "success" | "error",
+  durationMs?: number,
 ): DbQueryHistoryItem {
   return {
     id: makeId("db-hist"),
@@ -715,21 +824,37 @@ export function createDbHistoryItem(
     query,
     executedAt: new Date().toISOString(),
     status,
+    durationMs,
   };
 }
 
 function serializeWorkspaceForStorage(
   workspace: DbWorkspaceState,
-): StoredDbWorkspaceState {
+): StoredDbPersistentState {
   return {
-    ...workspace,
     savedConnections: workspace.savedConnections.map((connection) => ({
       id: connection.id,
       name: connection.name,
       kind: connection.kind,
       url: buildDbConnectionUrl(connection) || connection.url.trim(),
+      environment: connection.environment,
       defaultQuery: connection.defaultQuery,
     })),
+    favorites: workspace.favorites,
+  };
+}
+
+function serializeDbTempState(
+  workspace: DbWorkspaceState,
+): StoredDbTempState {
+  return {
+    connectedConnectionIds: workspace.connectedConnectionIds,
+    activeConnectionId: workspace.activeConnectionId,
+    openTabIds: workspace.openTabIds,
+    pinnedTabIds: workspace.pinnedTabIds,
+    activeTabId: workspace.activeTabId,
+    tabsById: workspace.tabsById,
+    history: workspace.history,
   };
 }
 
@@ -832,24 +957,31 @@ function buildQualifiedSqlName(
   return `${escapeSqlIdentifier(kind, normalizedSchemaName)}.${quotedObjectName}`;
 }
 
+function escapeSqlString(value: string) {
+  return value.replace(/'/g, "''");
+}
+
 function buildSqlObjectQuery(
   connection: DbConnection,
   schemaName: string,
   objectName: string,
+  page = 1,
+  pageSize = 200,
 ) {
   const qualifiedName = buildQualifiedSqlName(
     connection.kind,
     schemaName,
     objectName,
   );
+  const offset = Math.max(0, (page - 1) * pageSize);
 
   switch (connection.kind) {
     case "sqlserver":
-      return `SELECT TOP 200 * FROM ${qualifiedName};`;
+      return `SELECT * FROM ${qualifiedName} ORDER BY 1 OFFSET ${offset} ROWS FETCH NEXT ${pageSize} ROWS ONLY;`;
     case "oracle":
-      return `SELECT * FROM ${qualifiedName} FETCH FIRST 200 ROWS ONLY;`;
+      return `SELECT * FROM ${qualifiedName} OFFSET ${offset} ROWS FETCH NEXT ${pageSize} ROWS ONLY;`;
     default:
-      return `SELECT * FROM ${qualifiedName} LIMIT 200;`;
+      return `SELECT * FROM ${qualifiedName} LIMIT ${pageSize};`;
   }
 }
 
@@ -863,6 +995,16 @@ function buildSqlCountQuery(
     schemaName,
     objectName,
   )};`;
+}
+
+export function buildPagedSqlObjectQuery(
+  connection: DbConnection,
+  schemaName: string,
+  objectName: string,
+  page: number,
+  pageSize: number,
+) {
+  return buildSqlObjectQuery(connection, schemaName, objectName, page, pageSize);
 }
 
 function buildSqlFunctionQuery(
@@ -895,6 +1037,15 @@ function asString(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function getSqlExplorerValue(
+  row: SqlExplorerRow | SqlExplorerRoutineRow,
+  key: 'schema_name' | 'table_name' | 'table_type' | 'routine_name',
+) {
+  const upperKey = key.toUpperCase() as 'SCHEMA_NAME' | 'TABLE_NAME' | 'TABLE_TYPE' | 'ROUTINE_NAME'
+  const record = row as Record<string, unknown>
+  return record[key] ?? record[upperKey]
+}
+
 function buildSqlExplorerNodes(
   connection: DbConnection,
   rows: SqlExplorerRow[],
@@ -910,13 +1061,10 @@ function buildSqlExplorerNodes(
   >();
 
   for (const row of rows) {
-    const objectName = asString(row.table_name);
-    if (!objectName) {
-      continue;
-    }
+    const objectName = asString(getSqlExplorerValue(row, 'table_name'));
 
     const schemaName =
-      asString(row.schema_name) ||
+      asString(getSqlExplorerValue(row, 'schema_name')) ||
       connection.config.database.trim() ||
       (connection.kind === "sqlite" ? "main" : "default");
     const bucket =
@@ -926,7 +1074,9 @@ function buildSqlExplorerNodes(
         views: [],
         functions: [],
       };
-    const objectType = normalizeExplorerTableType(row.table_type);
+    const objectType = normalizeExplorerTableType(
+      getSqlExplorerValue(row, 'table_type'),
+    );
     const leaf = makeExplorerLeaf(
       objectType,
       objectName,
@@ -953,13 +1103,10 @@ function buildSqlExplorerNodes(
   }
 
   for (const row of routineRows) {
-    const functionName = asString(row.routine_name);
-    if (!functionName) {
-      continue;
-    }
+    const functionName = asString(getSqlExplorerValue(row, 'routine_name'));
 
     const schemaName =
-      asString(row.schema_name) ||
+      asString(getSqlExplorerValue(row, 'schema_name')) ||
       connection.config.database.trim() ||
       (connection.kind === "sqlite" ? "main" : "default");
     const bucket =
@@ -1243,13 +1390,38 @@ async function loadSqlExplorerContents(
 }
 
 function buildDbCommandMessage(tab: DbTab, connection: DbConnection): DbSocketCommandMessage {
+  const effectiveDatabase = tab.databaseName?.trim() || connection.config.database.trim()
+  const effectiveConnection = effectiveDatabase
+    ? {
+        ...connection,
+        config: {
+          ...connection.config,
+          database: effectiveDatabase,
+        },
+        url:
+          connection.kind === 'postgresql' || connection.kind === 'gaussdb'
+            ? switchDsnDatabase(
+                connection.kind,
+                buildDbConnectionUrl(connection) || connection.url,
+                effectiveDatabase,
+              )
+            : buildDbConnectionUrl({
+                ...connection,
+                config: {
+                  ...connection.config,
+                  database: effectiveDatabase,
+                },
+              }),
+      }
+    : connection
+
   if (connection.kind === "redis") {
     const parts = splitRedisCommand(tab.query.trim());
     return {
       id: tab.id,
       type: "redis",
       payload: {
-        url: connection.url,
+        url: effectiveConnection.url,
         command: parts[0] ?? "",
         arguments: parts.slice(1),
       },
@@ -1261,7 +1433,7 @@ function buildDbCommandMessage(tab: DbTab, connection: DbConnection): DbSocketCo
       id: tab.id,
       type: "mongoShell",
       payload: {
-        url: connection.url,
+        url: effectiveConnection.url,
         command: tab.query,
       },
     };
@@ -1272,7 +1444,7 @@ function buildDbCommandMessage(tab: DbTab, connection: DbConnection): DbSocketCo
     type: "sql",
     payload: {
       driver: connection.kind,
-      dsn: connection.url,
+      dsn: effectiveConnection.url,
       query: tab.query,
     },
   };
@@ -1577,6 +1749,9 @@ async function loadMongoCollectionsForDatabase(
         buildMongoCollectionQuery(name),
         "Collection",
         buildMongoCollectionCountQuery(name),
+        {
+          schemaName: databaseName,
+        },
       );
     })
     .filter((node): node is DbExplorerNode => Boolean(node))
@@ -1691,7 +1866,9 @@ async function loadRedisDatabaseChildren(
     .filter(Boolean)
     .slice(0, 200)
     .map((keyName) =>
-      makeExplorerLeaf("key", keyName, buildRedisKeyQuery(keyName), "Key"),
+      makeExplorerLeaf("key", keyName, buildRedisKeyQuery(keyName), "Key", undefined, {
+        schemaName: databaseName,
+      }),
     )
     .sort((a, b) => a.label.localeCompare(b.label));
 
@@ -1723,7 +1900,18 @@ function switchDsnDatabase(
   database: string,
 ): string {
   if (kind === "postgresql" || kind === "gaussdb") {
-    // Keyword DSN format: host=... dbname=old → host=... dbname=new
+    if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(baseDsn)) {
+      try {
+        const url = new URL(baseDsn)
+        url.pathname = database ? `/${encodeURIComponent(database)}` : "/"
+        url.searchParams.delete("dbname")
+        return url.toString()
+      } catch {
+        // Fall through to keyword DSN handling below.
+      }
+    }
+
+    // Keyword DSN format: host=... dbname=old -> host=... dbname=new
     if (/dbname\s*=/i.test(baseDsn)) {
       return baseDsn.replace(/dbname\s*=\s*\S*/i, `dbname=${database}`);
     }
@@ -1775,6 +1963,634 @@ export async function loadDbExplorerDatabaseChildren(
   }
 
   return nodes;
+}
+
+export function canCancelDbExecution(state: DbExecutionState | undefined) {
+  return state?.status === "running" && Boolean(state.requestId);
+}
+
+export function startDbExecution(tab: DbTab, connection: DbConnection) {
+  const requestId = makeId("db-run");
+  const baseMessage = buildDbCommandMessage(tab, connection);
+  const message = {
+    ...baseMessage,
+    id: requestId,
+    payload: {
+      ...baseMessage.payload,
+      sessionId: tab.transactionSessionId ?? undefined,
+    },
+  };
+
+  return {
+    requestId,
+    promise: executeDbSocketCommand(message, connection),
+  };
+}
+
+export async function executeDbAdHocQuery(
+  connection: DbConnection,
+  query: string,
+  type: DbTabType = 'query',
+) {
+  const tab: DbTab = {
+    id: makeId('db-adhoc'),
+    connectionId: connection.id,
+    title: connection.name,
+    query,
+    type,
+    transactionSessionId: null,
+  }
+
+  return executeDbSocketCommand(buildDbCommandMessage(tab, connection), connection)
+}
+
+export async function cancelDbExecution(requestId: string) {
+  await executeDbSocketCommand(
+    {
+      id: makeId("db-cancel"),
+      type: "dbCancel",
+      payload: { requestId },
+    },
+    { kind: "postgresql" },
+  );
+}
+
+function toSummaryEntries(
+  entries: Array<[string, string | number | boolean | null | undefined]>,
+) {
+  return entries
+    .filter(([, value]) => value !== undefined && value !== null && `${value}`.trim())
+    .map(([label, value]) => ({ label, value: String(value) }));
+}
+
+function parseSqlColumnsResult(result: DbResultPayload): DbObjectDetail["columns"] {
+  if (result.kind !== "sql" || !Array.isArray(result.data.rows)) {
+    return [];
+  }
+
+  return result.data.rows.map((row) => ({
+    name: asString(row.column_name ?? row.name),
+    type: asString(row.data_type ?? row.type ?? row.column_type),
+    nullable: asString(row.is_nullable).toLowerCase() === "yes",
+    defaultValue: asString(row.column_default ?? row.default_value ?? row.default),
+    extra: asString(row.extra ?? row.comment),
+  }));
+}
+
+function parseSqlIndexesResult(
+  connection: DbConnection,
+  result: DbResultPayload,
+): DbObjectIndex[] {
+  if (result.kind !== 'sql' || !Array.isArray(result.data.rows)) {
+    return [];
+  }
+
+  if (connection.kind === 'sqlite') {
+    return result.data.rows
+      .map((row) => ({
+        name: asString(row.name),
+        columns: [],
+        unique: Number(row.unique ?? 0) > 0,
+        primary: false,
+      }))
+      .filter((item) => item.name);
+  }
+
+  const buckets = new Map<string, DbObjectIndex>();
+  for (const row of result.data.rows) {
+    const name = asString(
+      row.index_name ?? row.name ?? row.constraint_name ?? row.key_name,
+    );
+    if (!name) continue;
+    const column = asString(
+      row.column_name ?? row.attname ?? row.column_names ?? row.expression,
+    );
+    const bucket = buckets.get(name) ?? {
+      name,
+      columns: [],
+      unique: ['1', 'true', 'yes'].includes(
+        asString(row.is_unique ?? row.non_unique ?? row.unique).toLowerCase(),
+      )
+        ? asString(row.non_unique).toLowerCase() !== '1'
+        : undefined,
+      primary: ['primary', 'p'].includes(
+        asString(row.index_type ?? row.constraint_type).toLowerCase(),
+      ),
+    };
+    if (column) {
+      bucket.columns = [...bucket.columns, column];
+    }
+    buckets.set(name, bucket);
+  }
+
+  return Array.from(buckets.values());
+}
+
+function parseSqlConstraintsResult(result: DbResultPayload): DbObjectConstraint[] {
+  if (result.kind !== 'sql' || !Array.isArray(result.data.rows)) {
+    return [];
+  }
+
+  return result.data.rows
+    .map((row) => ({
+      name: asString(row.constraint_name ?? row.name),
+      type: asString(row.constraint_type ?? row.type),
+      definition: asString(row.definition ?? row.check_clause ?? row.condition),
+    }))
+    .filter((item) => item.name);
+}
+
+function parseSqlForeignKeysResult(result: DbResultPayload): DbObjectForeignKey[] {
+  if (result.kind !== 'sql' || !Array.isArray(result.data.rows)) {
+    return [];
+  }
+
+  const buckets = new Map<string, DbObjectForeignKey>();
+  for (const row of result.data.rows) {
+    const name = asString(row.constraint_name ?? row.name);
+    if (!name) continue;
+    const column = asString(row.column_name);
+    const referencedColumn = asString(row.referenced_column_name ?? row.foreign_column_name);
+    const referencedTable = asString(row.referenced_table_name ?? row.foreign_table_name);
+    const bucket = buckets.get(name) ?? {
+      name,
+      columns: [],
+      referencedTable,
+      referencedColumns: [],
+    };
+    if (column) bucket.columns = [...bucket.columns, column];
+    if (referencedColumn) {
+      bucket.referencedColumns = [...bucket.referencedColumns, referencedColumn];
+    }
+    if (!bucket.referencedTable && referencedTable) {
+      bucket.referencedTable = referencedTable;
+    }
+    buckets.set(name, bucket);
+  }
+
+  return Array.from(buckets.values());
+}
+
+function buildSqlIndexesQuery(
+  connection: DbConnection,
+  node: Exclude<DbExplorerNode, { kind: 'group' }>,
+) {
+  const schemaName = node.schemaName ?? 'public';
+  const objectName = node.label;
+  switch (connection.kind) {
+    case 'postgresql':
+    case 'gaussdb':
+      return `SELECT indexname AS index_name, indexdef AS column_name
+FROM pg_indexes
+WHERE schemaname = '${escapeSqlString(schemaName)}'
+  AND tablename = '${escapeSqlString(objectName)}'
+ORDER BY indexname;`;
+    case 'mysql':
+    case 'tidb':
+      return `SELECT index_name, column_name, non_unique
+FROM information_schema.statistics
+WHERE table_schema = '${escapeSqlString(schemaName)}'
+  AND table_name = '${escapeSqlString(objectName)}'
+ORDER BY index_name, seq_in_index;`;
+    case 'sqlite':
+      return `PRAGMA index_list(${escapeSqlIdentifier(connection.kind, objectName)});`;
+    case 'sqlserver':
+      return `SELECT i.name AS index_name, c.name AS column_name, i.is_unique
+FROM sys.indexes i
+JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+JOIN sys.tables t ON i.object_id = t.object_id
+JOIN sys.schemas s ON t.schema_id = s.schema_id
+WHERE s.name = '${escapeSqlString(schemaName)}'
+  AND t.name = '${escapeSqlString(objectName)}'
+ORDER BY i.name, ic.key_ordinal;`;
+    default:
+      return null;
+  }
+}
+
+function buildSqlConstraintsQuery(
+  connection: DbConnection,
+  node: Exclude<DbExplorerNode, { kind: 'group' }>,
+) {
+  const schemaName = node.schemaName ?? 'public';
+  const objectName = node.label;
+  switch (connection.kind) {
+    case 'postgresql':
+    case 'gaussdb':
+      return `SELECT conname AS constraint_name, contype AS constraint_type,
+pg_get_constraintdef(c.oid) AS definition
+FROM pg_constraint c
+JOIN pg_class t ON c.conrelid = t.oid
+JOIN pg_namespace n ON n.oid = t.relnamespace
+WHERE n.nspname = '${escapeSqlString(schemaName)}'
+  AND t.relname = '${escapeSqlString(objectName)}';`;
+    case 'mysql':
+    case 'tidb':
+      return `SELECT constraint_name, constraint_type
+FROM information_schema.table_constraints
+WHERE table_schema = '${escapeSqlString(schemaName)}'
+  AND table_name = '${escapeSqlString(objectName)}';`;
+    case 'sqlserver':
+      return `SELECT tc.CONSTRAINT_NAME AS constraint_name, tc.CONSTRAINT_TYPE AS constraint_type
+FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+WHERE tc.TABLE_SCHEMA = '${escapeSqlString(schemaName)}'
+  AND tc.TABLE_NAME = '${escapeSqlString(objectName)}';`;
+    default:
+      return null;
+  }
+}
+
+function buildSqlForeignKeysQuery(
+  connection: DbConnection,
+  node: Exclude<DbExplorerNode, { kind: 'group' }>,
+) {
+  const schemaName = node.schemaName ?? 'public';
+  const objectName = node.label;
+  switch (connection.kind) {
+    case 'postgresql':
+    case 'gaussdb':
+      return `SELECT tc.constraint_name, kcu.column_name,
+ccu.table_name AS referenced_table_name,
+ccu.column_name AS referenced_column_name
+FROM information_schema.table_constraints tc
+JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
+JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name = tc.constraint_name
+WHERE tc.constraint_type = 'FOREIGN KEY'
+  AND tc.table_schema = '${escapeSqlString(schemaName)}'
+  AND tc.table_name = '${escapeSqlString(objectName)}';`;
+    case 'mysql':
+    case 'tidb':
+      return `SELECT constraint_name, column_name, referenced_table_name, referenced_column_name
+FROM information_schema.key_column_usage
+WHERE table_schema = '${escapeSqlString(schemaName)}'
+  AND table_name = '${escapeSqlString(objectName)}'
+  AND referenced_table_name IS NOT NULL;`;
+    case 'sqlserver':
+      return `SELECT fk.name AS constraint_name,
+pc.name AS column_name,
+rt.name AS referenced_table_name,
+rc.name AS referenced_column_name
+FROM sys.foreign_keys fk
+JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
+JOIN sys.tables pt ON fkc.parent_object_id = pt.object_id
+JOIN sys.columns pc ON fkc.parent_object_id = pc.object_id AND fkc.parent_column_id = pc.column_id
+JOIN sys.tables rt ON fkc.referenced_object_id = rt.object_id
+JOIN sys.columns rc ON fkc.referenced_object_id = rc.object_id AND fkc.referenced_column_id = rc.column_id
+JOIN sys.schemas s ON pt.schema_id = s.schema_id
+WHERE s.name = '${escapeSqlString(schemaName)}'
+  AND pt.name = '${escapeSqlString(objectName)}';`;
+    default:
+      return null;
+  }
+}
+
+function buildSqlObjectColumnsQuery(connection: DbConnection, node: DbExplorerNode) {
+  if (node.kind === "group") {
+    return "SELECT 1;";
+  }
+
+  const schemaName = node.schemaName ?? "public";
+  const objectName = node.label;
+
+  switch (connection.kind) {
+    case "postgresql":
+    case "gaussdb":
+      return `SELECT column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema = '${escapeSqlString(schemaName)}'
+  AND table_name = '${escapeSqlString(objectName)}'
+ORDER BY ordinal_position;`;
+    case "mysql":
+    case "tidb":
+      return `SELECT column_name, column_type, is_nullable, column_default, extra
+FROM information_schema.columns
+WHERE table_schema = '${escapeSqlString(schemaName)}'
+  AND table_name = '${escapeSqlString(objectName)}'
+ORDER BY ordinal_position;`;
+    case "sqlite":
+      return `PRAGMA table_info(${escapeSqlIdentifier(connection.kind, objectName)});`;
+    case "sqlserver":
+      return `SELECT COLUMN_NAME AS column_name, DATA_TYPE AS data_type, IS_NULLABLE AS is_nullable, COLUMN_DEFAULT AS column_default
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = '${escapeSqlString(schemaName)}'
+  AND TABLE_NAME = '${escapeSqlString(objectName)}'
+ORDER BY ORDINAL_POSITION;`;
+    default:
+      return `SELECT * FROM ${node.qualifiedName ?? node.label} LIMIT 1;`;
+  }
+}
+
+function buildSqlPrimaryKeyQuery(connection: DbConnection, node: Exclude<DbExplorerNode, { kind: "group" }>) {
+  const schemaName = node.schemaName ?? "public";
+  const objectName = node.label;
+
+  switch (connection.kind) {
+    case "postgresql":
+    case "gaussdb":
+      return `SELECT a.attname AS column_name
+FROM pg_index i
+JOIN pg_class c ON c.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey)
+WHERE i.indisprimary
+  AND n.nspname = '${escapeSqlString(schemaName)}'
+  AND c.relname = '${escapeSqlString(objectName)}'
+ORDER BY a.attnum;`;
+    case "mysql":
+    case "tidb":
+      return `SELECT column_name
+FROM information_schema.key_column_usage
+WHERE table_schema = '${escapeSqlString(schemaName)}'
+  AND table_name = '${escapeSqlString(objectName)}'
+  AND constraint_name = 'PRIMARY'
+ORDER BY ordinal_position;`;
+    case "sqlite":
+      return `PRAGMA table_info(${escapeSqlIdentifier(connection.kind, objectName)});`;
+    case "sqlserver":
+      return `SELECT c.COLUMN_NAME AS column_name
+FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE c
+  ON tc.CONSTRAINT_NAME = c.CONSTRAINT_NAME
+WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+  AND tc.TABLE_SCHEMA = '${escapeSqlString(schemaName)}'
+  AND tc.TABLE_NAME = '${escapeSqlString(objectName)}'
+ORDER BY c.ORDINAL_POSITION;`;
+    default:
+      return null;
+  }
+}
+
+export async function loadDbObjectDetail(
+  connection: DbConnection,
+  node: Exclude<DbExplorerNode, { kind: "group" }>,
+): Promise<DbObjectDetail> {
+  let summary =
+    connection.kind === "mongodb"
+      ? toSummaryEntries([
+          ["Kind", node.kind],
+          ["Database", node.schemaName || connection.config.database || "test"],
+          ["Collection", node.label],
+        ])
+      : connection.kind === "redis"
+        ? toSummaryEntries([
+            ["Kind", node.kind],
+            ["Database", connection.config.database || "0"],
+            ["Key", node.label],
+          ])
+        : toSummaryEntries([
+            ["Kind", node.kind],
+            ["Schema", node.schemaName ?? "default"],
+            ["Name", node.label],
+            ["Qualified", node.qualifiedName ?? node.label],
+          ]);
+
+  if (connection.kind === "mongodb" || connection.kind === "redis") {
+    if (connection.kind === 'redis') {
+      const [typeResult, ttlResult] = await Promise.all([
+        executeDbAdHocQuery(connection, `TYPE ${JSON.stringify(node.label)}`, 'redis'),
+        executeDbAdHocQuery(connection, `TTL ${JSON.stringify(node.label)}`, 'redis'),
+      ])
+
+      summary = toSummaryEntries([
+        ['Kind', node.kind],
+        ['Database', connection.config.database || '0'],
+        ['Key', node.label],
+        ['Type', asString(typeResult.kind === 'redis' ? typeResult.data.result : '')],
+        ['TTL', asString(ttlResult.kind === 'redis' ? ttlResult.data.result : '') || '-1'],
+      ])
+    }
+
+    const sample = await executeDbSocketCommand(buildDbCommandMessage(
+      {
+        id: makeId("db-detail"),
+        connectionId: connection.id,
+        title: node.label,
+        query: node.query,
+        type: connection.kind === 'mongodb' ? 'mongo' : 'redis',
+      },
+      connection,
+    ), connection);
+
+    return {
+      summary,
+      columns: [],
+      ddl: node.query,
+      sample,
+    };
+  }
+
+  const columns = parseSqlColumnsResult(
+    await executeDbSocketCommand(
+      {
+        id: makeId("db-detail"),
+        type: "sql",
+        payload: {
+          driver: connection.kind,
+          dsn: buildDbConnectionUrl(connection) || connection.url.trim(),
+          query: buildSqlObjectColumnsQuery(connection, node),
+        },
+      },
+      connection,
+    ),
+  );
+
+  let primaryKeys: string[] = [];
+  const primaryKeyQuery = buildSqlPrimaryKeyQuery(connection, node);
+  if (primaryKeyQuery) {
+    const primaryKeyResult = await executeDbSocketCommand(
+      {
+        id: makeId("db-detail"),
+        type: "sql",
+        payload: {
+          driver: connection.kind,
+          dsn: buildDbConnectionUrl(connection) || connection.url.trim(),
+          query: primaryKeyQuery,
+        },
+      },
+      connection,
+    );
+
+    if (primaryKeyResult.kind === "sql") {
+      primaryKeys = (primaryKeyResult.data.rows ?? [])
+        .map((row) => asString(row.column_name ?? row.name))
+        .filter(Boolean);
+
+      if (connection.kind === "sqlite" && primaryKeys.length === 0) {
+        primaryKeys = (primaryKeyResult.data.rows ?? [])
+          .filter((row) => Number(row.pk ?? 0) > 0)
+          .map((row) => asString(row.name ?? row.column_name))
+          .filter(Boolean);
+      }
+    }
+  }
+
+  let indexes: DbObjectIndex[] = [];
+  const indexesQuery = buildSqlIndexesQuery(connection, node);
+  if (indexesQuery) {
+    const indexesResult = await executeDbSocketCommand(
+      {
+        id: makeId('db-detail'),
+        type: 'sql',
+        payload: {
+          driver: connection.kind,
+          dsn: buildDbConnectionUrl(connection) || connection.url.trim(),
+          query: indexesQuery,
+        },
+      },
+      connection,
+    );
+    indexes = parseSqlIndexesResult(connection, indexesResult);
+  }
+
+  let constraints: DbObjectConstraint[] = [];
+  const constraintsQuery = buildSqlConstraintsQuery(connection, node);
+  if (constraintsQuery) {
+    const constraintsResult = await executeDbSocketCommand(
+      {
+        id: makeId('db-detail'),
+        type: 'sql',
+        payload: {
+          driver: connection.kind,
+          dsn: buildDbConnectionUrl(connection) || connection.url.trim(),
+          query: constraintsQuery,
+        },
+      },
+      connection,
+    );
+    constraints = parseSqlConstraintsResult(constraintsResult);
+  }
+
+  let foreignKeys: DbObjectForeignKey[] = [];
+  const foreignKeysQuery = buildSqlForeignKeysQuery(connection, node);
+  if (foreignKeysQuery) {
+    const foreignKeysResult = await executeDbSocketCommand(
+      {
+        id: makeId('db-detail'),
+        type: 'sql',
+        payload: {
+          driver: connection.kind,
+          dsn: buildDbConnectionUrl(connection) || connection.url.trim(),
+          query: foreignKeysQuery,
+        },
+      },
+      connection,
+    );
+    foreignKeys = parseSqlForeignKeysResult(foreignKeysResult);
+  }
+
+  const ddlResult = await executeDbSocketCommand(
+    {
+      id: makeId("db-detail"),
+      type: "sql",
+      payload: {
+        driver: connection.kind,
+        dsn: buildDbConnectionUrl(connection) || connection.url.trim(),
+        query: buildExplorerShowSqlQueryPlaceholder(connection, node),
+      },
+    },
+    connection,
+  );
+
+  const sample = await executeDbSocketCommand(
+    {
+      id: makeId("db-detail"),
+      type: "sql",
+      payload: {
+        driver: connection.kind,
+        dsn: buildDbConnectionUrl(connection) || connection.url.trim(),
+        query: node.query,
+      },
+    },
+    connection,
+  );
+
+  let ddl = buildExplorerShowSqlQueryPlaceholder(connection, node);
+  if (ddlResult.kind === "sql") {
+    const firstRow = ddlResult.data.rows?.[0];
+    if (firstRow) {
+      const firstValue = Object.values(firstRow)[0];
+      ddl = typeof firstValue === "string" ? firstValue : JSON.stringify(firstRow, null, 2);
+    }
+  }
+
+  return {
+    summary,
+    columns,
+    primaryKeys,
+    indexes,
+    constraints,
+    foreignKeys,
+    ddl,
+    sample,
+  };
+}
+
+export async function startDbTransactionSession(connection: DbConnection) {
+  const sessionId = makeId("db-tx");
+  await executeDbSocketCommand(
+    {
+      id: makeId("db-tx-begin"),
+      type: "dbTransaction",
+      payload: {
+        action: "begin",
+        sessionId,
+        driver: connection.kind,
+        dsn: buildDbConnectionUrl(connection) || connection.url.trim(),
+      },
+    },
+    connection,
+  );
+  return sessionId;
+}
+
+export async function finishDbTransactionSession(
+  connection: DbConnection,
+  sessionId: string,
+  action: "commit" | "rollback",
+) {
+  await executeDbSocketCommand(
+    {
+      id: makeId(`db-tx-${action}`),
+      type: "dbTransaction",
+      payload: {
+        action,
+        sessionId,
+      },
+    },
+    connection,
+  );
+}
+
+function buildExplorerShowSqlQueryPlaceholder(
+  connection: DbConnection,
+  node: Exclude<DbExplorerNode, { kind: "group" }>,
+) {
+  if (node.kind === "function") {
+    return buildSqlFunctionQuery(connection, node.schemaName ?? "public", node.label);
+  }
+
+  const qualifiedName = node.qualifiedName ?? node.label;
+  switch (connection.kind) {
+    case "postgresql":
+    case "gaussdb":
+      if (node.kind === "view") {
+        return `SELECT pg_get_viewdef('${escapeSqlString(qualifiedName)}'::regclass, true);`;
+      }
+      return `SELECT column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema = '${escapeSqlString(node.schemaName ?? "public")}'
+  AND table_name = '${escapeSqlString(node.label)}'
+ORDER BY ordinal_position;`;
+    case "mysql":
+    case "tidb":
+    case "clickhouse":
+      return `SHOW CREATE TABLE ${qualifiedName};`;
+    case "sqlite":
+      return `SELECT sql FROM sqlite_master WHERE name = '${escapeSqlString(node.label)}';`;
+    default:
+      return `SELECT * FROM ${qualifiedName};`;
+  }
 }
 
 export async function testDbConnection(connection: DbConnection) {

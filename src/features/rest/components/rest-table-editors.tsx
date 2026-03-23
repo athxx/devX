@@ -9,6 +9,7 @@ import {
   onMount,
 } from "solid-js";
 import { ControlDot } from "../../../components/ui-primitives";
+import { loadRestUiValueFromDb, saveRestUiValueToDb } from "../local-db";
 import type { KeyValueEntry } from "../models";
 
 function ColumnResizeHandle(props: {
@@ -134,11 +135,12 @@ export function KeyValueTableEditor(props: {
   onMount(() => {
     const storageKey = resolvedStorageKey();
     if (storageKey) {
-      const saved = window.localStorage.getItem(storageKey);
-      const parsed = Number(saved);
-      if (!Number.isNaN(parsed)) {
-        setColumnSplit(clampColumnSplit(parsed));
-      }
+      void loadRestUiValueFromDb<number>(storageKey).then((saved) => {
+        const parsed = Number(saved);
+        if (!Number.isNaN(parsed)) {
+          setColumnSplit(clampColumnSplit(parsed));
+        }
+      });
     }
 
     const clearSuggestions = () => {
@@ -157,7 +159,7 @@ export function KeyValueTableEditor(props: {
   createEffect(() => {
     const storageKey = resolvedStorageKey();
     if (storageKey) {
-      window.localStorage.setItem(storageKey, String(columnSplit()));
+      void saveRestUiValueToDb(storageKey, columnSplit());
     }
   });
 
@@ -382,19 +384,17 @@ export function FormDataTableEditor(props: {
     if (!props.resizeStorageKey) {
       return;
     }
-    const saved = window.localStorage.getItem(props.resizeStorageKey);
-    const parsed = Number(saved);
-    if (!Number.isNaN(parsed)) {
-      setColumnSplit(clampColumnSplit(parsed));
-    }
+    void loadRestUiValueFromDb<number>(props.resizeStorageKey).then((saved) => {
+      const parsed = Number(saved);
+      if (!Number.isNaN(parsed)) {
+        setColumnSplit(clampColumnSplit(parsed));
+      }
+    });
   });
 
   createEffect(() => {
     if (props.resizeStorageKey) {
-      window.localStorage.setItem(
-        props.resizeStorageKey,
-        String(columnSplit()),
-      );
+      void saveRestUiValueToDb(props.resizeStorageKey, columnSplit());
     }
   });
 

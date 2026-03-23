@@ -6,6 +6,8 @@ export type AppSettings = {
   requestTimeoutMs: number;
   persistHistory: boolean;
   defaultToolId: string;
+  theme: "dark" | "light";
+  locale: "zh-CN" | "en-US";
   proxy: {
     api: {
       mode: "none" | "proxy";
@@ -28,6 +30,8 @@ export const defaultSettings: AppSettings = {
   requestTimeoutMs: 15000,
   persistHistory: true,
   defaultToolId: "api-client",
+  theme: "dark",
+  locale: "zh-CN",
   proxy: {
     api: {
       mode: "none",

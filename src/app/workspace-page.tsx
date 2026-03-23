@@ -23,6 +23,8 @@ import {
 } from "./workspace-copy";
 import { RestPlayground } from "../features/rest/components/rest-playground";
 import { startSyncScheduler } from "../features/sync/service";
+import { readDevxSection, writeDevxSection } from "../lib/indexed-db";
+import { loadSettings, saveSettings } from "../lib/storage";
 
 type WorkspacePlatform = "extension" | "web";
 type WorkspaceTab =
@@ -134,7 +136,7 @@ function PanelError(props: { error: Error; name: string }) {
 }
 
 export function WorkspacePage(_props: WorkspacePageProps) {
-  const sidebarWidthStorageKey = "devx-sidebar-width";
+  const sidebarWidthStorageKey = "sidebarWidth";
   const topTabHoverDelayMs = 300;
   const clampSidebarWidth = (value: number) =>
     Math.min(520, Math.max(180, Math.round(value)));
@@ -149,31 +151,28 @@ export function WorkspacePage(_props: WorkspacePageProps) {
 
   onMount(() => {
     const stopSyncScheduler = startSyncScheduler();
-    const savedTheme = window.localStorage.getItem("devx-theme");
-    const savedLocale = window.localStorage.getItem("devx-locale");
-    const savedSidebarWidth = window.localStorage.getItem(
-      sidebarWidthStorageKey,
-    );
-
-    if (savedTheme === "dark" || savedTheme === "light") {
-      setDarkMode(savedTheme === "dark");
-    } else {
-      const preferredDark = window.matchMedia(
-        "(prefers-color-scheme: dark)",
-      ).matches;
-      setDarkMode(preferredDark);
-    }
-
-    if (savedLocale === "zh-CN" || savedLocale === "en-US") {
-      setLocale(savedLocale);
-    }
-
-    if (savedSidebarWidth) {
-      const parsedWidth = Number(savedSidebarWidth);
-      if (!Number.isNaN(parsedWidth)) {
-        setSidebarWidth(clampSidebarWidth(parsedWidth));
+    void Promise.all([
+      loadSettings(),
+      readDevxSection<number>(['temp', 'appUi', sidebarWidthStorageKey]),
+    ]).then(([settings, savedSidebarWidth]) => {
+      if (settings.theme === 'dark' || settings.theme === 'light') {
+        setDarkMode(settings.theme === 'dark')
+      } else {
+        const preferredDark = window.matchMedia(
+          "(prefers-color-scheme: dark)",
+        ).matches;
+        setDarkMode(preferredDark);
       }
-    }
+
+      if (settings.locale === 'zh-CN' || settings.locale === 'en-US') {
+        setLocale(settings.locale)
+      }
+
+      const parsedWidth = Number(savedSidebarWidth)
+      if (!Number.isNaN(parsedWidth)) {
+        setSidebarWidth(clampSidebarWidth(parsedWidth))
+      }
+    })
 
     onCleanup(stopSyncScheduler);
   });
@@ -187,16 +186,26 @@ export function WorkspacePage(_props: WorkspacePageProps) {
   createEffect(() => {
     const theme = darkMode() ? "dark" : "light";
     document.documentElement.dataset.theme = theme;
-    window.localStorage.setItem("devx-theme", theme);
+    void loadSettings().then((settings) =>
+      saveSettings({
+        ...settings,
+        theme,
+      }),
+    );
   });
 
   createEffect(() => {
     document.documentElement.lang = locale();
-    window.localStorage.setItem("devx-locale", locale());
+    void loadSettings().then((settings) =>
+      saveSettings({
+        ...settings,
+        locale: locale(),
+      }),
+    );
   });
 
   createEffect(() => {
-    window.localStorage.setItem(sidebarWidthStorageKey, String(sidebarWidth()));
+    void writeDevxSection(['temp', 'appUi', sidebarWidthStorageKey], sidebarWidth());
   });
 
   const handleSidebarResizeStart = (event: MouseEvent) => {

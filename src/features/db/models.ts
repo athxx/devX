@@ -27,15 +27,32 @@ export type DbConnection = {
   name: string;
   kind: DbConnectionKind;
   url: string;
+  environment: 'local' | 'dev' | 'staging' | 'prod';
   config: DbConnectionConfig;
   defaultQuery: string;
 };
 
+export type DbTabSource = {
+  nodeId: string;
+  nodeKind: DbExplorerLeafKind;
+  label: string;
+  schemaName?: string;
+  qualifiedName?: string;
+  page: number;
+  pageSize: number;
+};
+
+export type DbTabType = 'query' | 'data' | 'structure' | 'redis' | 'mongo' | 'raw';
+
 export type DbTab = {
   id: string;
   connectionId: string;
+  databaseName?: string | null;
   title: string;
   query: string;
+  type: DbTabType;
+  source?: DbTabSource;
+  transactionSessionId?: string | null;
 };
 
 export type DbFavoriteQuery = {
@@ -53,6 +70,7 @@ export type DbQueryHistoryItem = {
   query: string;
   executedAt: string;
   status: "success" | "error";
+  durationMs?: number;
 };
 
 export type DbWorkspaceState = {
@@ -69,7 +87,7 @@ export type DbWorkspaceState = {
 
 export type DbExecutionState =
   | { status: "idle" }
-  | { status: "running" }
+  | { status: "running"; requestId?: string; startedAt?: string }
   | { status: "success"; durationMs?: number }
   | { status: "error"; message: string };
 
@@ -127,3 +145,42 @@ export type DbResultPayload =
         durationMs?: number;
       };
     };
+
+export type DbObjectColumn = {
+  name: string;
+  type: string;
+  nullable?: boolean;
+  defaultValue?: string;
+  extra?: string;
+};
+
+export type DbObjectIndex = {
+  name: string;
+  columns: string[];
+  unique?: boolean;
+  primary?: boolean;
+};
+
+export type DbObjectConstraint = {
+  name: string;
+  type: string;
+  definition?: string;
+};
+
+export type DbObjectForeignKey = {
+  name: string;
+  columns: string[];
+  referencedTable: string;
+  referencedColumns: string[];
+};
+
+export type DbObjectDetail = {
+  summary: Array<{ label: string; value: string }>;
+  columns: DbObjectColumn[];
+  primaryKeys?: string[];
+  indexes?: DbObjectIndex[];
+  constraints?: DbObjectConstraint[];
+  foreignKeys?: DbObjectForeignKey[];
+  ddl?: string;
+  sample?: DbResultPayload | null;
+};

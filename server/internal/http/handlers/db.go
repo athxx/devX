@@ -4,12 +4,43 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"sync"
 
 	ws "github.com/gofiber/contrib/v3/websocket"
 	"github.com/gofiber/fiber/v3"
 
 	dbrunner "devx/server/internal/db"
 )
+
+var (
+	runningDBRequestsMu sync.Mutex
+	runningDBRequests   = map[string]context.CancelFunc{}
+)
+
+func registerDBRequest(id string, cancel context.CancelFunc) {
+	runningDBRequestsMu.Lock()
+	runningDBRequests[id] = cancel
+	runningDBRequestsMu.Unlock()
+}
+
+func finishDBRequest(id string) {
+	runningDBRequestsMu.Lock()
+	delete(runningDBRequests, id)
+	runningDBRequestsMu.Unlock()
+}
+
+func cancelDBRequest(id string) bool {
+	runningDBRequestsMu.Lock()
+	cancel, ok := runningDBRequests[id]
+	if ok {
+		delete(runningDBRequests, id)
+	}
+	runningDBRequestsMu.Unlock()
+	if ok {
+		cancel()
+	}
+	return ok
+}
 
 func SQLQuery(deps Dependencies) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -109,7 +140,11 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 				"error": "invalid sql payload",
 			})
 		}
-		result, err := dbrunner.QuerySQL(context.Background(), request, deps.Config.DatabaseTimeout)
+		ctx, cancel := context.WithCancel(context.Background())
+		registerDBRequest(command.ID, cancel)
+		defer finishDBRequest(command.ID)
+		result, err := dbrunner.QuerySQL(ctx, request, deps.Config.DatabaseTimeout)
+		cancel()
 		if err != nil {
 			return conn.WriteJSON(fiber.Map{
 				"id":    command.ID,
@@ -139,7 +174,11 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 			request.Arguments,
 			request.URL,
 		)
-		result, err := dbrunner.RunRedisCommand(context.Background(), request, deps.Config.RedisTimeout)
+		ctx, cancel := context.WithCancel(context.Background())
+		registerDBRequest(command.ID, cancel)
+		defer finishDBRequest(command.ID)
+		result, err := dbrunner.RunRedisCommand(ctx, request, deps.Config.RedisTimeout)
+		cancel()
 		if err != nil {
 			log.Printf("[db-relay] redis failed id=%s: %v", command.ID, err)
 			return conn.WriteJSON(fiber.Map{
@@ -163,7 +202,11 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 				"error": "invalid mongo payload",
 			})
 		}
-		result, err := dbrunner.RunMongoQuery(context.Background(), request, deps.Config.MongoTimeout)
+		ctx, cancel := context.WithCancel(context.Background())
+		registerDBRequest(command.ID, cancel)
+		defer finishDBRequest(command.ID)
+		result, err := dbrunner.RunMongoQuery(ctx, request, deps.Config.MongoTimeout)
+		cancel()
 		if err != nil {
 			return conn.WriteJSON(fiber.Map{
 				"id":    command.ID,
@@ -185,7 +228,11 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 				"error": "invalid mongo ping payload",
 			})
 		}
-		result, err := dbrunner.PingMongo(context.Background(), request, deps.Config.MongoTimeout)
+		ctx, cancel := context.WithCancel(context.Background())
+		registerDBRequest(command.ID, cancel)
+		defer finishDBRequest(command.ID)
+		result, err := dbrunner.PingMongo(ctx, request, deps.Config.MongoTimeout)
+		cancel()
 		if err != nil {
 			return conn.WriteJSON(fiber.Map{
 				"id":    command.ID,
@@ -207,7 +254,11 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 				"error": "invalid mongo list collections payload",
 			})
 		}
-		result, err := dbrunner.ListMongoCollections(context.Background(), request, deps.Config.MongoTimeout)
+		ctx, cancel := context.WithCancel(context.Background())
+		registerDBRequest(command.ID, cancel)
+		defer finishDBRequest(command.ID)
+		result, err := dbrunner.ListMongoCollections(ctx, request, deps.Config.MongoTimeout)
+		cancel()
 		if err != nil {
 			return conn.WriteJSON(fiber.Map{
 				"id":    command.ID,
@@ -229,7 +280,11 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 				"error": "invalid mongo list databases payload",
 			})
 		}
-		result, err := dbrunner.ListMongoDatabases(context.Background(), request, deps.Config.MongoTimeout)
+		ctx, cancel := context.WithCancel(context.Background())
+		registerDBRequest(command.ID, cancel)
+		defer finishDBRequest(command.ID)
+		result, err := dbrunner.ListMongoDatabases(ctx, request, deps.Config.MongoTimeout)
+		cancel()
 		if err != nil {
 			return conn.WriteJSON(fiber.Map{
 				"id":    command.ID,
@@ -262,7 +317,11 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 				"error": err.Error(),
 			})
 		}
-		result, err := dbrunner.RunMongoQuery(context.Background(), parsed, deps.Config.MongoTimeout)
+		ctx, cancel := context.WithCancel(context.Background())
+		registerDBRequest(command.ID, cancel)
+		defer finishDBRequest(command.ID)
+		result, err := dbrunner.RunMongoQuery(ctx, parsed, deps.Config.MongoTimeout)
+		cancel()
 		if err != nil {
 			return conn.WriteJSON(fiber.Map{
 				"id":    command.ID,
@@ -274,6 +333,62 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 			"id":   command.ID,
 			"type": "mongo",
 			"data": result,
+		})
+	case "dbCancel":
+		var request struct {
+			RequestID string `json:"requestId"`
+		}
+		if err := json.Unmarshal(command.Payload, &request); err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": "invalid cancel payload",
+			})
+		}
+		cancelled := cancelDBRequest(request.RequestID)
+		return conn.WriteJSON(fiber.Map{
+			"id":   command.ID,
+			"type": "sql",
+			"data": fiber.Map{"ok": cancelled},
+		})
+	case "dbTransaction":
+		var request struct {
+			Action    string `json:"action"`
+			SessionID string `json:"sessionId"`
+			Driver    string `json:"driver"`
+			DSN       string `json:"dsn"`
+		}
+		if err := json.Unmarshal(command.Payload, &request); err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": "invalid transaction payload",
+			})
+		}
+
+		var err error
+		switch request.Action {
+		case "begin":
+			err = dbrunner.BeginSQLSession(context.Background(), request.SessionID, request.Driver, request.DSN)
+		case "commit":
+			err = dbrunner.FinishSQLSession(request.SessionID, true)
+		case "rollback":
+			err = dbrunner.FinishSQLSession(request.SessionID, false)
+		default:
+			err = fiber.NewError(fiber.StatusBadRequest, "unsupported transaction action")
+		}
+		if err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": err.Error(),
+			})
+		}
+
+		return conn.WriteJSON(fiber.Map{
+			"id":   command.ID,
+			"type": "sql",
+			"data": fiber.Map{"ok": true, "sessionId": request.SessionID, "action": request.Action},
 		})
 	case "dbDisconnect":
 		var request struct {

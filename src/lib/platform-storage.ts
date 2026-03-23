@@ -1,3 +1,5 @@
+import { readDevxSection, removeDevxSection, writeDevxSection } from "./indexed-db";
+
 type StorageArea = "local" | "sync";
 
 function getChromeStorageArea(area: StorageArea) {
@@ -23,13 +25,7 @@ export async function getStoredValue<T>(
     return undefined;
   }
 
-  const raw = window.localStorage.getItem(`${area}:${key}`);
-
-  if (!raw) {
-    return undefined;
-  }
-
-  return JSON.parse(raw) as T;
+  return readDevxSection<T>(["temp", "platformStorage", area, key]);
 }
 
 export async function setStoredValue<T>(
@@ -50,7 +46,7 @@ export async function setStoredValue<T>(
     return;
   }
 
-  window.localStorage.setItem(`${area}:${key}`, JSON.stringify(value));
+  await writeDevxSection(["temp", "platformStorage", area, key], value);
 }
 
 export async function removeStoredValue(key: string, area: StorageArea = "local"): Promise<void> {
@@ -65,5 +61,5 @@ export async function removeStoredValue(key: string, area: StorageArea = "local"
     return;
   }
 
-  window.localStorage.removeItem(`${area}:${key}`);
+  await removeDevxSection(["temp", "platformStorage", area, key]);
 }

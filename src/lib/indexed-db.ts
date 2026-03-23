@@ -10,10 +10,18 @@ export const DEVX_SECTION_STORES = [
   "vault",
 ] as const;
 
-const SNAPSHOT_STORE = "snapshot";
-const ALL_STORES = [...DEVX_SECTION_STORES, SNAPSHOT_STORE] as const;
+export const DEVX_TEMP_SECTION_STORES = ["temp"] as const;
 
-export type DevxSectionStoreName = (typeof DEVX_SECTION_STORES)[number];
+const SNAPSHOT_STORE = "snapshot";
+const ALL_STORES = [
+  ...DEVX_SECTION_STORES,
+  ...DEVX_TEMP_SECTION_STORES,
+  SNAPSHOT_STORE,
+] as const;
+
+export type DevxSectionStoreName =
+  | (typeof DEVX_SECTION_STORES)[number]
+  | (typeof DEVX_TEMP_SECTION_STORES)[number];
 
 export type DevxSectionMeta = {
   version: 1;
@@ -26,7 +34,7 @@ export type DevxSectionEnvelope<T = unknown> = {
 };
 
 export type DevxIndexedDocument = Partial<
-  Record<DevxSectionStoreName, DevxSectionEnvelope<unknown>>
+  Record<(typeof DEVX_SECTION_STORES)[number], DevxSectionEnvelope<unknown>>
 >;
 
 type SnapshotRecord<T = unknown> = {
@@ -44,7 +52,9 @@ function getIndexedDb() {
 }
 
 function isSectionStoreName(value: string): value is DevxSectionStoreName {
-  return DEVX_SECTION_STORES.includes(value as DevxSectionStoreName);
+  return [...DEVX_SECTION_STORES, ...DEVX_TEMP_SECTION_STORES].includes(
+    value as DevxSectionStoreName,
+  );
 }
 
 function createSectionEnvelope<T>(data: T): DevxSectionEnvelope<T> {
@@ -71,7 +81,7 @@ function openDatabase(): Promise<IDBDatabase> {
   }
 
   return new Promise((resolve, reject) => {
-    const request = idb.open(DB_NAME, 1);
+    const request = idb.open(DB_NAME, 2);
 
     request.onupgradeneeded = () => {
       const database = request.result;
@@ -81,7 +91,7 @@ function openDatabase(): Promise<IDBDatabase> {
         database.deleteObjectStore(storeName);
       }
 
-      for (const storeName of DEVX_SECTION_STORES) {
+      for (const storeName of [...DEVX_SECTION_STORES, ...DEVX_TEMP_SECTION_STORES]) {
         database.createObjectStore(storeName);
       }
 

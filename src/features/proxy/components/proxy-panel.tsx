@@ -265,7 +265,7 @@ export function ProxyPanel() {
           disabled={busy()}
           onClick={() => void handleSave()}
         >
-          {busy() ? "Saving..." : "Save Proxy Settings"}
+          {busy() ? "Saving..." : "Save"}
         </button>
 
         <Show when={notice()}>
