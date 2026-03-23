@@ -351,45 +351,6 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 			"type": "sql",
 			"data": fiber.Map{"ok": cancelled},
 		})
-	case "dbTransaction":
-		var request struct {
-			Action    string `json:"action"`
-			SessionID string `json:"sessionId"`
-			Driver    string `json:"driver"`
-			DSN       string `json:"dsn"`
-		}
-		if err := json.Unmarshal(command.Payload, &request); err != nil {
-			return conn.WriteJSON(fiber.Map{
-				"id":    command.ID,
-				"type":  "error",
-				"error": "invalid transaction payload",
-			})
-		}
-
-		var err error
-		switch request.Action {
-		case "begin":
-			err = dbrunner.BeginSQLSession(context.Background(), request.SessionID, request.Driver, request.DSN)
-		case "commit":
-			err = dbrunner.FinishSQLSession(request.SessionID, true)
-		case "rollback":
-			err = dbrunner.FinishSQLSession(request.SessionID, false)
-		default:
-			err = fiber.NewError(fiber.StatusBadRequest, "unsupported transaction action")
-		}
-		if err != nil {
-			return conn.WriteJSON(fiber.Map{
-				"id":    command.ID,
-				"type":  "error",
-				"error": err.Error(),
-			})
-		}
-
-		return conn.WriteJSON(fiber.Map{
-			"id":   command.ID,
-			"type": "sql",
-			"data": fiber.Map{"ok": true, "sessionId": request.SessionID, "action": request.Action},
-		})
 	case "dbDisconnect":
 		var request struct {
 			Kind   string `json:"kind"`

@@ -23,7 +23,6 @@ import { DbExplorerPane } from "./db-explorer-pane";
 import { DbResultGrid } from "./db-result-grid";
 import { DbResultsPane } from "./db-results-pane";
 import { DbSavedConnectionsModal } from "./db-saved-connections-modal";
-import { DbTransactionBar } from "./db-transaction-bar";
 import type {
   DbConnection,
   DbConnectionConfig,
@@ -57,8 +56,6 @@ import {
   loadDbExplorer,
   loadDbExplorerDatabaseChildren,
   saveDbWorkspace,
-  finishDbTransactionSession,
-  startDbTransactionSession,
   startDbExecution,
   testDbConnection,
 } from "../service";
@@ -444,6 +441,7 @@ export function DbPanel(props: DbPanelProps) {
   const [objectFilter, setObjectFilter] = createSignal("");
   const [sidebarConnectionsHeight, setSidebarConnectionsHeight] =
     createSignal(58);
+  const [editorPaneSplit, setEditorPaneSplit] = createSignal(48);
   const [expandedConnectionIds, setExpandedConnectionIds] = createSignal<
     string[]
   >([]);
@@ -527,7 +525,6 @@ export function DbPanel(props: DbPanelProps) {
     Record<string, Record<string, Record<string, string>>>
   >({});
   const [rowSavePendingKeys, setRowSavePendingKeys] = createSignal<string[]>([]);
-  const [transactionPendingTabIds, setTransactionPendingTabIds] = createSignal<string[]>([]);
   const [executionWarning, setExecutionWarning] = createSignal<string | null>(null);
   const [connectionDraftState, setConnectionDraftState] = createStore<{
     value: DbConnection | null;
@@ -631,9 +628,14 @@ export function DbPanel(props: DbPanelProps) {
     });
 
     void loadDbUiStateFromDb().then((uiState) => {
-      const parsed = Number(uiState?.sidebarConnectionsHeight);
-      if (Number.isFinite(parsed) && parsed >= 24 && parsed <= 76) {
-        setSidebarConnectionsHeight(parsed);
+      const sidebarParsed = Number(uiState?.sidebarConnectionsHeight);
+      if (Number.isFinite(sidebarParsed) && sidebarParsed >= 24 && sidebarParsed <= 76) {
+        setSidebarConnectionsHeight(sidebarParsed);
+      }
+
+      const editorSplitParsed = Number(uiState?.editorPaneSplit);
+      if (Number.isFinite(editorSplitParsed) && editorSplitParsed >= 20 && editorSplitParsed <= 80) {
+        setEditorPaneSplit(editorSplitParsed);
       }
     });
 
@@ -657,6 +659,7 @@ export function DbPanel(props: DbPanelProps) {
   createEffect(() => {
     void saveDbUiStateToDb({
       sidebarConnectionsHeight: sidebarConnectionsHeight(),
+      editorPaneSplit: editorPaneSplit(),
     });
   });
 
@@ -2411,44 +2414,6 @@ db.dropDatabase()`;
     }
   }
 
-  async function beginTransaction() {
-    const tab = activeTab();
-    const connection = activeConnection();
-    if (!tab || !connection || tab.transactionSessionId) return;
-    setTransactionPendingTabIds((current) => [...current, tab.id]);
-    try {
-      const sessionId = await startDbTransactionSession(connection);
-      await commitWorkspace((draft) => {
-        draft.tabsById[tab.id].transactionSessionId = sessionId;
-      });
-    } catch (error) {
-      setExecutionWarning(
-        error instanceof Error ? error.message : "Failed to start transaction.",
-      );
-    } finally {
-      setTransactionPendingTabIds((current) => current.filter((id) => id !== tab.id));
-    }
-  }
-
-  async function finishTransaction(action: "commit" | "rollback") {
-    const tab = activeTab();
-    const connection = activeConnection();
-    if (!tab || !connection || !tab.transactionSessionId) return;
-    setTransactionPendingTabIds((current) => [...current, tab.id]);
-    try {
-      await finishDbTransactionSession(connection, tab.transactionSessionId, action);
-      await commitWorkspace((draft) => {
-        draft.tabsById[tab.id].transactionSessionId = null;
-      });
-    } catch (error) {
-      setExecutionWarning(
-        error instanceof Error ? error.message : `Failed to ${action} transaction.`,
-      );
-    } finally {
-      setTransactionPendingTabIds((current) => current.filter((id) => id !== tab.id));
-    }
-  }
-
   async function saveEditedRow(rowKey: string) {
     const tab = activeTab();
     const connection = activeConnection();
@@ -3482,7 +3447,6 @@ WHERE ${whereClause};`;
         activeDetail?.primaryKeys?.length &&
         sqlResult?.data.columns?.length,
     );
-    const isTransactionPending = transactionPendingTabIds().includes(tab.id);
 
     const resultMeta = result
       ? `${formatBytes(formatResultSize(result.data))}${
@@ -3494,15 +3458,6 @@ WHERE ${whereClause};`;
 
     return (
       <div class="flex min-h-0 flex-1 flex-col">
-        <Show when={connection && connection.kind !== "redis" && connection.kind !== "mongodb"}>
-          <DbTransactionBar
-            sessionId={tab.transactionSessionId}
-            disabled={isTransactionPending}
-            onBegin={() => void beginTransaction()}
-            onCommit={() => void finishTransaction("commit")}
-            onRollback={() => void finishTransaction("rollback")}
-          />
-        </Show>
         <div
           class="flex items-center justify-between border-b px-3 py-2"
           style={{ "border-color": "var(--app-border)" }}
@@ -3870,6 +3825,8 @@ WHERE ${whereClause};`;
       <DbEditorPane
         header={header}
         editorMeta={<></>}
+        splitRatio={editorPaneSplit()}
+        onSplitChange={setEditorPaneSplit}
         editor={
           <div class="h-full">
             <DbCodeEditor

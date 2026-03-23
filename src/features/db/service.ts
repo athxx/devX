@@ -600,8 +600,6 @@ function normalizeTab(
     query: tab.query ?? connection?.defaultQuery ?? "",
     type: normalizeDbTabType(tab.type, connection, tab.source),
     source: normalizeTabSource(tab.source),
-    transactionSessionId:
-      typeof tab.transactionSessionId === "string" ? tab.transactionSessionId : null,
   };
 }
 
@@ -793,7 +791,6 @@ export function createDbTab(
     title: connection.name,
     query: connection.defaultQuery,
     type,
-    transactionSessionId: null,
   };
 }
 
@@ -1975,10 +1972,6 @@ export function startDbExecution(tab: DbTab, connection: DbConnection) {
   const message = {
     ...baseMessage,
     id: requestId,
-    payload: {
-      ...baseMessage.payload,
-      sessionId: tab.transactionSessionId ?? undefined,
-    },
   };
 
   return {
@@ -1998,7 +1991,6 @@ export async function executeDbAdHocQuery(
     title: connection.name,
     query,
     type,
-    transactionSessionId: null,
   }
 
   return executeDbSocketCommand(buildDbCommandMessage(tab, connection), connection)
@@ -2524,42 +2516,6 @@ export async function loadDbObjectDetail(
     ddl,
     sample,
   };
-}
-
-export async function startDbTransactionSession(connection: DbConnection) {
-  const sessionId = makeId("db-tx");
-  await executeDbSocketCommand(
-    {
-      id: makeId("db-tx-begin"),
-      type: "dbTransaction",
-      payload: {
-        action: "begin",
-        sessionId,
-        driver: connection.kind,
-        dsn: buildDbConnectionUrl(connection) || connection.url.trim(),
-      },
-    },
-    connection,
-  );
-  return sessionId;
-}
-
-export async function finishDbTransactionSession(
-  connection: DbConnection,
-  sessionId: string,
-  action: "commit" | "rollback",
-) {
-  await executeDbSocketCommand(
-    {
-      id: makeId(`db-tx-${action}`),
-      type: "dbTransaction",
-      payload: {
-        action,
-        sessionId,
-      },
-    },
-    connection,
-  );
 }
 
 function buildExplorerShowSqlQueryPlaceholder(

@@ -52,7 +52,6 @@ export type DbTab = {
   query: string;
   type: DbTabType;
   source?: DbTabSource;
-  transactionSessionId?: string | null;
 };
 
 export type DbFavoriteQuery = {
