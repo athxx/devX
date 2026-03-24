@@ -135,7 +135,7 @@ function defaultDatabaseForKind(kind: DbConnectionKind) {
     case "tidb":
       return "";
     case "mongodb":
-      return "test";
+      return "";
     case "oracle":
       return "FREEPDB1";
     default:
@@ -1038,9 +1038,8 @@ function getSqlExplorerValue(
   row: SqlExplorerRow | SqlExplorerRoutineRow,
   key: 'schema_name' | 'table_name' | 'table_type' | 'routine_name',
 ) {
-  const upperKey = key.toUpperCase() as 'SCHEMA_NAME' | 'TABLE_NAME' | 'TABLE_TYPE' | 'ROUTINE_NAME'
   const record = row as Record<string, unknown>
-  return record[key] ?? record[upperKey]
+  return record[key]
 }
 
 function buildSqlExplorerNodes(
@@ -1190,6 +1189,17 @@ function buildMongoCollectionQuery(collectionName: string) {
 
 function buildMongoCollectionCountQuery(collectionName: string) {
   return `db.${collectionName}.aggregate([{ $count: "total" }])`;
+}
+
+/** Extract database name from a mongodb:// URL path, if present. */
+function mongoDatabaseFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const db = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""))
+    return db.trim()
+  } catch {
+    return ""
+  }
 }
 
 function buildMongoDatabaseListCommand(): DbSocketCommandMessage {
@@ -1880,15 +1890,33 @@ export async function loadDbExplorer(connection: DbConnection) {
     url: buildDbConnectionUrl(connection) || connection.url.trim(),
   };
 
+  let nodes: DbExplorerNode[];
+
   if (normalizedConnection.kind === "mongodb") {
-    return loadMongoExplorer(normalizedConnection);
+    nodes = await loadMongoExplorer(normalizedConnection);
+  } else if (normalizedConnection.kind === "redis") {
+    nodes = await loadRedisExplorer(normalizedConnection);
+  } else {
+    nodes = await loadSqlExplorer(normalizedConnection);
   }
 
-  if (normalizedConnection.kind === "redis") {
-    return loadRedisExplorer(normalizedConnection);
+  // If a specific database is configured, filter to show only that database
+  const configuredDb = normalizedConnection.kind === "mongodb"
+    ? (normalizedConnection.config.database?.trim() || mongoDatabaseFromUrl(normalizedConnection.url))
+    : normalizedConnection.config.database?.trim();
+
+  if (configuredDb && nodes.some((n) => n.kind === "group" && n.groupKind === "database")) {
+    // Redis config stores a number (e.g. "0") but node labels are "db0"
+    const matchLabel = normalizedConnection.kind === "redis"
+      ? `db${configuredDb.replace(/^db/i, "")}`
+      : configuredDb;
+    const filtered = nodes.filter((n) => n.label === matchLabel);
+    if (filtered.length > 0) return filtered;
+    // Configured database not in list — show a single placeholder node
+    return [makeExplorerGroup(matchLabel, "database", [], undefined, true)];
   }
 
-  return loadSqlExplorer(normalizedConnection);
+  return nodes;
 }
 
 function switchDsnDatabase(
@@ -2321,7 +2349,7 @@ export async function loadDbObjectDetail(
     connection.kind === "mongodb"
       ? toSummaryEntries([
           ["Kind", node.kind],
-          ["Database", node.schemaName || connection.config.database || "test"],
+          ["Database", node.schemaName || connection.config.database],
           ["Collection", node.label],
         ])
       : connection.kind === "redis"
@@ -2565,4 +2593,206 @@ export async function executeDbTab(
   connection: DbConnection,
 ): Promise<DbResultPayload> {
   return executeDbSocketCommand(buildDbCommandMessage(tab, connection), connection);
+}
+
+/**
+ * Load table→columns mapping for SQL autocompletion.
+ * Returns a nested object: { schema: { table: [col1, col2, ...] } }
+ * or flat { table: [col1, col2, ...] } for single-schema DBs like SQLite.
+ */
+export async function loadSchemaCompletionData(
+  connection: DbConnection,
+  databaseName?: string | null,
+): Promise<Record<string, Record<string, string[]> | string[]>> {
+  const query = buildAllColumnsQuery(connection.kind);
+  if (!query) {
+    if (connection.kind === "sqlite") {
+      return loadSqliteSchemaCompletion(connection);
+    }
+    return {};
+  }
+
+  let dsn = buildDbConnectionUrl(connection) || connection.url.trim();
+  if (databaseName) {
+    dsn = switchDsnDatabase(connection.kind, dsn, databaseName);
+  }
+
+  try {
+    const result = await executeDbSocketCommand(
+      {
+        id: makeId("db-completion"),
+        type: "sql",
+        payload: { driver: connection.kind, dsn, query },
+      },
+      connection,
+    );
+
+    if (result.kind !== "sql" || !Array.isArray(result.data.rows)) {
+      return {};
+    }
+
+    // SQLite: flat { table: [col1, col2] }
+    if (connection.kind === "sqlite") {
+      const tables: Record<string, string[]> = {};
+      for (const row of result.data.rows) {
+        const table = asString(row.table_name);
+        const column = asString(row.column_name ?? row.name);
+        if (table && column) {
+          (tables[table] ??= []).push(column);
+        }
+      }
+      return tables;
+    }
+
+    // Other DBs: { schema: { table: [col1, col2] } }
+    const schemas: Record<string, Record<string, string[]>> = {};
+    for (const row of result.data.rows) {
+      const schema = asString(row.table_schema ?? row.schema_name);
+      const table = asString(row.table_name);
+      const column = asString(row.column_name);
+      if (schema && table && column) {
+        const s = (schemas[schema] ??= {});
+        (s[table] ??= []).push(column);
+      }
+    }
+
+    // Flatten default schema's tables into the top level so that typing
+    // a table name directly (e.g. "users") suggests it without needing
+    // the "schema." prefix.  This is needed because some schema names
+    // (like "public" in PostgreSQL) are SQL keywords and CodeMirror's
+    // parser tokenizes them as Keyword nodes — which breaks the
+    // dotted-identifier resolution (public.table → top-level fallback).
+    const defaultSchema = getDefaultCompletionSchema(connection, databaseName);
+    if (defaultSchema && schemas[defaultSchema]) {
+      const merged: Record<string, Record<string, string[]> | string[]> = {};
+      // Copy all schemas nested
+      for (const [schemaName, tables] of Object.entries(schemas)) {
+        merged[schemaName] = tables;
+      }
+      // Merge default schema's tables to top level
+      for (const [tableName, columns] of Object.entries(schemas[defaultSchema])) {
+        merged[tableName] = columns;
+      }
+      return merged;
+    }
+
+    return schemas;
+  } catch {
+    return {};
+  }
+}
+
+function getDefaultCompletionSchema(
+  connection: DbConnection,
+  databaseName?: string | null,
+): string | null {
+  switch (connection.kind) {
+    case "postgresql":
+    case "gaussdb":
+      return "public";
+    case "mysql":
+    case "tidb":
+    case "clickhouse":
+      return databaseName || connection.config.database || null;
+    case "sqlserver":
+      return "dbo";
+    default:
+      return null;
+  }
+}
+
+function buildAllColumnsQuery(kind: DbConnectionKind): string | null {
+  switch (kind) {
+    case "postgresql":
+    case "gaussdb":
+      return `SELECT table_schema, table_name, column_name
+FROM information_schema.columns
+WHERE table_schema NOT IN ('pg_catalog', 'information_schema',
+  'tiger', 'tiger_data', 'topology', 'pg_toast', 'pg_temp_1', 'pg_toast_temp_1')
+ORDER BY table_schema, table_name, ordinal_position;`;
+    case "mysql":
+    case "tidb":
+      return `SELECT table_schema, table_name, column_name
+FROM information_schema.columns
+WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+ORDER BY table_schema, table_name, ordinal_position;`;
+    case "sqlserver":
+      return `SELECT TABLE_SCHEMA AS table_schema, TABLE_NAME AS table_name, COLUMN_NAME AS column_name
+FROM INFORMATION_SCHEMA.COLUMNS
+ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION;`;
+    case "sqlite":
+      return null; // SQLite needs per-table PRAGMA, handled via loadSqliteSchemaCompletion
+    case "clickhouse":
+      return `SELECT database AS table_schema, table AS table_name, name AS column_name
+FROM system.columns
+WHERE database NOT IN ('system', 'information_schema', 'INFORMATION_SCHEMA')
+ORDER BY database, table, position;`;
+    case "oracle":
+      return `SELECT USER AS table_schema, table_name, column_name
+FROM user_tab_columns
+ORDER BY table_name, column_id`;
+    default:
+      return null;
+  }
+}
+
+async function loadSqliteSchemaCompletion(
+  connection: DbConnection,
+): Promise<Record<string, string[]>> {
+  const dsn = buildDbConnectionUrl(connection) || connection.url.trim();
+  try {
+    // Get all table names first
+    const tablesResult = await executeDbSocketCommand(
+      {
+        id: makeId("db-completion"),
+        type: "sql",
+        payload: {
+          driver: "sqlite",
+          dsn,
+          query: `SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%';`,
+        },
+      },
+      connection,
+    );
+
+    if (tablesResult.kind !== "sql" || !Array.isArray(tablesResult.data.rows)) {
+      return {};
+    }
+
+    const tables: Record<string, string[]> = {};
+    const tableNames = tablesResult.data.rows
+      .map((row) => asString(row.name))
+      .filter(Boolean);
+
+    // Fetch columns for each table via PRAGMA
+    await Promise.all(
+      tableNames.map(async (tableName) => {
+        try {
+          const colResult = await executeDbSocketCommand(
+            {
+              id: makeId("db-completion"),
+              type: "sql",
+              payload: {
+                driver: "sqlite",
+                dsn,
+                query: `PRAGMA table_info(${escapeSqlIdentifier("sqlite", tableName)});`,
+              },
+            },
+            connection,
+          );
+          if (colResult.kind === "sql" && Array.isArray(colResult.data.rows)) {
+            tables[tableName] = colResult.data.rows
+              .map((row) => asString(row.name))
+              .filter(Boolean);
+          }
+        } catch {
+          // skip this table
+        }
+      }),
+    );
+
+    return tables;
+  } catch {
+    return {};
+  }
 }

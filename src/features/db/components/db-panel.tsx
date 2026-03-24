@@ -1,4 +1,5 @@
 import type { JSX } from "solid-js";
+import type { SQLNamespace } from "@codemirror/lang-sql";
 import {
   For,
   Show,
@@ -10,7 +11,11 @@ import {
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import { TabsBar } from "../../../components/tabs-bar";
-import { ControlDot, PinIcon, RefreshIcon } from "../../../components/ui-primitives";
+import {
+  ControlDot,
+  PinIcon,
+  RefreshIcon,
+} from "../../../components/ui-primitives";
 import { WorkspaceSidebarLayout } from "../../../components/workspace-sidebar-layout";
 import { arrayMove, cloneValue } from "../../../lib/utils";
 import { loadDbUiStateFromDb, saveDbUiStateToDb } from "../local-db";
@@ -55,6 +60,7 @@ import {
   loadDbWorkspace,
   loadDbExplorer,
   loadDbExplorerDatabaseChildren,
+  loadSchemaCompletionData,
   saveDbWorkspace,
   startDbExecution,
   testDbConnection,
@@ -143,7 +149,7 @@ function getConnectionBadge(connection: DbConnection) {
       };
     case "mysql":
       return {
-        label: "SQL",
+        label: "MY",
         class: "theme-method-badge theme-method-get",
       };
     case "mongodb":
@@ -231,24 +237,24 @@ function formatBytes(bytes: number) {
 }
 
 function getDefaultTabTypeForConnection(connection: DbConnection): DbTabType {
-  return 'query';
+  return "query";
 }
 
 function getDbTabTypeLabel(type: DbTabType) {
   switch (type) {
-    case 'data':
-      return 'Data';
-    case 'structure':
-      return 'Structure';
-    case 'redis':
-      return 'Redis';
-    case 'mongo':
-      return 'Mongo';
-    case 'raw':
-      return 'Action';
-    case 'query':
+    case "data":
+      return "Data";
+    case "structure":
+      return "Structure";
+    case "redis":
+      return "Redis";
+    case "mongo":
+      return "Mongo";
+    case "raw":
+      return "Action";
+    case "query":
     default:
-      return 'Query';
+      return "Query";
   }
 }
 
@@ -451,6 +457,27 @@ export function DbPanel(props: DbPanelProps) {
   const [explorerByConnectionId, setExplorerByConnectionId] = createSignal<
     Record<string, ExplorerLoadState>
   >({});
+  const [schemaCompletionCache, setSchemaCompletionCache] = createSignal<
+    Record<string, SQLNamespace>
+  >({});
+
+  function schemaCompletionKey(
+    connectionId: string,
+    databaseName?: string | null,
+  ) {
+    return databaseName ? `${connectionId}::${databaseName}` : connectionId;
+  }
+
+  function loadAndCacheSchema(
+    connection: DbConnection,
+    databaseName?: string | null,
+  ) {
+    const key = schemaCompletionKey(connection.id, databaseName);
+    if (schemaCompletionCache()[key]) return;
+    void loadSchemaCompletionData(connection, databaseName).then((schema) => {
+      setSchemaCompletionCache((current) => ({ ...current, [key]: schema }));
+    });
+  }
   const [savedConnectionsModalOpen, setSavedConnectionsModalOpen] =
     createSignal(false);
   const [savedConnectionsFilter, setSavedConnectionsFilter] = createSignal("");
@@ -505,8 +532,8 @@ export function DbPanel(props: DbPanelProps) {
   const [databaseExportBulkInsert, setDatabaseExportBulkInsert] =
     createSignal(true);
   const [databaseExportFormat, setDatabaseExportFormat] = createSignal<
-    'sql' | 'csv' | 'json'
-  >('sql');
+    "sql" | "csv" | "json"
+  >("sql");
   const [databaseExportZip, setDatabaseExportZip] = createSignal(false);
   const [loadingExplorerNodeIds, setLoadingExplorerNodeIds] = createSignal<
     string[]
@@ -516,22 +543,39 @@ export function DbPanel(props: DbPanelProps) {
   >({});
   const [selectedExplorerSchemaIds, setSelectedExplorerSchemaIds] =
     createSignal<Record<string, string>>({});
-  const [selectedExplorerLeafByConnectionId, setSelectedExplorerLeafByConnectionId] =
-    createSignal<Record<string, string>>({});
+  const [
+    selectedExplorerLeafByConnectionId,
+    setSelectedExplorerLeafByConnectionId,
+  ] = createSignal<Record<string, string>>({});
   const [objectDetailByNodeId, setObjectDetailByNodeId] = createSignal<
-    Record<string, { status: "loading" | "ready" | "error"; detail?: DbObjectDetail; error?: string }>
+    Record<
+      string,
+      {
+        status: "loading" | "ready" | "error";
+        detail?: DbObjectDetail;
+        error?: string;
+      }
+    >
   >({});
   const [editedRowsByTabId, setEditedRowsByTabId] = createSignal<
     Record<string, Record<string, Record<string, string>>>
   >({});
-  const [rowSavePendingKeys, setRowSavePendingKeys] = createSignal<string[]>([]);
-  const [executionWarning, setExecutionWarning] = createSignal<string | null>(null);
+  const [rowSavePendingKeys, setRowSavePendingKeys] = createSignal<string[]>(
+    [],
+  );
+  const [executionWarning, setExecutionWarning] = createSignal<string | null>(
+    null,
+  );
   const [connectionDraftState, setConnectionDraftState] = createStore<{
     value: DbConnection | null;
   }>({
     value: null,
   });
+  const [liveQueryByTabId, setLiveQueryByTabId] = createSignal<
+    Record<string, string>
+  >({});
   let sidebarSectionsRef: HTMLDivElement | undefined;
+  let queryPersistTimer: ReturnType<typeof setTimeout> | null = null;
 
   const normalizedFilter = createMemo(() => filter().trim().toLowerCase());
   const normalizedObjectFilter = createMemo(() =>
@@ -625,16 +669,61 @@ export function DbPanel(props: DbPanelProps) {
   onMount(() => {
     void loadDbWorkspace().then((loaded) => {
       setWorkspace(loaded);
+
+      // Pre-load schema completion data for all connected connections
+      // so autocomplete works immediately without expanding the explorer
+      const connectionById = new Map(
+        loaded.savedConnections.map((c) => [c.id, c]),
+      );
+      // Collect distinct (connectionId, databaseName) pairs from open tabs
+      const seen = new Set<string>();
+      for (const tabId of loaded.openTabIds) {
+        const tab = loaded.tabsById[tabId];
+        if (!tab) continue;
+        const conn = connectionById.get(tab.connectionId);
+        if (!conn || !loaded.connectedConnectionIds.includes(conn.id)) continue;
+        const key = schemaCompletionKey(conn.id, tab.databaseName);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        void loadSchemaCompletionData(conn, tab.databaseName).then((schema) => {
+          setSchemaCompletionCache((current) => ({
+            ...current,
+            [key]: schema,
+          }));
+        });
+      }
+      // Also load for connections with no open tabs (base database)
+      for (const connId of loaded.connectedConnectionIds) {
+        const conn = connectionById.get(connId);
+        if (!conn) continue;
+        const key = schemaCompletionKey(conn.id, null);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        void loadSchemaCompletionData(conn).then((schema) => {
+          setSchemaCompletionCache((current) => ({
+            ...current,
+            [key]: schema,
+          }));
+        });
+      }
     });
 
     void loadDbUiStateFromDb().then((uiState) => {
       const sidebarParsed = Number(uiState?.sidebarConnectionsHeight);
-      if (Number.isFinite(sidebarParsed) && sidebarParsed >= 24 && sidebarParsed <= 76) {
+      if (
+        Number.isFinite(sidebarParsed) &&
+        sidebarParsed >= 24 &&
+        sidebarParsed <= 76
+      ) {
         setSidebarConnectionsHeight(sidebarParsed);
       }
 
       const editorSplitParsed = Number(uiState?.editorPaneSplit);
-      if (Number.isFinite(editorSplitParsed) && editorSplitParsed >= 20 && editorSplitParsed <= 80) {
+      if (
+        Number.isFinite(editorSplitParsed) &&
+        editorSplitParsed >= 20 &&
+        editorSplitParsed <= 80
+      ) {
         setEditorPaneSplit(editorSplitParsed);
       }
     });
@@ -653,6 +742,9 @@ export function DbPanel(props: DbPanelProps) {
     document.addEventListener("pointerdown", handlePointerDown);
     onCleanup(() => {
       document.removeEventListener("pointerdown", handlePointerDown);
+      if (queryPersistTimer !== null) {
+        clearTimeout(queryPersistTimer);
+      }
     });
   });
 
@@ -664,22 +756,41 @@ export function DbPanel(props: DbPanelProps) {
   });
 
   createEffect(() => {
-    activeTab()?.id;
+    const tabId = activeTab()?.id;
     setExecutionWarning(null);
+
+    // Flush pending edits from the previous tab
+    if (queryPersistTimer !== null) {
+      clearTimeout(queryPersistTimer);
+      queryPersistTimer = null;
+    }
+    for (const id of Object.keys(liveQueryByTabId())) {
+      if (id !== tabId) {
+        flushLiveQuery(id);
+      }
+    }
+  });
+
+  // Ensure schema completion data is loaded for the active tab's database
+  createEffect(() => {
+    const tab = activeTab();
+    const conn = activeConnection();
+    if (!tab || !conn) return;
+    loadAndCacheSchema(conn, tab.databaseName);
   });
 
   createEffect(() => {
     const tab = activeTab();
-    if (!tab || tab.type !== 'redis' || tab.source?.nodeKind !== 'key') {
+    if (!tab || tab.type !== "redis" || tab.source?.nodeKind !== "key") {
       return;
     }
 
     const detail = getTabObjectDetail(tab) ?? getActiveObjectDetail();
-    const ttl = getDetailSummaryValue(detail, 'TTL') || '-1';
+    const ttl = getDetailSummaryValue(detail, "TTL") || "-1";
 
     setRedisKeyNameDraftByTabId((current) => ({
       ...current,
-      [tab.id]: current[tab.id] ?? tab.source?.label ?? '',
+      [tab.id]: current[tab.id] ?? tab.source?.label ?? "",
     }));
     setRedisKeyTtlDraftByTabId((current) => ({
       ...current,
@@ -689,6 +800,12 @@ export function DbPanel(props: DbPanelProps) {
 
   async function commitWorkspace(mutator: (draft: DbWorkspaceState) => void) {
     const next = cloneValue(workspace());
+    const live = liveQueryByTabId();
+    for (const [tabId, query] of Object.entries(live)) {
+      if (next.tabsById[tabId]) {
+        next.tabsById[tabId].query = query;
+      }
+    }
     mutator(next);
     setWorkspace(next);
     await saveDbWorkspace(next);
@@ -757,6 +874,10 @@ export function DbPanel(props: DbPanelProps) {
         connection,
         node.label,
       );
+
+      // Load schema completion for this specific database
+      loadAndCacheSchema(connection, node.label);
+
       setExplorerByConnectionId((current) => {
         const entry = current[connectionId];
         if (!entry) return current;
@@ -778,10 +899,13 @@ export function DbPanel(props: DbPanelProps) {
   async function loadConnectionExplorer(
     connection: DbConnection,
     options?: {
-      preferredRoot?: { label: string; groupKind: ExplorerGroupNode['groupKind'] } | null;
+      preferredRoot?: {
+        label: string;
+        groupKind: ExplorerGroupNode["groupKind"];
+      } | null;
       preferredSchemaLabel?: string | null;
       preferredLeaf?: {
-        kind: ExplorerLeafNode['kind'];
+        kind: ExplorerLeafNode["kind"];
         label: string;
         qualifiedName?: string;
       } | null;
@@ -804,11 +928,14 @@ export function DbPanel(props: DbPanelProps) {
           nodes,
         },
       }));
+
+      // Load schema completion data in background (non-blocking)
+      loadAndCacheSchema(connection);
       const nextRoot =
         (options?.preferredRoot
           ? nodes.find(
               (node) =>
-                node.kind === 'group' &&
+                node.kind === "group" &&
                 node.groupKind === options.preferredRoot!.groupKind &&
                 node.label === options.preferredRoot!.label,
             )
@@ -816,7 +943,7 @@ export function DbPanel(props: DbPanelProps) {
         nodes.find((node) => node.kind === "group") ??
         null;
 
-      if (nextRoot?.kind === 'group') {
+      if (nextRoot?.kind === "group") {
         setSelectedExplorerRootIds((current) => ({
           ...current,
           [connection.id]: nextRoot.id,
@@ -834,7 +961,7 @@ export function DbPanel(props: DbPanelProps) {
         if (
           options?.preferredSchemaLabel &&
           refreshedRoot &&
-          refreshedRoot.kind === 'group'
+          refreshedRoot.kind === "group"
         ) {
           const schemaNodes = getSchemaNodesForRoot(refreshedRoot);
           const matchingSchema = schemaNodes.find(
@@ -843,14 +970,19 @@ export function DbPanel(props: DbPanelProps) {
           if (matchingSchema) {
             setSelectedExplorerSchemaIds((current) => ({
               ...current,
-              [getSchemaSelectionKey(connection.id, refreshedRoot.id)]: matchingSchema.id,
+              [getSchemaSelectionKey(connection.id, refreshedRoot.id)]:
+                matchingSchema.id,
             }));
           }
         }
 
         if (options?.preferredLeaf) {
-          const refreshedNodes = explorerByConnectionId()[connection.id]?.nodes ?? [];
-          const matchingLeaf = findMatchingExplorerLeaf(refreshedNodes, options.preferredLeaf);
+          const refreshedNodes =
+            explorerByConnectionId()[connection.id]?.nodes ?? [];
+          const matchingLeaf = findMatchingExplorerLeaf(
+            refreshedNodes,
+            options.preferredLeaf,
+          );
           if (matchingLeaf) {
             setSelectedExplorerLeafByConnectionId((current) => ({
               ...current,
@@ -983,7 +1115,7 @@ export function DbPanel(props: DbPanelProps) {
         return node;
       }
 
-      if (node.kind === 'group') {
+      if (node.kind === "group") {
         const nested = findExplorerNode(node.children, nodeId);
         if (nested) {
           return nested;
@@ -997,13 +1129,13 @@ export function DbPanel(props: DbPanelProps) {
   function findMatchingExplorerLeaf(
     nodes: DbExplorerNode[],
     preferredLeaf: {
-      kind: ExplorerLeafNode['kind'];
+      kind: ExplorerLeafNode["kind"];
       label: string;
       qualifiedName?: string;
     },
   ): ExplorerLeafNode | null {
     for (const node of nodes) {
-      if (node.kind === 'group') {
+      if (node.kind === "group") {
         const nested = findMatchingExplorerLeaf(node.children, preferredLeaf);
         if (nested) {
           return nested;
@@ -1099,7 +1231,9 @@ export function DbPanel(props: DbPanelProps) {
     );
   }
 
-  function buildSourceFromNode(node: ExplorerLeafNode): DbTab["source"] | undefined {
+  function buildSourceFromNode(
+    node: ExplorerLeafNode,
+  ): DbTab["source"] | undefined {
     return {
       nodeId: node.id,
       nodeKind: node.kind,
@@ -1107,7 +1241,7 @@ export function DbPanel(props: DbPanelProps) {
       schemaName: node.schemaName,
       qualifiedName: node.qualifiedName,
       page: 1,
-      pageSize: node.kind === 'table' || node.kind === 'view' ? 50 : 1,
+      pageSize: node.kind === "table" || node.kind === "view" ? 50 : 1,
     };
   }
 
@@ -1128,6 +1262,22 @@ export function DbPanel(props: DbPanelProps) {
 
   function getSchemaSelectionKey(connectionId: string, rootId: string) {
     return `${connectionId}:${rootId}`;
+  }
+
+  function getDefaultSchemaName(connection: DbConnection): string | undefined {
+    switch (connection.kind) {
+      case "postgresql":
+      case "gaussdb":
+        return "public";
+      case "mysql":
+      case "tidb":
+      case "clickhouse":
+        return connection.config.database || undefined;
+      case "sqlserver":
+        return "dbo";
+      default:
+        return undefined;
+    }
   }
 
   function getSchemaNodesForRoot(root: ExplorerGroupNode | null) {
@@ -1449,7 +1599,7 @@ ORDER BY ordinal_position;`;
       return options.tabType;
     }
 
-    return 'raw';
+    return "raw";
   }
 
   function resolveExplorerTabType(
@@ -1457,7 +1607,7 @@ ORDER BY ordinal_position;`;
     node: ExplorerLeafNode,
     options?: {
       titleSuffix?: string;
-      source?: DbTab['source'];
+      source?: DbTab["source"];
       tabType?: DbTabType;
     },
   ): DbTabType {
@@ -1466,28 +1616,31 @@ ORDER BY ordinal_position;`;
     }
 
     if (options?.source) {
-      if (node.kind === 'table' || node.kind === 'view') {
-        return 'data';
+      if (node.kind === "table" || node.kind === "view") {
+        return "data";
       }
 
-      if (node.kind === 'key') {
-        return 'redis';
+      if (node.kind === "key") {
+        return "redis";
       }
 
-      if (node.kind === 'collection') {
-        return 'mongo';
+      if (node.kind === "collection") {
+        return "mongo";
       }
     }
 
-    if (options?.titleSuffix === 'Structure' || options?.titleSuffix === 'SQL') {
-      return 'structure';
+    if (
+      options?.titleSuffix === "Structure" ||
+      options?.titleSuffix === "SQL"
+    ) {
+      return "structure";
     }
 
-    if (node.kind === 'function') {
-      return 'structure';
+    if (node.kind === "function") {
+      return "structure";
     }
 
-    return 'query';
+    return "query";
   }
 
   function resolveExplorerDatabaseName(
@@ -1495,23 +1648,31 @@ ORDER BY ordinal_position;`;
     node: ExplorerLeafNode,
     options?: {
       databaseName?: string | null;
-      source?: DbTab['source'];
+      source?: DbTab["source"];
     },
   ) {
     if (options?.databaseName !== undefined) {
       return options.databaseName;
     }
 
-    if (connection.kind === 'mongodb' || connection.kind === 'redis') {
-      return options?.source?.schemaName ?? node.schemaName ?? getDefaultDatabaseForConnection(connection);
+    if (connection.kind === "mongodb" || connection.kind === "redis") {
+      return (
+        options?.source?.schemaName ??
+        node.schemaName ??
+        getDefaultDatabaseForConnection(connection)
+      );
     }
 
     if (
-      connection.kind === 'mysql' ||
-      connection.kind === 'tidb' ||
-      connection.kind === 'clickhouse'
+      connection.kind === "mysql" ||
+      connection.kind === "tidb" ||
+      connection.kind === "clickhouse"
     ) {
-      return options?.source?.schemaName ?? node.schemaName ?? getDefaultDatabaseForConnection(connection);
+      return (
+        options?.source?.schemaName ??
+        node.schemaName ??
+        getDefaultDatabaseForConnection(connection)
+      );
     }
 
     return (
@@ -1533,19 +1694,22 @@ ORDER BY ordinal_position;`;
   ) {
     const forceNew = options?.forceNew ?? true;
     const tabType = resolveConnectionActionTabType(connection, options);
-    const databaseName = options?.databaseName ?? getDefaultDatabaseForConnection(connection);
+    const databaseName =
+      options?.databaseName ?? getDefaultDatabaseForConnection(connection);
     const activeTabId = workspace().activeTabId;
     const existingId = !forceNew
       ? activeTabId &&
         workspace().tabsById[activeTabId]?.connectionId === connection.id &&
         workspace().tabsById[activeTabId]?.type === tabType &&
-        (workspace().tabsById[activeTabId]?.databaseName ?? null) === databaseName
+        (workspace().tabsById[activeTabId]?.databaseName ?? null) ===
+          databaseName
         ? activeTabId
         : (workspace().openTabIds.find(
             (tabId) =>
               workspace().tabsById[tabId]?.connectionId === connection.id &&
               workspace().tabsById[tabId]?.type === tabType &&
-              (workspace().tabsById[tabId]?.databaseName ?? null) === databaseName,
+              (workspace().tabsById[tabId]?.databaseName ?? null) ===
+                databaseName,
           ) ?? null)
       : null;
     const title = `${connection.name} · ${label}`;
@@ -1615,7 +1779,7 @@ ORDER BY ordinal_position;`;
       case "clickhouse":
         return "CREATE DATABASE new_database;";
       case "mongodb":
-        return "use new_database\n\ndb.createCollection(\"sample_collection\")";
+        return 'use new_database\n\ndb.createCollection("sample_collection")';
       default:
         return "CREATE DATABASE new_database;";
     }
@@ -1626,8 +1790,8 @@ ORDER BY ordinal_position;`;
     databaseName: string,
   ) {
     switch (connection.kind) {
-      case 'mysql':
-      case 'tidb':
+      case "mysql":
+      case "tidb":
         return `USE \`${databaseName}\`;
 
 CREATE TABLE new_table (
@@ -1635,7 +1799,7 @@ CREATE TABLE new_table (
   name VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );`;
-      case 'sqlserver':
+      case "sqlserver":
         return `USE [${databaseName}];
 
 CREATE TABLE dbo.new_table (
@@ -1643,7 +1807,7 @@ CREATE TABLE dbo.new_table (
   name NVARCHAR(255) NOT NULL,
   created_at DATETIME2 DEFAULT SYSDATETIME()
 );`;
-      case 'clickhouse':
+      case "clickhouse":
         return `CREATE TABLE ${databaseName}.new_table (
   id UInt64,
   name String,
@@ -1651,7 +1815,7 @@ CREATE TABLE dbo.new_table (
 )
 ENGINE = MergeTree
 ORDER BY id;`;
-      case 'mongodb':
+      case "mongodb":
         return `use ${databaseName}
 
 db.createCollection('new_collection')`;
@@ -1667,16 +1831,16 @@ db.createCollection('new_collection')`;
   function buildImportTemplate(
     connection: DbConnection,
     databaseName: string,
-    source: 'sql' | 'json' | 'csv',
+    source: "sql" | "json" | "csv",
   ) {
-    if (connection.kind === 'mongodb') {
-      if (source === 'json') {
+    if (connection.kind === "mongodb") {
+      if (source === "json") {
         return `use ${databaseName}
 
 mongoimport --db ${databaseName} --collection new_collection --file ./data.json --jsonArray`;
       }
 
-      if (source === 'csv') {
+      if (source === "csv") {
         return `use ${databaseName}
 
 mongoimport --db ${databaseName} --collection new_collection --type csv --headerline --file ./data.csv`;
@@ -1687,20 +1851,20 @@ mongoimport --db ${databaseName} --collection new_collection --type csv --header
 // Paste or run your SQL migration equivalent here`;
     }
 
-    if (source === 'json') {
+    if (source === "json") {
       return `-- Import JSON into ${databaseName}
 -- Replace file paths and table names as needed
 -- Example workflow: stage JSON -> transform -> insert`;
     }
 
-    if (source === 'csv') {
+    if (source === "csv") {
       switch (connection.kind) {
-        case 'postgresql':
-        case 'gaussdb':
+        case "postgresql":
+        case "gaussdb":
           return `\c ${databaseName}
 \copy new_table FROM './data.csv' WITH (FORMAT csv, HEADER true);`;
-        case 'mysql':
-        case 'tidb':
+        case "mysql":
+        case "tidb":
           return `USE \`${databaseName}\`;
 LOAD DATA LOCAL INFILE './data.csv'
 INTO TABLE new_table
@@ -1723,12 +1887,12 @@ IGNORE 1 LINES;`;
     databaseName: string,
   ) {
     switch (connection.kind) {
-      case 'mysql':
-      case 'tidb':
+      case "mysql":
+      case "tidb":
         return `DROP DATABASE \`${databaseName}\`;`;
-      case 'sqlserver':
+      case "sqlserver":
         return `DROP DATABASE [${databaseName}];`;
-      case 'mongodb':
+      case "mongodb":
         return `use ${databaseName}
 db.dropDatabase()`;
       default:
@@ -1740,7 +1904,7 @@ db.dropDatabase()`;
     setDatabaseExportIncludeDrop(true);
     setDatabaseExportIncludeCreate(true);
     setDatabaseExportBulkInsert(true);
-    setDatabaseExportFormat('sql');
+    setDatabaseExportFormat("sql");
     setDatabaseExportZip(false);
     setDatabaseExportModal({ connectionId, databaseName });
     closeFloatingMenus();
@@ -1766,13 +1930,13 @@ db.dropDatabase()`;
     const content = [
       `-- Export plan for ${modal.databaseName}`,
       `-- Format: ${format}`,
-      `-- Include DROP: ${databaseExportIncludeDrop() ? 'yes' : 'no'}`,
-      `-- Include CREATE: ${databaseExportIncludeCreate() ? 'yes' : 'no'}`,
-      `-- Bulk insert: ${databaseExportBulkInsert() ? 'yes' : 'no'}`,
-      '',
-      format === 'sql'
-        ? `${databaseExportIncludeDrop() ? `${buildDropDatabaseTemplate(connection, modal.databaseName)}\n` : ''}${databaseExportIncludeCreate() ? buildCreateTableTemplate(connection, modal.databaseName) : ''}`
-        : format === 'json'
+      `-- Include DROP: ${databaseExportIncludeDrop() ? "yes" : "no"}`,
+      `-- Include CREATE: ${databaseExportIncludeCreate() ? "yes" : "no"}`,
+      `-- Bulk insert: ${databaseExportBulkInsert() ? "yes" : "no"}`,
+      "",
+      format === "sql"
+        ? `${databaseExportIncludeDrop() ? `${buildDropDatabaseTemplate(connection, modal.databaseName)}\n` : ""}${databaseExportIncludeCreate() ? buildCreateTableTemplate(connection, modal.databaseName) : ""}`
+        : format === "json"
           ? JSON.stringify(
               {
                 database: modal.databaseName,
@@ -1784,13 +1948,16 @@ db.dropDatabase()`;
               2,
             )
           : `database,includeDrop,includeCreate,bulkInsert\n${modal.databaseName},${databaseExportIncludeDrop()},${databaseExportIncludeCreate()},${databaseExportBulkInsert()}`,
-    ].join('\n');
+    ].join("\n");
 
     const blob = new Blob([content], {
-      type: format === 'json' ? 'application/json;charset=utf-8' : 'text/plain;charset=utf-8',
+      type:
+        format === "json"
+          ? "application/json;charset=utf-8"
+          : "text/plain;charset=utf-8",
     });
     const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
+    const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = `${modal.databaseName}-export.${extension}`;
     anchor.click();
@@ -1842,13 +2009,15 @@ db.dropDatabase()`;
       ? activeTabId &&
         workspace().tabsById[activeTabId]?.connectionId === connection.id &&
         workspace().tabsById[activeTabId]?.type === tabType &&
-        (workspace().tabsById[activeTabId]?.databaseName ?? null) === databaseName
+        (workspace().tabsById[activeTabId]?.databaseName ?? null) ===
+          databaseName
         ? activeTabId
         : (workspace().openTabIds.find(
             (tabId) =>
               workspace().tabsById[tabId]?.connectionId === connection.id &&
               workspace().tabsById[tabId]?.type === tabType &&
-              (workspace().tabsById[tabId]?.databaseName ?? null) === databaseName,
+              (workspace().tabsById[tabId]?.databaseName ?? null) ===
+                databaseName,
           ) ?? null)
       : null;
     const title = `${connection.name} · ${node.label}${
@@ -1912,10 +2081,15 @@ db.dropDatabase()`;
       [connection.id]: node.id,
     }));
     void inspectExplorerLeaf(connection, node);
-    await openExplorerQuery(connection, node, getNodeOpenQuery(connection, node), {
-      forceNew: true,
-      source: buildSourceFromNode(node),
-    });
+    await openExplorerQuery(
+      connection,
+      node,
+      getNodeOpenQuery(connection, node),
+      {
+        forceNew: true,
+        source: buildSourceFromNode(node),
+      },
+    );
   }
 
   async function inspectExplorerLeaf(
@@ -1929,8 +2103,7 @@ db.dropDatabase()`;
     setObjectDetailByNodeId((current) => ({
       ...current,
       [node.id]: {
-        status:
-          current[node.id]?.status === "ready" ? "ready" : "loading",
+        status: current[node.id]?.status === "ready" ? "ready" : "loading",
         detail: current[node.id]?.detail,
       },
     }));
@@ -1950,7 +2123,9 @@ db.dropDatabase()`;
         [node.id]: {
           status: "error",
           error:
-            error instanceof Error ? error.message : "Failed to load object details.",
+            error instanceof Error
+              ? error.message
+              : "Failed to load object details.",
         },
       }));
     } finally {
@@ -1963,7 +2138,8 @@ db.dropDatabase()`;
     if (!tab) return;
     const execution = executionByTabId()[tab.id];
     if (!canCancelDbExecution(execution)) return;
-    const requestId = execution.status === "running" ? execution.requestId : null;
+    const requestId =
+      execution.status === "running" ? execution.requestId : null;
     if (!requestId) return;
 
     try {
@@ -2054,7 +2230,7 @@ db.dropDatabase()`;
     detail: DbObjectDetail | undefined,
     label: string,
   ) {
-    return detail?.summary.find((item) => item.label === label)?.value ?? '';
+    return detail?.summary.find((item) => item.label === label)?.value ?? "";
   }
 
   function getSameKindConnections(connection: DbConnection | null) {
@@ -2062,7 +2238,9 @@ db.dropDatabase()`;
       return [] as DbConnection[];
     }
 
-    return connectedConnections().filter((item) => item.kind === connection.kind);
+    return connectedConnections().filter(
+      (item) => item.kind === connection.kind,
+    );
   }
 
   function formatConnectionDatabaseLabel(
@@ -2070,7 +2248,9 @@ db.dropDatabase()`;
     databaseName: string | null,
   ) {
     const instanceLabel =
-      connection.name || connection.config.host || getConnectionTypeLabel(connection.kind);
+      connection.name ||
+      connection.config.host ||
+      getConnectionTypeLabel(connection.kind);
     return databaseName?.trim()
       ? `${instanceLabel} - ${databaseName.trim()}`
       : instanceLabel;
@@ -2078,14 +2258,17 @@ db.dropDatabase()`;
 
   function getDefaultDatabaseForConnection(connection: DbConnection) {
     const selectedRoot = getSelectedExplorerRoot(connection);
-    if (selectedRoot?.groupKind === 'database') {
+    if (selectedRoot?.groupKind === "database") {
       return selectedRoot.label;
     }
 
     return connection.config.database.trim() || null;
   }
 
-  function buildDatabaseTargetKey(connectionId: string, databaseName: string | null) {
+  function buildDatabaseTargetKey(
+    connectionId: string,
+    databaseName: string | null,
+  ) {
     return JSON.stringify({ connectionId, databaseName: databaseName ?? null });
   }
 
@@ -2104,7 +2287,7 @@ db.dropDatabase()`;
       const explorerNodes = explorerByConnectionId()[item.id]?.nodes ?? [];
       const databaseRoots = explorerNodes.filter(
         (node): node is ExplorerGroupNode =>
-          node.kind === 'group' && node.groupKind === 'database',
+          node.kind === "group" && node.groupKind === "database",
       );
 
       if (databaseRoots.length > 0) {
@@ -2135,7 +2318,9 @@ db.dropDatabase()`;
       );
 
       if (!exists) {
-        const currentConnection = connectionMap().get(currentTarget.connectionId);
+        const currentConnection = connectionMap().get(
+          currentTarget.connectionId,
+        );
         if (currentConnection) {
           targets.unshift({
             key: buildDatabaseTargetKey(
@@ -2163,7 +2348,7 @@ db.dropDatabase()`;
       connectionId?: string;
       databaseName?: string | null;
     };
-    const nextConnectionId = parsed.connectionId ?? '';
+    const nextConnectionId = parsed.connectionId ?? "";
     const nextDatabaseName = parsed.databaseName?.trim() || null;
     const nextConnection = connectionMap().get(nextConnectionId);
     if (!tab || !nextConnection) {
@@ -2178,18 +2363,18 @@ db.dropDatabase()`;
     }
 
     await commitWorkspace((draft) => {
-      const targetTab = draft.tabsById[tab.id]
+      const targetTab = draft.tabsById[tab.id];
       if (!targetTab) {
         return;
       }
       targetTab.connectionId = nextConnectionId;
       targetTab.databaseName = nextDatabaseName;
       if (currentConnection) {
-        const currentPrefix = `${currentConnection.name} · `
+        const currentPrefix = `${currentConnection.name} · `;
         if (targetTab.title.startsWith(currentPrefix)) {
-          targetTab.title = `${nextConnection.name} · ${targetTab.title.slice(currentPrefix.length)}`
+          targetTab.title = `${nextConnection.name} · ${targetTab.title.slice(currentPrefix.length)}`;
         } else if (targetTab.title === currentConnection.name) {
-          targetTab.title = nextConnection.name
+          targetTab.title = nextConnection.name;
         }
       }
       draft.activeConnectionId = nextConnectionId;
@@ -2198,10 +2383,12 @@ db.dropDatabase()`;
 
   function getCurrentConnectionHistory(connectionId: string | null) {
     if (!connectionId) {
-      return [] as DbWorkspaceState['history'];
+      return [] as DbWorkspaceState["history"];
     }
 
-    return workspace().history.filter((item) => item.connectionId === connectionId);
+    return workspace().history.filter(
+      (item) => item.connectionId === connectionId,
+    );
   }
 
   async function appendHistoryQueryToCurrentTab(query: string) {
@@ -2209,7 +2396,7 @@ db.dropDatabase()`;
     if (!tab) return;
 
     await commitWorkspace((draft) => {
-      const currentQuery = draft.tabsById[tab.id]?.query ?? '';
+      const currentQuery = draft.tabsById[tab.id]?.query ?? "";
       draft.tabsById[tab.id].query = currentQuery.trim()
         ? `${currentQuery.trimEnd()}\n\n${query}`
         : query;
@@ -2220,27 +2407,27 @@ db.dropDatabase()`;
 
   function getRedisKeyTypeClass(type: string) {
     switch (type.toLowerCase()) {
-      case 'string':
-        return 'bg-[rgba(59,130,246,0.12)] text-[#1d4ed8]';
-      case 'hash':
-        return 'bg-[rgba(34,197,94,0.12)] text-[#15803d]';
-      case 'zset':
-        return 'bg-[rgba(168,85,247,0.12)] text-[#7e22ce]';
-      case 'set':
-        return 'bg-[rgba(249,115,22,0.12)] text-[#c2410c]';
-      case 'list':
-        return 'bg-[rgba(236,72,153,0.12)] text-[#be185d]';
-      case 'stream':
-        return 'bg-[rgba(14,165,233,0.12)] text-[#0369a1]';
+      case "string":
+        return "bg-[rgba(59,130,246,0.12)] text-[#1d4ed8]";
+      case "hash":
+        return "bg-[rgba(34,197,94,0.12)] text-[#15803d]";
+      case "zset":
+        return "bg-[rgba(168,85,247,0.12)] text-[#7e22ce]";
+      case "set":
+        return "bg-[rgba(249,115,22,0.12)] text-[#c2410c]";
+      case "list":
+        return "bg-[rgba(236,72,153,0.12)] text-[#be185d]";
+      case "stream":
+        return "bg-[rgba(14,165,233,0.12)] text-[#0369a1]";
       default:
-        return 'bg-[rgba(148,163,184,0.18)] text-[#475569]';
+        return "bg-[rgba(148,163,184,0.18)] text-[#475569]";
     }
   }
 
   async function refreshRedisKeyTab() {
     const tab = activeTab();
     const connection = activeConnection();
-    if (!tab || !connection || tab.type !== 'redis') {
+    if (!tab || !connection || tab.type !== "redis") {
       return;
     }
 
@@ -2248,7 +2435,7 @@ db.dropDatabase()`;
       const node = findMatchingExplorerLeaf(
         explorerByConnectionId()[connection.id]?.nodes ?? [],
         {
-          kind: 'key',
+          kind: "key",
           label: tab.source.label,
           qualifiedName: tab.source.qualifiedName,
         },
@@ -2267,28 +2454,40 @@ db.dropDatabase()`;
     if (
       !tab ||
       !connection ||
-      tab.type !== 'redis' ||
-      tab.source?.nodeKind !== 'key'
+      tab.type !== "redis" ||
+      tab.source?.nodeKind !== "key"
     ) {
       return;
     }
 
-    const nextName = (redisKeyNameDraftByTabId()[tab.id] ?? '').trim();
-    const nextTtl = Number(redisKeyTtlDraftByTabId()[tab.id] ?? '-1');
+    const nextName = (redisKeyNameDraftByTabId()[tab.id] ?? "").trim();
+    const nextTtl = Number(redisKeyTtlDraftByTabId()[tab.id] ?? "-1");
     const currentName = tab.source.label;
     if (!nextName || Number.isNaN(nextTtl) || nextTtl < -1) {
       return;
     }
 
     if (nextName !== currentName) {
-      await executeDbAdHocQuery(connection, `RENAME ${JSON.stringify(currentName)} ${JSON.stringify(nextName)}`, 'redis');
+      await executeDbAdHocQuery(
+        connection,
+        `RENAME ${JSON.stringify(currentName)} ${JSON.stringify(nextName)}`,
+        "redis",
+      );
     }
 
     const targetKey = nextName || currentName;
     if (nextTtl === -1) {
-      await executeDbAdHocQuery(connection, `PERSIST ${JSON.stringify(targetKey)}`, 'redis');
+      await executeDbAdHocQuery(
+        connection,
+        `PERSIST ${JSON.stringify(targetKey)}`,
+        "redis",
+      );
     } else {
-      await executeDbAdHocQuery(connection, `EXPIRE ${JSON.stringify(targetKey)} ${nextTtl}`, 'redis');
+      await executeDbAdHocQuery(
+        connection,
+        `EXPIRE ${JSON.stringify(targetKey)} ${nextTtl}`,
+        "redis",
+      );
     }
 
     await commitWorkspace((draft) => {
@@ -2311,8 +2510,8 @@ db.dropDatabase()`;
     if (
       !tab ||
       !connection ||
-      tab.type !== 'redis' ||
-      tab.source?.nodeKind !== 'key'
+      tab.type !== "redis" ||
+      tab.source?.nodeKind !== "key"
     ) {
       return;
     }
@@ -2322,7 +2521,11 @@ db.dropDatabase()`;
       return;
     }
 
-    await executeDbAdHocQuery(connection, `DEL ${JSON.stringify(keyName)}`, 'redis');
+    await executeDbAdHocQuery(
+      connection,
+      `DEL ${JSON.stringify(keyName)}`,
+      "redis",
+    );
     await refreshConnectionExplorer(connection);
     await closeTab(tab.id);
   }
@@ -2392,7 +2595,8 @@ db.dropDatabase()`;
     const tab = workspace().tabsById[tabId];
     const connection = tab ? connectionMap().get(tab.connectionId) : null;
     if (!tab?.source || !connection) return;
-    if (tab.source.nodeKind !== "table" && tab.source.nodeKind !== "view") return;
+    if (tab.source.nodeKind !== "table" && tab.source.nodeKind !== "view")
+      return;
 
     const query = buildPagedSqlObjectQuery(
       connection,
@@ -2419,14 +2623,18 @@ db.dropDatabase()`;
     const connection = activeConnection();
     const detail = getActiveObjectDetail();
     const rows = getActiveResultRows();
-    if (!tab || !connection || !detail?.primaryKeys?.length || !tab.source) return;
-    const rowIndex = rows.findIndex((row, index) => getRowKey(row, index) === rowKey);
+    if (!tab || !connection || !detail?.primaryKeys?.length || !tab.source)
+      return;
+    const rowIndex = rows.findIndex(
+      (row, index) => getRowKey(row, index) === rowKey,
+    );
     if (rowIndex < 0) return;
 
     const original = rows[rowIndex];
     const edited = getEditedRows(tab.id)[rowKey] ?? {};
     const changedEntries = Object.entries(edited).filter(
-      ([column, value]) => value !== JSON.stringify(original[column] ?? null, null, 2),
+      ([column, value]) =>
+        value !== JSON.stringify(original[column] ?? null, null, 2),
     );
     if (changedEntries.length === 0) return;
 
@@ -2440,7 +2648,8 @@ db.dropDatabase()`;
     setRowSavePendingKeys((current) => [...current, rowKey]);
     try {
       await commitWorkspace((draft) => {
-        draft.tabsById[tab.id].query = `UPDATE ${tab.source?.qualifiedName ?? tab.source?.label}
+        draft.tabsById[tab.id].query =
+          `UPDATE ${tab.source?.qualifiedName ?? tab.source?.label}
 SET ${setClause}
 WHERE ${whereClause};`;
       });
@@ -2448,7 +2657,9 @@ WHERE ${whereClause};`;
       await rerunPagedSourceTab(tab.id, tab.source.page);
       resetEditedRow(tab.id, rowKey);
     } finally {
-      setRowSavePendingKeys((current) => current.filter((key) => key !== rowKey));
+      setRowSavePendingKeys((current) =>
+        current.filter((key) => key !== rowKey),
+      );
     }
   }
 
@@ -2486,10 +2697,11 @@ WHERE ${whereClause};`;
     const schemaNodes = getSchemaNodesForRoot(selectedRoot);
     const selectedSchemaId = selectedRoot
       ? getSelectedSchemaId(connection.id, selectedRoot.id, schemaNodes)
-      : '__all__';
+      : "__all__";
     const selectedSchemaLabel =
-      selectedSchemaId !== '__all__'
-        ? schemaNodes.find((schemaNode) => schemaNode.id === selectedSchemaId)?.label ?? null
+      selectedSchemaId !== "__all__"
+        ? (schemaNodes.find((schemaNode) => schemaNode.id === selectedSchemaId)
+            ?.label ?? null)
         : null;
 
     setExpandedExplorerNodeIds([]);
@@ -2728,13 +2940,34 @@ WHERE ${whereClause};`;
     closeConnectionModal();
   }
 
-  async function updateActiveQuery(query: string) {
+  function getTabQuery(tab: DbTab): string {
+    return liveQueryByTabId()[tab.id] ?? tab.query;
+  }
+
+  function flushLiveQuery(tabId: string) {
+    const live = liveQueryByTabId()[tabId];
+    if (live === undefined) return;
+    const current = workspace();
+    if (current.tabsById[tabId] && current.tabsById[tabId].query !== live) {
+      const next = cloneValue(current);
+      next.tabsById[tabId].query = live;
+      void saveDbWorkspace(next);
+    }
+  }
+
+  function updateActiveQuery(query: string) {
     const tab = activeTab();
     if (!tab) return;
 
-    await commitWorkspace((draft) => {
-      draft.tabsById[tab.id].query = query;
-    });
+    setLiveQueryByTabId((current) => ({ ...current, [tab.id]: query }));
+
+    if (queryPersistTimer !== null) {
+      clearTimeout(queryPersistTimer);
+    }
+    queryPersistTimer = setTimeout(() => {
+      queryPersistTimer = null;
+      flushLiveQuery(tab.id);
+    }, 600);
   }
 
   async function openConnectionTab(
@@ -2748,7 +2981,8 @@ WHERE ${whereClause};`;
           (tabId) =>
             workspace().tabsById[tabId]?.connectionId === connection.id &&
             workspace().tabsById[tabId]?.type === tabType &&
-            (workspace().tabsById[tabId]?.databaseName ?? null) === databaseName,
+            (workspace().tabsById[tabId]?.databaseName ?? null) ===
+              databaseName,
         ) ?? null)
       : null;
 
@@ -3000,7 +3234,10 @@ WHERE ${whereClause};`;
       .map((tab) => tab.id);
     clearTabArtifacts(removedTabIds);
 
-    if (connection && workspace().connectedConnectionIds.includes(connectionId)) {
+    if (
+      connection &&
+      workspace().connectedConnectionIds.includes(connectionId)
+    ) {
       try {
         await disconnectDbConnection(connection);
       } catch {
@@ -3045,7 +3282,9 @@ WHERE ${whereClause};`;
     const connection = activeConnection();
     if (!tab || !connection) return;
 
-    const execution = startDbExecution(tab, connection);
+    const freshTab = { ...tab, query: getTabQuery(tab) };
+
+    const execution = startDbExecution(freshTab, connection);
 
     setExecutionByTabId((current) => ({
       ...current,
@@ -3190,7 +3429,6 @@ WHERE ${whereClause};`;
             () => cfg().database,
             (value) => updateConnectionDraftConfig("database", value),
             "text",
-            "test",
           )}
           {renderConfigField(
             "Login",
@@ -3435,17 +3673,21 @@ WHERE ${whereClause};`;
     const currentPage = tab.source?.page ?? getResultPage(tab.id);
     const totalRows = sqlResult?.data.rows?.length ?? 0;
     const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
-    const canGoNext = tab.source ? totalRows >= pageSize : currentPage < totalPages;
+    const canGoNext = tab.source
+      ? totalRows >= pageSize
+      : currentPage < totalPages;
     const pagedRows =
-      sqlResult?.data.rows?.slice((currentPage - 1) * pageSize, currentPage * pageSize) ??
-      [];
+      sqlResult?.data.rows?.slice(
+        (currentPage - 1) * pageSize,
+        currentPage * pageSize,
+      ) ?? [];
     const activeDetail = getTabObjectDetail(tab) ?? getActiveObjectDetail();
     const dirtyRowKeys = Object.keys(getEditedRows(tab.id));
     const editableSql = Boolean(
       connection &&
-        tab.source?.nodeKind === "table" &&
-        activeDetail?.primaryKeys?.length &&
-        sqlResult?.data.columns?.length,
+      tab.source?.nodeKind === "table" &&
+      activeDetail?.primaryKeys?.length &&
+      sqlResult?.data.columns?.length,
     );
 
     const resultMeta = result
@@ -3555,7 +3797,10 @@ WHERE ${whereClause};`;
           </div>
         </div>
         <Show when={executionWarning()}>
-          <div class="border-b bg-[rgba(255,245,229,0.7)] px-3 py-2 text-[11px] text-[#b54708]" style={{ "border-color": "var(--app-border)" }}>
+          <div
+            class="border-b bg-[rgba(255,245,229,0.7)] px-3 py-2 text-[11px] text-[#b54708]"
+            style={{ "border-color": "var(--app-border)" }}
+          >
             {executionWarning()}
           </div>
         </Show>
@@ -3610,19 +3855,32 @@ WHERE ${whereClause};`;
                     pendingRowKeys={rowSavePendingKeys()}
                     getRowKey={(row, index) => getRowKey(row, index)}
                     getCellValue={(row, column) =>
-                      getVisibleRowValue(tab.id, row, pagedRows.indexOf(row), column)
+                      getVisibleRowValue(
+                        tab.id,
+                        row,
+                        pagedRows.indexOf(row),
+                        column,
+                      )
                     }
                     onCellInput={(rowKey, column, value) => {
                       const rowIndex = pagedRows.findIndex(
                         (row, index) => getRowKey(row, index) === rowKey,
                       );
                       if (rowIndex < 0) return;
-                      updateEditedCell(tab.id, pagedRows[rowIndex], rowIndex, column, value);
+                      updateEditedCell(
+                        tab.id,
+                        pagedRows[rowIndex],
+                        rowIndex,
+                        column,
+                        value,
+                      );
                     }}
                     onSaveRow={(rowKey) => void saveEditedRow(rowKey)}
                     onResetRow={(rowKey) => resetEditedRow(tab.id, rowKey)}
                   />
-                  <Show when={sqlResult && (tab.source || totalRows > pageSize)}>
+                  <Show
+                    when={sqlResult && (tab.source || totalRows > pageSize)}
+                  >
                     <div class="mt-3 flex items-center justify-between gap-2 text-[11px]">
                       <span class="theme-text-soft">
                         {`Showing ${Math.min((currentPage - 1) * pageSize + 1, totalRows)}-${Math.min(currentPage * pageSize, totalRows)} of ${totalRows}`}
@@ -3646,13 +3904,18 @@ WHERE ${whereClause};`;
                           Prev
                         </button>
                         <span class="theme-text-soft">
-                          {tab.source ? `Page ${currentPage}` : `${currentPage} / ${totalPages}`}
+                          {tab.source
+                            ? `Page ${currentPage}`
+                            : `${currentPage} / ${totalPages}`}
                         </span>
                         <button
                           class="theme-control h-7 rounded-md px-2.5"
                           disabled={!canGoNext}
                           onClick={() => {
-                            const nextPage = Math.min(totalPages, currentPage + 1);
+                            const nextPage = Math.min(
+                              totalPages,
+                              currentPage + 1,
+                            );
                             if (tab.source) {
                               void rerunPagedSourceTab(tab.id, nextPage);
                             } else {
@@ -3721,20 +3984,25 @@ WHERE ${whereClause};`;
       return <div class="min-h-0 flex-1" />;
     }
 
-    const readOnlyEditor = tab.type === 'structure';
+    const readOnlyEditor = tab.type === "structure";
     const detail = getTabObjectDetail(tab) ?? getActiveObjectDetail();
     const databaseTargets = getSameKindDatabaseTargets(connection, {
       connectionId: tab.connectionId,
       databaseName: tab.databaseName ?? null,
     });
-    const isRedisKeyTab = tab.type === 'redis' && tab.source?.nodeKind === 'key';
-    const redisKeyType = getDetailSummaryValue(detail, 'Type') || 'key';
+    const isRedisKeyTab =
+      tab.type === "redis" && tab.source?.nodeKind === "key";
+    const redisKeyType = getDetailSummaryValue(detail, "Type") || "key";
     const redisTtl =
       redisKeyTtlDraftByTabId()[tab.id] ??
-      (getDetailSummaryValue(detail, 'TTL') || '-1');
-    const redisKeyName = redisKeyNameDraftByTabId()[tab.id] ?? tab.source?.label ?? '';
+      (getDetailSummaryValue(detail, "TTL") || "-1");
+    const redisKeyName =
+      redisKeyNameDraftByTabId()[tab.id] ?? tab.source?.label ?? "";
     const header = (
-      <div class="border-b px-3 py-2" style={{ 'border-color': 'var(--app-border)' }}>
+      <div
+        class="border-b px-3 py-2"
+        style={{ "border-color": "var(--app-border)" }}
+      >
         <div class="flex flex-wrap items-center gap-2">
           <Show
             when={isRedisKeyTab}
@@ -3742,13 +4010,18 @@ WHERE ${whereClause};`;
               <>
                 <select
                   class="theme-input h-8 min-w-[220px] rounded-md px-3 text-sm"
-                  value={buildDatabaseTargetKey(connection.id, tab.databaseName ?? null)}
-                  onInput={(event) => void switchActiveTabConnectionTarget(event.currentTarget.value)}
+                  value={buildDatabaseTargetKey(
+                    connection.id,
+                    tab.databaseName ?? null,
+                  )}
+                  onInput={(event) =>
+                    void switchActiveTabConnectionTarget(
+                      event.currentTarget.value,
+                    )
+                  }
                 >
                   <For each={databaseTargets}>
-                    {(item) => (
-                      <option value={item.key}>{item.label}</option>
-                    )}
+                    {(item) => <option value={item.key}>{item.label}</option>}
                   </For>
                 </select>
                 <button
@@ -3766,7 +4039,9 @@ WHERE ${whereClause};`;
               </>
             }
           >
-            <span class={`inline-flex h-8 items-center rounded-md px-3 text-sm font-semibold ${getRedisKeyTypeClass(redisKeyType)}`}>
+            <span
+              class={`inline-flex h-8 items-center rounded-md px-3 text-sm font-semibold ${getRedisKeyTypeClass(redisKeyType)}`}
+            >
               {redisKeyType}
             </span>
             <input
@@ -3787,11 +4062,11 @@ WHERE ${whereClause};`;
               value={redisTtl}
               onInput={(event) => {
                 const value = event.currentTarget.value;
-                if (value === '' || Number(value) >= -1) {
+                if (value === "" || Number(value) >= -1) {
                   setRedisKeyTtlDraftByTabId((current) => ({
                     ...current,
                     [tab.id]: value,
-                  }))
+                  }));
                 }
               }}
             />
@@ -3831,9 +4106,17 @@ WHERE ${whereClause};`;
           <div class="h-full">
             <DbCodeEditor
               kind={connection.kind}
-              value={tab.query}
+              schema={
+                schemaCompletionCache()[
+                  schemaCompletionKey(connection.id, tab.databaseName)
+                ] ?? schemaCompletionCache()[connection.id]
+              }
+              defaultSchema={
+                tab.databaseName || getDefaultSchemaName(connection)
+              }
+              value={liveQueryByTabId()[tab.id] ?? tab.query}
               readOnly={readOnlyEditor}
-              onChange={(value) => void updateActiveQuery(value)}
+              onChange={(value) => updateActiveQuery(value)}
               onRun={() => void runCurrentTab()}
             />
           </div>
@@ -3988,7 +4271,10 @@ WHERE ${whereClause};`;
           <button class="min-w-0 flex-1 text-left">
             <div class="flex min-w-0 items-center gap-2">
               <span class={`${badge.class} shrink-0`}>{badge.label}</span>
-              <p class="truncate text-[13px] font-medium" title={connection.name}>
+              <p
+                class="truncate text-[13px] font-medium"
+                title={connection.name}
+              >
                 {connection.name}
               </p>
             </div>
@@ -4137,13 +4423,11 @@ WHERE ${whereClause};`;
     return (
       <DbExplorerPane
         heading={getObjectBrowserHeading(categories())}
-        subtitle={
-          root()
-            ? `${connection()?.name} / ${root()!.label}`
-            : ''
-        }
+        subtitle={root() ? `${connection()?.name} / ${root()!.label}` : ""}
         objectFilter={objectFilter()}
-        showSchemaSelect={schemaNodes().length > 0 && Boolean(connection() && root())}
+        showSchemaSelect={
+          schemaNodes().length > 0 && Boolean(connection() && root())
+        }
         totalSchemaObjectCount={totalSchemaObjectCount()}
         selectedSchemaId={selectedSchemaId()}
         schemaNodes={schemaNodes()}
@@ -4156,7 +4440,9 @@ WHERE ${whereClause};`;
         renderSchemaOption={(schemaNode) => (
           <option value={schemaNode.id}>{schemaNode.label}</option>
         )}
-        renderCategory={(category) => renderExplorerNode(connection()!, category, 0)}
+        renderCategory={(category) =>
+          renderExplorerNode(connection()!, category, 0)
+        }
         onObjectFilterInput={setObjectFilter}
         onSchemaChange={(value) =>
           setSelectedExplorerSchemaIds((current) => ({
@@ -4164,13 +4450,15 @@ WHERE ${whereClause};`;
             [getSchemaSelectionKey(connection()!.id, root()!.id)]: value,
           }))
         }
-        onRefreshConnection={() => void refreshConnectionExplorer(connection()!)}
+        onRefreshConnection={() =>
+          void refreshConnectionExplorer(connection()!)
+        }
         onRetryExplorer={() => {
           const c = connection();
           if (c) void loadConnectionExplorer(c);
         }}
       />
-    )
+    );
   }
 
   return (
@@ -4199,12 +4487,16 @@ WHERE ${whereClause};`;
               onFilterInput={setFilter}
               onOpenSavedConnections={openSavedConnectionsModal}
               onResizeStart={startSidebarSplitResize}
-              renderItem={(connection) => renderConnectedConnectionRow(connection)}
+              renderItem={(connection) =>
+                renderConnectedConnectionRow(connection)
+              }
             />
 
             <div class="min-h-[180px] min-w-0 flex-1 overflow-hidden">
               <div class="flex h-full min-h-0 flex-col overflow-hidden">
-                <div class="min-h-0 flex-1 overflow-hidden">{renderObjectBrowserPanel()}</div>
+                <div class="min-h-0 flex-1 overflow-hidden">
+                  {renderObjectBrowserPanel()}
+                </div>
               </div>
             </div>
           </div>
@@ -4291,9 +4583,11 @@ WHERE ${whereClause};`;
         onFilterInput={setSavedConnectionsFilter}
         onCreate={() => openCreateConnectionModal("postgresql", true)}
         renderItem={(connection) => {
-          const badge = getConnectionBadge(connection)
-          const isConnected = workspace().connectedConnectionIds.includes(connection.id)
-          const isPending = pendingConnectionId() === connection.id
+          const badge = getConnectionBadge(connection);
+          const isConnected = workspace().connectedConnectionIds.includes(
+            connection.id,
+          );
+          const isPending = pendingConnectionId() === connection.id;
 
           return (
             <div
@@ -4307,27 +4601,47 @@ WHERE ${whereClause};`;
               <div class="min-w-0">
                 <div class="flex min-w-0 items-center gap-2">
                   <span class={badge.class}>{badge.label}</span>
-                  <p class="truncate text-sm font-semibold" title={connection.name}>{connection.name}</p>
-                  <p class="theme-text-soft truncate text-xs">{describeConnection(connection)}</p>
+                  <p
+                    class="truncate text-sm font-semibold"
+                    title={connection.name}
+                  >
+                    {connection.name}
+                  </p>
+                  <p class="theme-text-soft truncate text-xs">
+                    {describeConnection(connection)}
+                  </p>
                 </div>
               </div>
               <div class="flex items-center justify-end gap-2">
                 <button
                   class="rounded-xl border px-3 py-1.5 text-sm font-medium text-white transition hover:brightness-110 disabled:opacity-60"
-                  style={{ background: '#007aff', 'border-color': 'rgba(0, 122, 255, 0.45)' }}
+                  style={{
+                    background: "#007aff",
+                    "border-color": "rgba(0, 122, 255, 0.45)",
+                  }}
                   disabled={isPending}
                   onClick={() => openEditConnectionModal(connection, true)}
                 >
                   Edit
                 </button>
-                <button class="rounded-xl border px-3 py-1.5 text-sm font-medium text-white transition hover:brightness-110" style={{ background: '#ff5f57', 'border-color': 'rgba(255, 95, 87, 0.5)' }} disabled={isPending} onClick={() => void removeSavedConnection(connection.id)}>Delete</button>
+                <button
+                  class="rounded-xl border px-3 py-1.5 text-sm font-medium text-white transition hover:brightness-110"
+                  style={{
+                    background: "#ff5f57",
+                    "border-color": "rgba(255, 95, 87, 0.5)",
+                  }}
+                  disabled={isPending}
+                  onClick={() => void removeSavedConnection(connection.id)}
+                >
+                  Delete
+                </button>
                 <button
                   class="rounded-xl border px-3 py-1.5 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                   style={{
-                    background: isConnected ? '#8e8e93' : '#28c840',
-                    'border-color': isConnected
-                      ? 'rgba(142, 142, 147, 0.5)'
-                      : 'rgba(40, 200, 64, 0.5)',
+                    background: isConnected ? "#8e8e93" : "#28c840",
+                    "border-color": isConnected
+                      ? "rgba(142, 142, 147, 0.5)"
+                      : "rgba(40, 200, 64, 0.5)",
                   }}
                   disabled={Boolean(pendingConnectionId())}
                   onClick={() =>
@@ -4336,11 +4650,15 @@ WHERE ${whereClause};`;
                       : connectSavedConnection(connection))
                   }
                 >
-                  {isPending ? 'Connecting...' : isConnected ? 'Disconnect' : 'Connect'}
+                  {isPending
+                    ? "Connecting..."
+                    : isConnected
+                      ? "Disconnect"
+                      : "Connect"}
                 </button>
               </div>
             </div>
-          )
+          );
         }}
       />
 
@@ -4352,15 +4670,25 @@ WHERE ${whereClause};`;
         >
           <div
             class="theme-panel-soft w-full max-w-3xl rounded-[22px] border p-5 shadow-[0_24px_60px_rgba(15,23,42,0.24)]"
-            style={{ 'border-color': 'var(--app-border)' }}
+            style={{ "border-color": "var(--app-border)" }}
             onClick={(event) => event.stopPropagation()}
           >
-            <div class="flex items-start justify-between gap-4 border-b pb-4" style={{ 'border-color': 'var(--app-border)' }}>
+            <div
+              class="flex items-start justify-between gap-4 border-b pb-4"
+              style={{ "border-color": "var(--app-border)" }}
+            >
               <div>
-                <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">History</p>
-                <h3 class="theme-text mt-2 text-lg font-semibold">Execution History</h3>
+                <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">
+                  History
+                </p>
+                <h3 class="theme-text mt-2 text-lg font-semibold">
+                  Execution History
+                </h3>
               </div>
-              <button class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0" onClick={() => setHistoryModalOpen(false)}>
+              <button
+                class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
+                onClick={() => setHistoryModalOpen(false)}
+              >
                 <ControlDot size="small" variant="delete" />
               </button>
             </div>
@@ -4370,10 +4698,14 @@ WHERE ${whereClause};`;
                   {(item) => (
                     <button
                       class="theme-control grid gap-2 rounded-[18px] px-4 py-3 text-left"
-                      onClick={() => void appendHistoryQueryToCurrentTab(item.query)}
+                      onClick={() =>
+                        void appendHistoryQueryToCurrentTab(item.query)
+                      }
                     >
                       <div class="flex items-center justify-between gap-2">
-                        <span class={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${item.status === 'success' ? 'bg-[rgba(40,200,64,0.12)] text-[#1f8f3a]' : 'bg-[rgba(255,95,87,0.12)] text-[#c2410c]'}`}>
+                        <span
+                          class={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${item.status === "success" ? "bg-[rgba(40,200,64,0.12)] text-[#1f8f3a]" : "bg-[rgba(255,95,87,0.12)] text-[#c2410c]"}`}
+                        >
                           {item.status}
                         </span>
                         <span class="theme-text-soft text-[11px]">
@@ -4386,7 +4718,12 @@ WHERE ${whereClause};`;
                     </button>
                   )}
                 </For>
-                <Show when={getCurrentConnectionHistory(activeConnectionId()).length === 0}>
+                <Show
+                  when={
+                    getCurrentConnectionHistory(activeConnectionId()).length ===
+                    0
+                  }
+                >
                   <div class="theme-text-soft rounded-xl px-2 py-3 text-xs">
                     No execution history.
                   </div>
@@ -4400,22 +4737,36 @@ WHERE ${whereClause};`;
       <DbConnectionModal
         open={Boolean(connectionModalMode() && connectionDraftState.value)}
         mode={connectionModalMode()}
-        title={getConnectionTypeLabel(connectionDraftState.value?.kind ?? 'postgresql')}
-        kind={connectionDraftState.value?.kind ?? 'postgresql'}
+        title={getConnectionTypeLabel(
+          connectionDraftState.value?.kind ?? "postgresql",
+        )}
+        kind={connectionDraftState.value?.kind ?? "postgresql"}
         kinds={databaseKinds}
         renderKindLabel={getConnectionTypeLabel}
-        showEnvironment={connectionModalMode() === 'edit'}
-        environment={connectionDraftState.value?.environment ?? 'local'}
+        showEnvironment={connectionModalMode() === "edit"}
+        environment={connectionDraftState.value?.environment ?? "local"}
         aliasField={renderConfigField(
-          'Alias',
+          "Alias",
           () => connectionDraftState.value!.name,
-          (value) => setConnectionDraftState('value', 'name', value),
+          (value) => setConnectionDraftState("value", "name", value),
         )}
-        form={connectionDraftState.value ? renderConnectionDraftForm(connectionDraftState.value) : <div />}
+        form={
+          connectionDraftState.value ? (
+            renderConnectionDraftForm(connectionDraftState.value)
+          ) : (
+            <div />
+          )
+        }
         onClose={closeConnectionModal}
-        onKindChange={(kind) => changeConnectionDraftKind(kind as DbConnectionKind)}
+        onKindChange={(kind) =>
+          changeConnectionDraftKind(kind as DbConnectionKind)
+        }
         onEnvironmentChange={(value) =>
-          setConnectionDraftState('value', 'environment', value as DbConnection['environment'])
+          setConnectionDraftState(
+            "value",
+            "environment",
+            value as DbConnection["environment"],
+          )
         }
         onSave={() => void saveConnectionDraft()}
       />
@@ -4428,38 +4779,84 @@ WHERE ${whereClause};`;
           >
             <div
               class="theme-panel-soft w-full max-w-xl rounded-[22px] border p-5 shadow-[0_24px_60px_rgba(15,23,42,0.24)]"
-              style={{ 'border-color': 'var(--app-border)' }}
+              style={{ "border-color": "var(--app-border)" }}
             >
-              <div class="flex items-start justify-between gap-4 border-b pb-4" style={{ 'border-color': 'var(--app-border)' }}>
+              <div
+                class="flex items-start justify-between gap-4 border-b pb-4"
+                style={{ "border-color": "var(--app-border)" }}
+              >
                 <div>
-                  <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">Export</p>
-                  <h3 class="theme-text mt-2 text-lg font-semibold">{modal.databaseName}</h3>
+                  <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">
+                    Export
+                  </p>
+                  <h3 class="theme-text mt-2 text-lg font-semibold">
+                    {modal.databaseName}
+                  </h3>
                 </div>
-                <button class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0" onClick={() => closeDatabaseExportModal()}>
+                <button
+                  class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
+                  onClick={() => closeDatabaseExportModal()}
+                >
                   <ControlDot size="small" variant="delete" />
                 </button>
               </div>
 
               <div class="mt-4 grid gap-3 md:grid-cols-2">
                 <label class="theme-control flex items-center gap-2 rounded-xl px-3 py-2 text-sm">
-                  <input type="checkbox" checked={databaseExportIncludeDrop()} onInput={(event) => setDatabaseExportIncludeDrop(event.currentTarget.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={databaseExportIncludeDrop()}
+                    onInput={(event) =>
+                      setDatabaseExportIncludeDrop(event.currentTarget.checked)
+                    }
+                  />
                   <span>Include DROP DATABASE</span>
                 </label>
                 <label class="theme-control flex items-center gap-2 rounded-xl px-3 py-2 text-sm">
-                  <input type="checkbox" checked={databaseExportIncludeCreate()} onInput={(event) => setDatabaseExportIncludeCreate(event.currentTarget.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={databaseExportIncludeCreate()}
+                    onInput={(event) =>
+                      setDatabaseExportIncludeCreate(
+                        event.currentTarget.checked,
+                      )
+                    }
+                  />
                   <span>Include CREATE TABLE</span>
                 </label>
                 <label class="theme-control flex items-center gap-2 rounded-xl px-3 py-2 text-sm">
-                  <input type="checkbox" checked={databaseExportBulkInsert()} onInput={(event) => setDatabaseExportBulkInsert(event.currentTarget.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={databaseExportBulkInsert()}
+                    onInput={(event) =>
+                      setDatabaseExportBulkInsert(event.currentTarget.checked)
+                    }
+                  />
                   <span>Use bulk insert</span>
                 </label>
                 <label class="theme-control flex items-center gap-2 rounded-xl px-3 py-2 text-sm">
-                  <input type="checkbox" checked={databaseExportZip()} onInput={(event) => setDatabaseExportZip(event.currentTarget.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={databaseExportZip()}
+                    onInput={(event) =>
+                      setDatabaseExportZip(event.currentTarget.checked)
+                    }
+                  />
                   <span>Zip output</span>
                 </label>
                 <label class="grid gap-1 md:col-span-2">
-                  <span class="theme-text-soft text-[11px] uppercase tracking-[0.16em]">File Type</span>
-                  <select class="theme-input h-9 rounded-xl px-3 text-sm" value={databaseExportFormat()} onInput={(event) => setDatabaseExportFormat(event.currentTarget.value as 'sql' | 'csv' | 'json')}>
+                  <span class="theme-text-soft text-[11px] uppercase tracking-[0.16em]">
+                    File Type
+                  </span>
+                  <select
+                    class="theme-input h-9 rounded-xl px-3 text-sm"
+                    value={databaseExportFormat()}
+                    onInput={(event) =>
+                      setDatabaseExportFormat(
+                        event.currentTarget.value as "sql" | "csv" | "json",
+                      )
+                    }
+                  >
                     <option value="sql">SQL</option>
                     <option value="csv">CSV</option>
                     <option value="json">JSON</option>
@@ -4468,10 +4865,16 @@ WHERE ${whereClause};`;
               </div>
 
               <div class="mt-5 flex items-center justify-end gap-2">
-                <button class="theme-control h-8 rounded-md px-3 text-sm font-medium" onClick={() => closeDatabaseExportModal()}>
+                <button
+                  class="theme-control h-8 rounded-md px-3 text-sm font-medium"
+                  onClick={() => closeDatabaseExportModal()}
+                >
                   Cancel
                 </button>
-                <button class="theme-success h-8 rounded-md px-3 text-sm font-semibold" onClick={() => downloadDatabaseExport()}>
+                <button
+                  class="theme-success h-8 rounded-md px-3 text-sm font-semibold"
+                  onClick={() => downloadDatabaseExport()}
+                >
                   Export
                 </button>
               </div>
@@ -4554,15 +4957,17 @@ WHERE ${whereClause};`;
               )
             : null;
           if (!connection || !node) return null;
-          if (node.kind === 'group') {
+          if (node.kind === "group") {
             const databaseName = node.label;
-            const showExtendedMenu = connection.kind !== 'redis';
+            const showExtendedMenu = connection.kind !== "redis";
 
             return (
               <DbContextMenu open={true} menu={menu} zIndex={305}>
                 <button
                   class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                  onClick={() => void openConnectionTab(connection, true, databaseName)}
+                  onClick={() =>
+                    void openConnectionTab(connection, true, databaseName)
+                  }
                 >
                   New Query
                 </button>
@@ -4575,20 +4980,26 @@ WHERE ${whereClause};`;
                           connection,
                           `${databaseName} · New Table`,
                           buildCreateTableTemplate(connection, databaseName),
-                          { forceNew: true, resultView: 'raw', databaseName },
+                          { forceNew: true, resultView: "raw", databaseName },
                         )
                       }
                     >
                       New Table
                     </button>
-                    <div class="my-1 h-px" style={{ background: 'var(--app-border)' }} />
+                    <div
+                      class="my-1 h-px"
+                      style={{ background: "var(--app-border)" }}
+                    />
                     <button
                       class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
                       onClick={() => void copyTextValue(databaseName)}
                     >
                       Copy Name
                     </button>
-                    <div class="my-1 h-px" style={{ background: 'var(--app-border)' }} />
+                    <div
+                      class="my-1 h-px"
+                      style={{ background: "var(--app-border)" }}
+                    />
                     <div class="group relative">
                       <button class="theme-sidebar-item flex w-full items-center justify-between gap-3 whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm">
                         <span>Import</span>
@@ -4596,7 +5007,7 @@ WHERE ${whereClause};`;
                       </button>
                       <div
                         class="theme-panel-soft invisible absolute left-full top-0 z-[306] ml-1 grid min-w-[160px] auto-cols-max rounded-[18px] border p-1.5 opacity-0 shadow-[0_18px_45px_rgba(15,23,42,0.18)] transition group-hover:visible group-hover:opacity-100"
-                        style={{ 'border-color': 'var(--app-border)' }}
+                        style={{ "border-color": "var(--app-border)" }}
                       >
                         <button
                           class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
@@ -4604,8 +5015,16 @@ WHERE ${whereClause};`;
                             void openConnectionActionQuery(
                               connection,
                               `${databaseName} · Import SQL`,
-                              buildImportTemplate(connection, databaseName, 'sql'),
-                              { forceNew: true, resultView: 'raw', databaseName },
+                              buildImportTemplate(
+                                connection,
+                                databaseName,
+                                "sql",
+                              ),
+                              {
+                                forceNew: true,
+                                resultView: "raw",
+                                databaseName,
+                              },
                             )
                           }
                         >
@@ -4617,8 +5036,16 @@ WHERE ${whereClause};`;
                             void openConnectionActionQuery(
                               connection,
                               `${databaseName} · Import JSON`,
-                              buildImportTemplate(connection, databaseName, 'json'),
-                              { forceNew: true, resultView: 'raw', databaseName },
+                              buildImportTemplate(
+                                connection,
+                                databaseName,
+                                "json",
+                              ),
+                              {
+                                forceNew: true,
+                                resultView: "raw",
+                                databaseName,
+                              },
                             )
                           }
                         >
@@ -4630,8 +5057,16 @@ WHERE ${whereClause};`;
                             void openConnectionActionQuery(
                               connection,
                               `${databaseName} · Import CSV`,
-                              buildImportTemplate(connection, databaseName, 'csv'),
-                              { forceNew: true, resultView: 'raw', databaseName },
+                              buildImportTemplate(
+                                connection,
+                                databaseName,
+                                "csv",
+                              ),
+                              {
+                                forceNew: true,
+                                resultView: "raw",
+                                databaseName,
+                              },
                             )
                           }
                         >
@@ -4641,23 +5076,32 @@ WHERE ${whereClause};`;
                     </div>
                     <button
                       class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                      onClick={() => openDatabaseExportModal(connection.id, databaseName)}
+                      onClick={() =>
+                        openDatabaseExportModal(connection.id, databaseName)
+                      }
                     >
                       Export
                     </button>
-                    <div class="my-1 h-px" style={{ background: 'var(--app-border)' }} />
+                    <div
+                      class="my-1 h-px"
+                      style={{ background: "var(--app-border)" }}
+                    />
                     <button
                       class="whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm text-[#b42318] transition hover:bg-[rgba(180,35,24,0.08)]"
                       onClick={() => {
-                        if (!window.confirm(`Drop database \"${databaseName}\"? This only opens the command template.`)) {
+                        if (
+                          !window.confirm(
+                            `Drop database \"${databaseName}\"? This only opens the command template.`,
+                          )
+                        ) {
                           return;
                         }
                         void openConnectionActionQuery(
                           connection,
                           `${databaseName} · Drop Database`,
                           buildDropDatabaseTemplate(connection, databaseName),
-                          { forceNew: true, resultView: 'raw', databaseName },
-                        )
+                          { forceNew: true, resultView: "raw", databaseName },
+                        );
                       }}
                     >
                       Drop Database
@@ -4688,10 +5132,15 @@ WHERE ${whereClause};`;
                   <button
                     class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
                     onClick={() =>
-                      void openExplorerQuery(connection, node, getNodeOpenQuery(connection, node), {
-                        forceNew: true,
-                        source: buildSourceFromNode(node),
-                      })
+                      void openExplorerQuery(
+                        connection,
+                        node,
+                        getNodeOpenQuery(connection, node),
+                        {
+                          forceNew: true,
+                          source: buildSourceFromNode(node),
+                        },
+                      )
                     }
                   >
                     Open data
@@ -4745,11 +5194,16 @@ WHERE ${whereClause};`;
                   <button
                     class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
                     onClick={() =>
-                      void openExplorerQuery(connection, node, getNodeOpenQuery(connection, node), {
-                        forceNew: true,
-                        titleSuffix: "Select",
-                        source: buildSourceFromNode(node),
-                      })
+                      void openExplorerQuery(
+                        connection,
+                        node,
+                        getNodeOpenQuery(connection, node),
+                        {
+                          forceNew: true,
+                          titleSuffix: "Select",
+                          source: buildSourceFromNode(node),
+                        },
+                      )
                     }
                   >
                     Select template
@@ -4882,10 +5336,15 @@ WHERE ${whereClause};`;
               <button
                 class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
                 onClick={() =>
-                  void openExplorerQuery(connection, node, getNodeOpenQuery(connection, node), {
-                    forceNew: true,
-                    source: buildSourceFromNode(node),
-                  })
+                  void openExplorerQuery(
+                    connection,
+                    node,
+                    getNodeOpenQuery(connection, node),
+                    {
+                      forceNew: true,
+                      source: buildSourceFromNode(node),
+                    },
+                  )
                 }
               >
                 Open In New Tab
@@ -4922,7 +5381,6 @@ WHERE ${whereClause};`;
           );
         }}
       </Show>
-
     </>
   );
 }

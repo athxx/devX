@@ -211,7 +211,6 @@ a {
 }
 
 .theme-sidebar {
-  border-right: 1px solid var(--app-border);
   background: var(--app-sidebar-glass);
   box-shadow: inset -1px 0 0 var(--app-glass-highlight);
   backdrop-filter: blur(14px) saturate(1.1);

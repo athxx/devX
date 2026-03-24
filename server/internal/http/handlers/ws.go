@@ -544,7 +544,7 @@ func mongoDatabaseName(rawURL string) (string, error) {
 	}
 	name := strings.Trim(parsed.Path, "/")
 	if name == "" {
-		name = "test"
+		return "", fmt.Errorf("database name is required in mongodb URI path")
 	}
 	return name, nil
 }

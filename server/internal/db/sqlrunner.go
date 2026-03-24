@@ -92,9 +92,16 @@ func QuerySQL(ctx context.Context, request SQLQueryRequest, fallbackTimeout time
 }
 
 func scanSQLRows(rows *sql.Rows, start time.Time) (SQLQueryResponse, error) {
-	columns, err := rows.Columns()
+	rawColumns, err := rows.Columns()
 	if err != nil {
 		return SQLQueryResponse{}, err
+	}
+
+	// Normalize column names to lowercase so that all drivers (MySQL returns
+	// UPPERCASE from information_schema, PG returns lowercase) behave consistently.
+	columns := make([]string, len(rawColumns))
+	for i, c := range rawColumns {
+		columns[i] = strings.ToLower(c)
 	}
 
 	resultRows := make([]map[string]any, 0)

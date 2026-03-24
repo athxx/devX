@@ -244,7 +244,7 @@ func ListMongoCollections(ctx context.Context, request MongoListCollectionsReque
 		database = mongoDatabaseNameFromURI(request.URI)
 	}
 	if database == "" {
-		database = "test"
+		return MongoQueryResponse{}, fmt.Errorf("database name is required")
 	}
 
 	start := time.Now()
@@ -346,11 +346,7 @@ func mongoDatabaseNameFromURI(rawURL string) string {
 	if err != nil {
 		return ""
 	}
-	name := strings.Trim(parsed.Path, "/")
-	if name == "" {
-		return "test"
-	}
-	return name
+	return strings.Trim(parsed.Path, "/")
 }
 
 func getOrCreateMongoClient(ctx context.Context, uri string) (*mongo.Client, error) {
