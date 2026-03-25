@@ -10,12 +10,6 @@ chrome.runtime.onStartup.addListener(() => {
   void ensureDefaultSettings();
 });
 
-chrome.action.onClicked.addListener(() => {
-  void chrome.tabs.create({
-    url: chrome.runtime.getURL("app.html")
-  });
-});
-
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "devx:rest-execute") {
     return undefined;

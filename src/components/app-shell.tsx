@@ -17,7 +17,7 @@ export const AppShell: ParentComponent<AppShellProps> = (props) => {
           <header
             class="theme-workspace-header sticky top-0 z-20 border-b"
             style={{
-              "border-color": "var(--app-border)"
+              "border-color": "var(--app-border)",
             }}
           >
             <div class="flex h-9 items-center justify-between gap-3 px-4 md:px-5">
@@ -41,9 +41,6 @@ export const AppShell: ParentComponent<AppShellProps> = (props) => {
         <header class="theme-panel rounded-3xl p-5">
           <div class="flex items-start justify-between gap-4">
             <div class="space-y-2">
-              <span class="inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] theme-eyebrow">
-                SolidJS + UnoCSS
-              </span>
               <div class="space-y-1">
                 <h1 class="text-2xl font-semibold tracking-tight theme-text md:text-3xl">
                   {props.title}

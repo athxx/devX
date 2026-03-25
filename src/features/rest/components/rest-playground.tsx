@@ -2647,26 +2647,32 @@ export function RestPlayground(props: RestPlaygroundProps) {
   onMount(() => {
     let disposed = false;
 
-    void loadRestUiValueFromDb<number>(mainPaneSplitStorageKey).then((savedMainPaneSplit) => {
-      const parsed = Number(savedMainPaneSplit);
-      if (!Number.isNaN(parsed)) {
-        setMainPaneSplit(clampMainPaneSplit(parsed));
-      }
-    });
+    void loadRestUiValueFromDb<number>(mainPaneSplitStorageKey).then(
+      (savedMainPaneSplit) => {
+        const parsed = Number(savedMainPaneSplit);
+        if (!Number.isNaN(parsed)) {
+          setMainPaneSplit(clampMainPaneSplit(parsed));
+        }
+      },
+    );
 
-    void loadRestUiValueFromDb<number>(preRequestScriptHeightStorageKey).then((savedPreRequestHeight) => {
-      const parsed = Number(savedPreRequestHeight);
-      if (!Number.isNaN(parsed)) {
-        setPreRequestScriptHeight(clampScriptEditorHeight(parsed));
-      }
-    });
+    void loadRestUiValueFromDb<number>(preRequestScriptHeightStorageKey).then(
+      (savedPreRequestHeight) => {
+        const parsed = Number(savedPreRequestHeight);
+        if (!Number.isNaN(parsed)) {
+          setPreRequestScriptHeight(clampScriptEditorHeight(parsed));
+        }
+      },
+    );
 
-    void loadRestUiValueFromDb<number>(postResponseScriptHeightStorageKey).then((savedPostResponseHeight) => {
-      const parsed = Number(savedPostResponseHeight);
-      if (!Number.isNaN(parsed)) {
-        setPostResponseScriptHeight(clampScriptEditorHeight(parsed));
-      }
-    });
+    void loadRestUiValueFromDb<number>(postResponseScriptHeightStorageKey).then(
+      (savedPostResponseHeight) => {
+        const parsed = Number(savedPostResponseHeight);
+        if (!Number.isNaN(parsed)) {
+          setPostResponseScriptHeight(clampScriptEditorHeight(parsed));
+        }
+      },
+    );
 
     loadRestWorkspace()
       .then((state) => {
@@ -2789,7 +2795,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
                   <input
                     class="theme-input h-8 w-full rounded-md px-2.5 py-1 text-sm"
-                    placeholder="Filter collections, folders, requests"
+                    placeholder=""
                     value={collectionFilter()}
                     onInput={(event) =>
                       setCollectionFilter(event.currentTarget.value)

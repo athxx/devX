@@ -48,17 +48,6 @@ const topTabs = [
   { id: "tools" },
 ] as const;
 
-function HomeIcon() {
-  return (
-    <svg aria-hidden="true" class="h-4 w-4" viewBox="0 0 24 24">
-      <path
-        d="M9.686.764c1.272-1.02 3.348-1.02 4.632.011l8.315 6.648c.923.744 1.524 2.315 1.332 3.49l-1.596 9.552c-.288 1.691-1.932 3.084-3.648 3.084H5.283c-1.728 0-3.36-1.38-3.648-3.084L.04 10.914c-.204-1.176.396-2.747 1.332-3.491L9.686.763zm2.316 9.214a3 3 0 1 0 0 5.999 3 3 0 0 0 0-5.999z"
-        fill="#F8941D"
-      />
-    </svg>
-  );
-}
-
 function SettingsIcon() {
   return (
     <svg
@@ -302,7 +291,14 @@ export function WorkspacePage(_props: WorkspacePageProps) {
                 onMouseLeave={cancelTopTabHover}
                 onFocus={() => setActiveTab(tab.id)}
               >
-                {tab.id === "home" ? <HomeIcon /> : null}
+                {tab.id === "home" ? (
+                  <img
+                    alt=""
+                    aria-hidden="true"
+                    class="h-4 w-4 rounded-[4px] object-cover"
+                    src="/icons/icon16.png"
+                  />
+                ) : null}
                 {tab.id === "home" ? null : copy().tabs[tab.id]}
               </button>
             )}

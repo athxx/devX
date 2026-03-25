@@ -158,7 +158,12 @@ body::before {
   position: fixed;
   inset: -4%;
   z-index: -1;
-  background: url("/backgrounds/bg.avif") center / cover no-repeat;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(180deg, #BC64BA 0%, #0D0E23 100%);
+  background-size: 28px 28px, 28px 28px, cover;
+  background-position: 0 0, 0 0, center;
 }
 
 button,

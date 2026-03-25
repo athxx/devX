@@ -1,5 +1,5 @@
-import { For, Show, type JSX } from 'solid-js'
-import { ControlDot } from '../../../components/ui-primitives'
+import { For, Show, type JSX } from "solid-js";
+import { ControlDot } from "../../../components/ui-primitives";
 
 type DbConnectionsPaneProps<T> = {
   sidebarConnectionsHeight: number;
@@ -10,7 +10,7 @@ type DbConnectionsPaneProps<T> = {
   onOpenSavedConnections: () => void;
   onResizeStart: (event: PointerEvent) => void;
   renderItem: (item: T) => JSX.Element;
-}
+};
 
 export function DbConnectionsPane<T>(props: DbConnectionsPaneProps<T>) {
   return (
@@ -19,7 +19,10 @@ export function DbConnectionsPane<T>(props: DbConnectionsPaneProps<T>) {
         class="flex min-h-[220px] flex-col overflow-hidden"
         style={{ flex: `0 0 ${props.sidebarConnectionsHeight}%` }}
       >
-        <div class="mb-3 border-b pb-3" style={{ 'border-color': 'var(--app-border)' }}>
+        <div
+          class="mb-3 border-b pb-3"
+          style={{ "border-color": "var(--app-border)" }}
+        >
           <div class="mb-2 flex items-center justify-between gap-2">
             <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">
               Connections
@@ -35,7 +38,7 @@ export function DbConnectionsPane<T>(props: DbConnectionsPaneProps<T>) {
 
           <input
             class="theme-input h-8 w-full rounded-md px-2.5 text-sm"
-            placeholder="Search connection or database"
+            placeholder=""
             value={props.filter}
             onInput={(event) => props.onFilterInput(event.currentTarget.value)}
           />
@@ -48,8 +51,8 @@ export function DbConnectionsPane<T>(props: DbConnectionsPaneProps<T>) {
             <Show when={props.filteredItems.length === 0}>
               <div class="theme-text-soft rounded-xl px-2 py-2 text-xs">
                 {props.connectedCount === 0
-                  ? 'No connected databases. Click the yellow dot to connect.'
-                  : 'No matches'}
+                  ? "No connected databases. Click the yellow dot to connect."
+                  : "No matches"}
               </div>
             </Show>
           </div>
@@ -71,5 +74,5 @@ export function DbConnectionsPane<T>(props: DbConnectionsPaneProps<T>) {
         />
       </button>
     </>
-  )
+  );
 }

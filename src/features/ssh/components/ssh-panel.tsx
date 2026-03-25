@@ -145,14 +145,14 @@ function getProfileStatusDotClass(status: SessionState["status"]) {
 }
 
 async function loadExpandedFolders() {
-  const parsed = await loadSshUiTempState<unknown>(expandedFoldersStorageKey)
+  const parsed = await loadSshUiTempState<unknown>(expandedFoldersStorageKey);
   return Array.isArray(parsed)
     ? parsed.filter((item): item is string => typeof item === "string")
-    : []
+    : [];
 }
 
 async function loadPersistedSshUiState(): Promise<PersistedSshUiState | null> {
-  const parsed = await loadSshUiTempState<unknown>(sshUiStateStorageKey)
+  const parsed = await loadSshUiTempState<unknown>(sshUiStateStorageKey);
   if (
     !parsed ||
     typeof parsed !== "object" ||
@@ -161,9 +161,9 @@ async function loadPersistedSshUiState(): Promise<PersistedSshUiState | null> {
     typeof (parsed as PersistedSshUiState).tabsById !== "object" ||
     typeof (parsed as PersistedSshUiState).panesById !== "object"
   ) {
-    return null
+    return null;
   }
-  return parsed as PersistedSshUiState
+  return parsed as PersistedSshUiState;
 }
 
 function cloneLayoutNode(node: TerminalLayoutNode): TerminalLayoutNode {
@@ -706,11 +706,11 @@ export function SshPanel(props: SshPanelProps) {
   }
 
   onMount(() => {
-    void Promise.all([loadExpandedFolders(), loadSshWorkspace(), loadPersistedSshUiState()]).then(([
-      expandedFolders,
-      loaded,
-      persisted,
-    ]) => {
+    void Promise.all([
+      loadExpandedFolders(),
+      loadSshWorkspace(),
+      loadPersistedSshUiState(),
+    ]).then(([expandedFolders, loaded, persisted]) => {
       setExpandedFolderIds(expandedFolders);
       setWorkspace(loaded);
       const validProfileIds = new Set(
@@ -1829,7 +1829,7 @@ export function SshPanel(props: SshPanelProps) {
             <div class="mb-3">
               <input
                 class="theme-input h-8 w-full rounded-md px-2.5 text-sm"
-                placeholder="Filter folders / profiles"
+                placeholder=""
                 value={profileFilter()}
                 onInput={(event) => setProfileFilter(event.currentTarget.value)}
               />
