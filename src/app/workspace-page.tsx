@@ -131,12 +131,14 @@ export function WorkspacePage(_props: WorkspacePageProps) {
     Math.min(520, Math.max(180, Math.round(value)));
   const [darkMode, setDarkMode] = createSignal(true);
   const [locale, setLocale] = createSignal<WorkspaceLocale>("zh-CN");
+  const [localeMenuOpen, setLocaleMenuOpen] = createSignal(false);
   const [activeTab, setActiveTab] = createSignal<WorkspaceTab>("home");
   const [sidebarOpen, setSidebarOpen] = createSignal(true);
   const [sidebarWidth, setSidebarWidth] = createSignal(220);
   const [sidebarResizing, setSidebarResizing] = createSignal(false);
   const copy = createMemo(() => workspaceCopy[locale()]);
   let topTabHoverTimer: number | undefined;
+  let localeMenuRef: HTMLDivElement | undefined;
 
   onMount(() => {
     const stopSyncScheduler = startSyncScheduler();
@@ -164,6 +166,21 @@ export function WorkspacePage(_props: WorkspacePageProps) {
     })
 
     onCleanup(stopSyncScheduler);
+  });
+
+  onMount(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (localeMenuRef && target && localeMenuRef.contains(target)) {
+        return;
+      }
+      setLocaleMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    onCleanup(() => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    });
   });
 
   onCleanup(() => {
@@ -313,19 +330,44 @@ export function WorkspacePage(_props: WorkspacePageProps) {
           >
             {copy().actions.donate}
           </button>
-          <select
-            id="workspace-locale-select"
-            aria-label={copy().actions.language}
-            class="theme-input h-7 rounded-full px-3 text-sm"
-            value={locale()}
-            onInput={(event) =>
-              setLocale(event.currentTarget.value as WorkspaceLocale)
-            }
-          >
-            <For each={workspaceLocaleOptions}>
-              {(option) => <option value={option.code}>{option.label}</option>}
-            </For>
-          </select>
+          <div class="relative" ref={localeMenuRef}>
+            <button
+              id="workspace-locale-select"
+              aria-label={copy().actions.language}
+              aria-expanded={localeMenuOpen()}
+              class="theme-input inline-flex h-7 items-center rounded-full px-3 text-sm"
+              onClick={() => setLocaleMenuOpen((value) => !value)}
+            >
+              {workspaceLocaleOptions.find((option) => option.code === locale())?.label}
+            </button>
+            <Show when={localeMenuOpen()}>
+              <div
+                class="theme-panel-soft theme-menu-popover absolute right-0 top-9 z-30 min-w-[140px] border p-1.5"
+                style={{ "border-color": "var(--app-border)" }}
+              >
+                <For each={workspaceLocaleOptions}>
+                  {(option) => (
+                    <button
+                      class={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
+                        locale() === option.code
+                          ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
+                          : "theme-text hover:bg-[var(--app-panel-hover)]"
+                      }`}
+                      onClick={() => {
+                        setLocale(option.code);
+                        setLocaleMenuOpen(false);
+                      }}
+                    >
+                      <span>{option.label}</span>
+                      <Show when={locale() === option.code}>
+                        <span class="text-xs font-semibold">✓</span>
+                      </Show>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
           <button
             aria-label={
               darkMode()

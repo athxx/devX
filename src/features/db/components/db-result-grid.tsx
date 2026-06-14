@@ -1,4 +1,4 @@
-import { For, Show } from 'solid-js'
+import { createSignal, For, Show } from "solid-js";
 
 type DbResultGridProps = {
   columns: string[];
@@ -11,31 +11,96 @@ type DbResultGridProps = {
   onCellInput?: (rowKey: string, column: string, value: string) => void;
   onSaveRow?: (rowKey: string) => void;
   onResetRow?: (rowKey: string) => void;
-}
+};
+
+const DefaultColumnWidth = 150;
+const MinColumnWidth = 60;
 
 export function DbResultGrid(props: DbResultGridProps) {
+  const [columnWidths, setColumnWidths] = createSignal<Record<string, number>>(
+    {},
+  );
+
+  function getColumnWidth(column: string): number {
+    return columnWidths()[column] ?? DefaultColumnWidth;
+  }
+
+  function startColumnResize(column: string, event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidth = getColumnWidth(column);
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const next = Math.max(MinColumnWidth, startWidth + delta);
+      setColumnWidths((prev) => ({ ...prev, [column]: next }));
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp, { once: true });
+  }
+
+  const totalWidth = () => {
+    const cols = props.columns;
+    let w = 0;
+    for (const col of cols) w += getColumnWidth(col);
+    if (props.editable) w += 120;
+    return w;
+  };
+
+  const borderColor = "var(--app-border)";
+  const headerBg = "var(--app-surface)";
+
   return (
-    <div
-      class="theme-code overflow-auto rounded-[18px] border"
-      style={{ 'border-color': 'var(--app-border)' }}
-    >
-      <table class="min-w-full border-collapse text-sm">
-        <thead>
+    <div class="h-full w-full overflow-auto">
+      <table
+        class="text-xs font-mono"
+        style={{
+          "border-collapse": "collapse",
+          "table-layout": "fixed",
+          width: `${totalWidth()}px`,
+        }}
+      >
+        <thead class="sticky top-0 z-10">
           <tr>
             <For each={props.columns}>
               {(column) => (
                 <th
-                  class="theme-kv-head border-b px-3 py-2 text-left font-medium"
-                  style={{ 'border-color': 'var(--app-border)' }}
+                  class="relative select-none whitespace-nowrap px-2.5 py-1.5 text-left text-[11px] font-semibold"
+                  style={{
+                    width: `${getColumnWidth(column)}px`,
+                    "min-width": `${MinColumnWidth}px`,
+                    background: headerBg,
+                    color: "var(--app-text-soft)",
+                    "border-right": `1px solid ${borderColor}`,
+                    "border-bottom": `1px solid ${borderColor}`,
+                  }}
                 >
-                  {column}
+                  <span class="overflow-hidden text-ellipsis">{column}</span>
+                  <div
+                    class="absolute right-0 top-0 h-full w-1.5 cursor-col-resize"
+                    style={{ "z-index": "1" }}
+                    onMouseDown={(e) => startColumnResize(column, e)}
+                  />
                 </th>
               )}
             </For>
             <Show when={props.editable}>
               <th
-                class="theme-kv-head border-b px-3 py-2 text-left font-medium"
-                style={{ 'border-color': 'var(--app-border)' }}
+                class="whitespace-nowrap px-2.5 py-1.5 text-left text-[11px] font-semibold"
+                style={{
+                  width: "120px",
+                  "min-width": "120px",
+                  background: headerBg,
+                  color: "var(--app-text-soft)",
+                  "border-bottom": `1px solid ${borderColor}`,
+                }}
               >
                 Actions
               </th>
@@ -45,28 +110,35 @@ export function DbResultGrid(props: DbResultGridProps) {
         <tbody>
           <For each={props.rows}>
             {(row, index) => {
-              const rowKey = props.getRowKey(row, index())
-              const dirty = () => props.dirtyRowKeys?.includes(rowKey) ?? false
-              const pending = () => props.pendingRowKeys?.includes(rowKey) ?? false
+              const rowKey = props.getRowKey(row, index());
+              const dirty = () => props.dirtyRowKeys?.includes(rowKey) ?? false;
+              const pending = () =>
+                props.pendingRowKeys?.includes(rowKey) ?? false;
 
               return (
-                <tr>
+                <tr class="hover:bg-[var(--app-hover)]">
                   <For each={props.columns}>
                     {(column) => (
                       <td
-                        class="theme-kv-cell border-b px-3 py-2 align-top"
-                        style={{ 'border-color': 'var(--app-border)' }}
+                        class="whitespace-nowrap overflow-hidden text-ellipsis px-2.5 py-1 align-top"
+                        style={{
+                          width: `${getColumnWidth(column)}px`,
+                          "max-width": `${getColumnWidth(column)}px`,
+                          "border-right": `1px solid ${borderColor}`,
+                          "border-bottom": `1px solid ${borderColor}`,
+                          color: "var(--app-text)",
+                        }}
                       >
                         <Show
                           when={props.editable && props.onCellInput}
                           fallback={
-                            <pre class="m-0 whitespace-pre-wrap break-all font-mono text-xs">
+                            <span class="select-text block overflow-hidden text-ellipsis">
                               {props.getCellValue(row, column)}
-                            </pre>
+                            </span>
                           }
                         >
                           <textarea
-                            class="theme-input min-h-[44px] w-full rounded-md px-2 py-1 font-mono text-xs"
+                            class="theme-input min-h-[32px] w-full rounded px-1.5 py-0.5 text-xs"
                             value={props.getCellValue(row, column)}
                             onInput={(event) =>
                               props.onCellInput?.(
@@ -82,19 +154,22 @@ export function DbResultGrid(props: DbResultGridProps) {
                   </For>
                   <Show when={props.editable}>
                     <td
-                      class="theme-kv-cell border-b px-3 py-2 align-top"
-                      style={{ 'border-color': 'var(--app-border)' }}
+                      class="whitespace-nowrap px-2.5 py-1 align-top"
+                      style={{
+                        width: "120px",
+                        "border-bottom": `1px solid ${borderColor}`,
+                      }}
                     >
-                      <div class="flex items-center gap-2">
+                      <div class="flex items-center gap-1.5">
                         <button
-                          class="theme-success h-7 rounded-md px-2.5 text-[11px] font-semibold"
+                          class="theme-success h-6 rounded px-2 text-[11px] font-semibold"
                           disabled={!dirty() || pending()}
                           onClick={() => props.onSaveRow?.(rowKey)}
                         >
-                          {pending() ? 'Saving...' : 'Save'}
+                          {pending() ? "Saving..." : "Save"}
                         </button>
                         <button
-                          class="theme-control h-7 rounded-md px-2.5 text-[11px]"
+                          class="theme-control h-6 rounded px-2 text-[11px]"
                           disabled={!dirty() || pending()}
                           onClick={() => props.onResetRow?.(rowKey)}
                         >
@@ -104,11 +179,11 @@ export function DbResultGrid(props: DbResultGridProps) {
                     </td>
                   </Show>
                 </tr>
-              )
+              );
             }}
           </For>
         </tbody>
       </table>
     </div>
-  )
+  );
 }

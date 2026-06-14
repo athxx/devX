@@ -2663,13 +2663,13 @@ export function SshPanel(props: SshPanelProps) {
             class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
             onClick={() => splitActivePane("columns")}
           >
-            Split Right
+            Split |
           </button>
           <button
             class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
             onClick={() => splitActivePane("rows")}
           >
-            Split Down
+            Split —
           </button>
           <button
             class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"

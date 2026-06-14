@@ -60,7 +60,7 @@ export function DbEditorPane(props: DbEditorPaneProps) {
             aria-hidden="true"
           />
         </button>
-        <div class="min-h-0 flex-1 overflow-hidden">{props.results}</div>
+        <div class="min-h-0 flex-1">{props.results}</div>
       </div>
     </>
   )

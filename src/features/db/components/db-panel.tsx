@@ -28,6 +28,7 @@ import { DbExplorerPane } from "./db-explorer-pane";
 import { DbResultGrid } from "./db-result-grid";
 import { DbResultsPane } from "./db-results-pane";
 import { DbSavedConnectionsModal } from "./db-saved-connections-modal";
+import { formatQuery, supportsFormat } from "../format";
 import type {
   DbConnection,
   DbConnectionConfig,
@@ -2546,7 +2547,11 @@ db.dropDatabase()`;
   ) {
     const rowKey = getRowKey(row, index);
     const edited = getEditedRows(tabId)[rowKey]?.[column];
-    return edited ?? JSON.stringify(row[column] ?? null, null, 2);
+    if (edited != null) return edited;
+    const value = row[column];
+    if (value == null) return "NULL";
+    if (typeof value === "string") return value;
+    return JSON.stringify(value, null, 2);
   }
 
   function updateEditedCell(
@@ -3701,7 +3706,7 @@ WHERE ${whereClause};`;
     return (
       <div class="flex min-h-0 flex-1 flex-col">
         <div
-          class="flex items-center justify-between border-b px-3 py-2"
+          class="flex shrink-0 items-center justify-between border-b px-3 py-2"
           style={{ "border-color": "var(--app-border)" }}
         >
           <div class="flex items-center gap-2">
@@ -3847,41 +3852,46 @@ WHERE ${whereClause};`;
                     </div>
                   }
                 >
-                  <DbResultGrid
-                    columns={sqlResult?.data.columns ?? []}
-                    rows={pagedRows}
-                    editable={editableSql}
-                    dirtyRowKeys={dirtyRowKeys}
-                    pendingRowKeys={rowSavePendingKeys()}
-                    getRowKey={(row, index) => getRowKey(row, index)}
-                    getCellValue={(row, column) =>
-                      getVisibleRowValue(
-                        tab.id,
-                        row,
-                        pagedRows.indexOf(row),
-                        column,
-                      )
-                    }
-                    onCellInput={(rowKey, column, value) => {
-                      const rowIndex = pagedRows.findIndex(
-                        (row, index) => getRowKey(row, index) === rowKey,
-                      );
-                      if (rowIndex < 0) return;
-                      updateEditedCell(
-                        tab.id,
-                        pagedRows[rowIndex],
-                        rowIndex,
-                        column,
-                        value,
-                      );
-                    }}
-                    onSaveRow={(rowKey) => void saveEditedRow(rowKey)}
-                    onResetRow={(rowKey) => resetEditedRow(tab.id, rowKey)}
-                  />
+                  <div class="min-h-0 flex-1">
+                    <DbResultGrid
+                      columns={sqlResult?.data.columns ?? []}
+                      rows={pagedRows}
+                      editable={editableSql}
+                      dirtyRowKeys={dirtyRowKeys}
+                      pendingRowKeys={rowSavePendingKeys()}
+                      getRowKey={(row, index) => getRowKey(row, index)}
+                      getCellValue={(row, column) =>
+                        getVisibleRowValue(
+                          tab.id,
+                          row,
+                          pagedRows.indexOf(row),
+                          column,
+                        )
+                      }
+                      onCellInput={(rowKey, column, value) => {
+                        const rowIndex = pagedRows.findIndex(
+                          (row, index) => getRowKey(row, index) === rowKey,
+                        );
+                        if (rowIndex < 0) return;
+                        updateEditedCell(
+                          tab.id,
+                          pagedRows[rowIndex],
+                          rowIndex,
+                          column,
+                          value,
+                        );
+                      }}
+                      onSaveRow={(rowKey) => void saveEditedRow(rowKey)}
+                      onResetRow={(rowKey) => resetEditedRow(tab.id, rowKey)}
+                    />
+                  </div>
                   <Show
                     when={sqlResult && (tab.source || totalRows > pageSize)}
                   >
-                    <div class="mt-3 flex items-center justify-between gap-2 text-[11px]">
+                    <div
+                      class="shrink-0 flex items-center justify-between gap-2 border-t px-3 py-1.5 text-[11px]"
+                      style={{ "border-color": "var(--app-border)" }}
+                    >
                       <span class="theme-text-soft">
                         {`Showing ${Math.min((currentPage - 1) * pageSize + 1, totalRows)}-${Math.min(currentPage * pageSize, totalRows)} of ${totalRows}`}
                       </span>
@@ -4030,6 +4040,19 @@ WHERE ${whereClause};`;
                 >
                   History
                 </button>
+                <Show when={supportsFormat(connection.kind)}>
+                  <button
+                    class="theme-control h-8 rounded-md px-3 text-sm font-medium"
+                    onClick={() => {
+                      const query = liveQueryByTabId()[tab.id] ?? tab.query;
+                      void formatQuery(connection.kind, query).then((formatted) => {
+                        updateActiveQuery(formatted);
+                      });
+                    }}
+                  >
+                    Pretty
+                  </button>
+                </Show>
                 <button
                   class="theme-success h-8 rounded-md px-3 text-sm font-semibold"
                   onClick={() => void runCurrentTab()}
@@ -4473,11 +4496,7 @@ WHERE ${whereClause};`;
         sidebar={
           <div
             ref={sidebarSectionsRef}
-            class="flex min-h-0 flex-col overflow-hidden"
-            style={{
-              height: "calc(100dvh - 52px)",
-              "max-height": "calc(100dvh - 52px)",
-            }}
+            class="flex h-full min-h-0 flex-col overflow-hidden"
           >
             <DbConnectionsPane
               sidebarConnectionsHeight={sidebarConnectionsHeight()}

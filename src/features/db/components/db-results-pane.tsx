@@ -1,9 +1,9 @@
-import type { JSX } from 'solid-js'
+import type { JSX } from "solid-js";
 
 type DbResultsPaneProps = {
-  children: JSX.Element
-}
+  children: JSX.Element;
+};
 
 export function DbResultsPane(props: DbResultsPaneProps) {
-  return <div class="min-h-0 overflow-hidden">{props.children}</div>
+  return <div class="min-h-0 h-full">{props.children}</div>;
 }

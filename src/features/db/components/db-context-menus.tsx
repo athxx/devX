@@ -13,7 +13,7 @@ export function DbContextMenu(props: DbContextMenuProps) {
   return (
     <Show when={props.open && props.menu}>
       <div
-        class="theme-panel-soft fixed inline-grid auto-cols-max overflow-hidden rounded-[18px] border p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.18)]"
+        class="theme-panel-soft theme-menu-popover fixed inline-grid auto-cols-max overflow-hidden border p-1.5"
         data-db-menu-root
         style={{
           'border-color': 'var(--app-border)',

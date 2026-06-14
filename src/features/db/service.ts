@@ -1501,7 +1501,7 @@ async function executeDbSocketCommand(
 ): Promise<DbResultPayload> {
   const relayUrl = await buildDbRelayUrl();
   if (!relayUrl) {
-    throw new Error("未配置 DB Proxy，请先到 Settings → Proxy 填写地址。");
+    throw new Error("DB Proxy is not configured, please go to Settings → Proxy");
   }
 
   const ws = await getDbRelaySocket(relayUrl);

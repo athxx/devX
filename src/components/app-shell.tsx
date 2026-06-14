@@ -12,10 +12,10 @@ type AppShellProps = {
 export const AppShell: ParentComponent<AppShellProps> = (props) => {
   if (props.workspace) {
     return (
-      <main class="grid-bg min-h-screen theme-text">
-        <div class="min-h-screen">
+      <main class="grid-bg h-screen overflow-hidden theme-text">
+        <div class="flex h-screen flex-col">
           <header
-            class="theme-workspace-header sticky top-0 z-20 border-b"
+            class="theme-workspace-header shrink-0 z-20 border-b"
             style={{
               "border-color": "var(--app-border)",
             }}
@@ -25,7 +25,7 @@ export const AppShell: ParentComponent<AppShellProps> = (props) => {
               <div class="shrink-0">{props.actions}</div>
             </div>
           </header>
-          <div>{props.children}</div>
+          <div class="min-h-0 flex-1">{props.children}</div>
         </div>
       </main>
     );
