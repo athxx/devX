@@ -11,8 +11,8 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/logger"
 	"github.com/gofiber/fiber/v3/middleware/recover"
 
-	"devx/server/internal/config"
-	"devx/server/internal/http/handlers"
+	"github.com/athxx/devX/internal/config"
+	"github.com/athxx/devX/internal/http/handlers"
 )
 
 func New(cfg config.Config) (*fiber.App, error) {

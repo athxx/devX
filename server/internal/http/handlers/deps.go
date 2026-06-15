@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"devx/server/internal/config"
+	"github.com/athxx/devX/internal/config"
 )
 
 type Dependencies struct {

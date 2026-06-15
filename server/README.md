@@ -19,8 +19,8 @@
 
 ```text
 server/
-  cmd/devox-cli/main.go
-  cmd/devox-ui/main.go
+  cmd/devx-cli/main.go
+  cmd/devx-ui/main.go
   internal/
     app/
     config/
@@ -34,7 +34,7 @@ server/
 ```bash
 cd server
 go mod tidy
-go run ./cmd/devox-cli
+go run ./cmd/devx-cli
 ```
 
 默认监听：
@@ -66,7 +66,7 @@ DEVX_PORT=8787
 
 ```bash
 cd server
-go run ./cmd/devox-ui
+go run ./cmd/devx-ui
 ```
 
 功能：
@@ -82,7 +82,7 @@ Linux 依赖：
 sudo apt install libayatana-appindicator3-dev
 ```
 
-如果没有这类系统库，`devox-ui` 会在编译 `systray` 时失败，但 `devox-cli` 不受影响。
+如果没有这类系统库，`devx-ui` 会在编译 `systray` 时失败，但 `devx-cli` 不受影响。
 
 ## 路由
 

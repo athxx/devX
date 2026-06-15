@@ -7,8 +7,8 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 
-	"devx/server/internal/app"
-	"devx/server/internal/config"
+	"github.com/athxx/devX/internal/app"
+	"github.com/athxx/devX/internal/config"
 )
 
 type ServerManager struct {

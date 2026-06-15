@@ -9,7 +9,7 @@ import (
 	ws "github.com/gofiber/contrib/v3/websocket"
 	"github.com/gofiber/fiber/v3"
 
-	dbrunner "devx/server/internal/db"
+	dbrunner "github.com/athxx/devX/internal/db"
 )
 
 var (

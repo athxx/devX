@@ -8,7 +8,13 @@ export type RequestMethod =
   | "OPTIONS"
   | "TRACE"
   | "CONNECT";
-export type RequestKind = "http" | "curl" | "websocket" | "graphql" | "socketio";
+export type RequestKind =
+  | "curl"
+  | "http"
+  | "websocket"
+  | "sse"
+  | "graphql"
+  | "socketio";
 
 export type KeyValueEntry = {
   id: string;
@@ -110,6 +116,32 @@ export type ResponseSummary = {
 export type StoredResponseSummary = {
   requestId: string;
   response: ResponseSummary;
+};
+
+export type SseConnectionStatus =
+  | "idle"
+  | "connecting"
+  | "open"
+  | "closed"
+  | "error";
+
+export type SseEvent = {
+  id: string;
+  event: string;
+  data: string;
+  lastEventId: string;
+  retry: number | null;
+  receivedAt: string;
+};
+
+export type SseStreamState = {
+  requestId: string;
+  status: SseConnectionStatus;
+  events: SseEvent[];
+  error: string | null;
+  startedAt: string;
+  statusCode: number | null;
+  statusText: string;
 };
 
 export type RestWorkspaceState = {

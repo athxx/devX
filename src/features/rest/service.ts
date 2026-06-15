@@ -303,7 +303,7 @@ export function resolveTemplate(value: string, environment?: Environment): strin
   });
 }
 
-function toResolvedEntries(entries: KeyValueEntry[], environment?: Environment) {
+export function toResolvedEntries(entries: KeyValueEntry[], environment?: Environment) {
   return entries
     .filter((entry) => entry.enabled && entry.key.trim())
     .map((entry) => ({
@@ -312,7 +312,7 @@ function toResolvedEntries(entries: KeyValueEntry[], environment?: Environment) 
     }));
 }
 
-function applyAuth(
+export function applyAuth(
   auth: RequestAuth,
   headers: Headers,
   url: URL,
@@ -352,7 +352,7 @@ function applyAuth(
   }
 }
 
-function buildRequestBody(
+export function buildRequestBody(
   body: RequestBody,
   headers: Headers,
   environment?: Environment

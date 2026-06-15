@@ -40,7 +40,9 @@ import type {
   RequestMethod,
   ResponseSummary,
   RestWorkspaceState,
+  SseStreamState,
 } from "../models";
+import { openSseStream } from "../sse";
 import {
   createDefaultRestWorkspace,
   createHistoryEntry,
@@ -86,9 +88,6 @@ const sidebarTabs: Array<{ id: SidebarPanelId; label: string }> = [
   { id: "history", label: "HIS" },
 ];
 
-const preRequestScriptHeightStorageKey = "devx-script-height-pre-request";
-const postResponseScriptHeightStorageKey = "devx-script-height-post-response";
-
 const preRequestScriptExample = `// Runs before sending the request.
 // You can prepare headers, query params, or request metadata here.
 
@@ -116,8 +115,9 @@ env.set("lastRequestAt", new Date().toISOString());
 console.log("Stored response data into the active environment.");`;
 
 const requestCreateOptions: Array<{ id: RequestKind; label: string }> = [
-  { id: "http", label: "HTTP Request" },
   { id: "curl", label: "cURL" },
+  { id: "http", label: "HTTP Request" },
+  { id: "sse", label: "SSE" },
   { id: "websocket", label: "WebSocket" },
   { id: "graphql", label: "GraphQL" },
   { id: "socketio", label: "Socket.IO" },
@@ -227,6 +227,8 @@ function getRequestKindLabel(request: RequestDraft) {
       return "GQL";
     case "socketio":
       return "SIO";
+    case "sse":
+      return "SSE";
     case "http":
     default:
       return request.method;
@@ -288,6 +290,18 @@ function createRequestForKind(
         name: "Socket.IO Request",
         url: "https://example.com/socket.io/?EIO=4&transport=websocket",
         headers: [],
+        body: { type: "none" },
+      });
+    case "sse":
+      return createRequestDraft(collectionId, {
+        folderId,
+        kind: "sse",
+        method: "GET",
+        name: "SSE Stream",
+        url: "{{baseUrl}}/events",
+        headers: [
+          createKeyValueEntry({ key: "Accept", value: "text/event-stream" }),
+        ],
         body: { type: "none" },
       });
     case "curl":
@@ -920,6 +934,151 @@ function getResponseStatusClass(status: number) {
   return "text-[#ff3b30]";
 }
 
+function getSseStatusClass(status: SseStreamState["status"]) {
+  switch (status) {
+    case "open":
+      return "text-[#34c759]";
+    case "connecting":
+      return "text-[#ff9f0a]";
+    case "error":
+      return "text-[#ff3b30]";
+    case "closed":
+    case "idle":
+    default:
+      return "theme-text-soft";
+  }
+}
+
+function getSseStatusLabel(status: SseStreamState["status"]) {
+  switch (status) {
+    case "connecting":
+      return "Connecting";
+    case "open":
+      return "Open";
+    case "closed":
+      return "Closed";
+    case "error":
+      return "Error";
+    case "idle":
+    default:
+      return "Idle";
+  }
+}
+
+function SseStreamPanel(props: {
+  stream: SseStreamState | null;
+  connected: boolean;
+}) {
+  return (
+    <Show
+      when={props.stream}
+      fallback={
+        <div
+          class="theme-code flex min-h-[240px] flex-1 items-center justify-center rounded-[20px] border px-4 text-sm theme-text-soft"
+          style={{ "border-color": "var(--app-border)" }}
+        >
+          Connect to start receiving server-sent events.
+        </div>
+      }
+    >
+      {(stream) => (
+        <div class="flex min-h-0 flex-1 flex-col">
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div class="flex flex-wrap items-center gap-2 text-sm">
+              <span
+                class={`font-semibold ${getSseStatusClass(stream().status)}`}
+              >
+                ● {getSseStatusLabel(stream().status)}
+              </span>
+              <Show when={stream().statusCode !== null}>
+                <span>|</span>
+                <span class="theme-text-soft">
+                  {stream().statusCode} {stream().statusText}
+                </span>
+              </Show>
+            </div>
+            <div class="theme-text-soft text-sm">
+              {stream().events.length}{" "}
+              {stream().events.length === 1 ? "event" : "events"}
+            </div>
+          </div>
+
+          <div
+            class="theme-code flex min-h-[240px] flex-1 flex-col gap-2 overflow-auto rounded-[20px] border px-3 py-3"
+            style={{ "border-color": "var(--app-border)" }}
+          >
+            <Show
+              when={stream().events.length > 0}
+              fallback={
+                <div class="flex flex-1 items-center justify-center text-sm theme-text-soft">
+                  {stream().status === "open" ||
+                  stream().status === "connecting"
+                    ? "Waiting for events…"
+                    : "No events received."}
+                </div>
+              }
+            >
+              <For each={stream().events}>
+                {(event) => (
+                  <div
+                    class="rounded-[14px] border px-3 py-2"
+                    style={{
+                      "border-color": "var(--app-border)",
+                      background: "var(--app-panel-soft)",
+                    }}
+                  >
+                    <div class="mb-1 flex flex-wrap items-center gap-2 text-[11px] theme-text-soft">
+                      <span class="theme-method-badge theme-method-default">
+                        {event.event}
+                      </span>
+                      <Show when={event.lastEventId}>
+                        <span>id: {event.lastEventId}</span>
+                      </Show>
+                      <Show when={event.retry !== null}>
+                        <span>retry: {event.retry}ms</span>
+                      </Show>
+                      <span class="ml-auto">
+                        {new Date(event.receivedAt).toLocaleTimeString()}
+                      </span>
+                    </div>
+                    <Show
+                      when={isLikelyJson(event.data)}
+                      fallback={
+                        <pre class="theme-text-muted overflow-x-auto font-mono text-sm leading-6 whitespace-pre-wrap">
+                          <code>{event.data}</code>
+                        </pre>
+                      }
+                    >
+                      <JsonHighlightedCode value={prettyJson(event.data)} />
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </Show>
+          </div>
+        </div>
+      )}
+    </Show>
+  );
+}
+
+function isLikelyJson(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+  const first = trimmed[0];
+  return first === "{" || first === "[";
+}
+
+function prettyJson(value: string) {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
 export function RestPlayground(props: RestPlaygroundProps) {
   const [workspace, setWorkspace] = createStore<RestWorkspaceState>(
     createDefaultRestWorkspace(),
@@ -951,6 +1110,8 @@ export function RestPlayground(props: RestPlaygroundProps) {
     createSignal<ResponseSummary | null>(null);
   const [responseError, setResponseError] = createSignal<string | null>(null);
   const [isSending, setIsSending] = createSignal(false);
+  const [sseStream, setSseStream] = createSignal<SseStreamState | null>(null);
+  let sseAbort: AbortController | null = null;
   const [saveState, setSaveState] = createSignal<SaveState>("idle");
 
   const [showCollectionCreateMenu, setShowCollectionCreateMenu] =
@@ -1164,11 +1325,145 @@ export function RestPlayground(props: RestPlaygroundProps) {
       .filter((item): item is NonNullable<typeof item> => Boolean(item)),
   );
 
+  const isSseRequest = createMemo(() => activeRequest()?.kind === "sse");
+
   const canSendActiveRequest = createMemo(() => {
     const request = activeRequest();
     return Boolean(
-      request && request.kind !== "websocket" && request.kind !== "socketio",
+      request &&
+        request.kind !== "websocket" &&
+        request.kind !== "socketio" &&
+        request.kind !== "sse",
     );
+  });
+
+  const isSseConnected = createMemo(() => {
+    const status = sseStream()?.status;
+    return status === "connecting" || status === "open";
+  });
+
+  const MAX_SSE_EVENTS = 500;
+
+  function disconnectSse() {
+    if (sseAbort) {
+      sseAbort.abort();
+      sseAbort = null;
+    }
+    setSseStream((current) =>
+      current && (current.status === "connecting" || current.status === "open")
+        ? { ...current, status: "closed" }
+        : current,
+    );
+  }
+
+  function resetSseStream() {
+    disconnectSse();
+    setSseStream(null);
+  }
+
+  function connectSse() {
+    const request = activeRequest();
+    if (!request || request.kind !== "sse") {
+      return;
+    }
+
+    disconnectSse();
+    setResponseError(null);
+
+    const controller = new AbortController();
+    sseAbort = controller;
+    const requestId = request.id;
+
+    setSseStream({
+      requestId,
+      status: "connecting",
+      events: [],
+      error: null,
+      startedAt: new Date().toISOString(),
+      statusCode: null,
+      statusText: "",
+    });
+
+    // Guard callbacks so a stale stream (after switching requests) can't
+    // mutate the active panel.
+    const isCurrent = () => sseAbort === controller;
+
+    void openSseStream(
+      request,
+      activeEnvironment() ?? undefined,
+      {
+        onOpen: ({ status, statusText }) => {
+          if (!isCurrent()) {
+            return;
+          }
+          setSseStream((current) =>
+            current
+              ? {
+                  ...current,
+                  status: status >= 200 && status < 300 ? "open" : current.status,
+                  statusCode: status,
+                  statusText,
+                }
+              : current,
+          );
+        },
+        onEvent: (event) => {
+          if (!isCurrent()) {
+            return;
+          }
+          setSseStream((current) => {
+            if (!current) {
+              return current;
+            }
+            const events = [...current.events, event];
+            if (events.length > MAX_SSE_EVENTS) {
+              events.splice(0, events.length - MAX_SSE_EVENTS);
+            }
+            return { ...current, events };
+          });
+        },
+        onError: (message) => {
+          if (!isCurrent()) {
+            return;
+          }
+          setSseStream((current) =>
+            current ? { ...current, status: "error", error: message } : current,
+          );
+          setResponseError(message);
+        },
+        onClose: () => {
+          if (!isCurrent()) {
+            return;
+          }
+          setSseStream((current) =>
+            current && current.status !== "error"
+              ? { ...current, status: "closed" }
+              : current,
+          );
+          if (sseAbort === controller) {
+            sseAbort = null;
+          }
+        },
+      },
+      controller.signal,
+    );
+  }
+
+  onCleanup(() => {
+    if (sseAbort) {
+      sseAbort.abort();
+      sseAbort = null;
+    }
+  });
+
+  // Tear down a live SSE stream whenever the active request changes away from
+  // the one that owns the stream (switching tabs, closing/deleting requests).
+  createEffect(() => {
+    const activeId = activeRequest()?.id ?? "";
+    const stream = sseStream();
+    if (stream && stream.requestId !== activeId) {
+      resetSseStream();
+    }
   });
 
   const activeRequestResolvedUrl = createMemo(() => {
@@ -4601,18 +4896,46 @@ export function RestPlayground(props: RestPlaygroundProps) {
                               : "Save"}
                       </AppButton>
                     </div>
-                    <AppButton
-                      variant="primary"
-                      size="sm"
-                      disabled={isSending() || !canSendActiveRequest()}
-                      onClick={() => void sendActiveRequest()}
+                    <Show
+                      when={isSseRequest()}
+                      fallback={
+                        <AppButton
+                          variant="primary"
+                          size="sm"
+                          disabled={isSending() || !canSendActiveRequest()}
+                          onClick={() => void sendActiveRequest()}
+                        >
+                          {!canSendActiveRequest()
+                            ? "Coming Soon"
+                            : isSending()
+                              ? "Sending..."
+                              : "Send"}
+                        </AppButton>
+                      }
                     >
-                      {!canSendActiveRequest()
-                        ? "Coming Soon"
-                        : isSending()
-                          ? "Sending..."
-                          : "Send"}
-                    </AppButton>
+                      <Show
+                        when={isSseConnected()}
+                        fallback={
+                          <AppButton
+                            variant="primary"
+                            size="sm"
+                            onClick={() => connectSse()}
+                          >
+                            Connect
+                          </AppButton>
+                        }
+                      >
+                        <AppButton
+                          variant="danger"
+                          size="sm"
+                          onClick={() => disconnectSse()}
+                        >
+                          {sseStream()?.status === "connecting"
+                            ? "Connecting..."
+                            : "Disconnect"}
+                        </AppButton>
+                      </Show>
+                    </Show>
                   </div>
                 )}
               </Show>
@@ -5451,6 +5774,14 @@ export function RestPlayground(props: RestPlaygroundProps) {
                 </div>
               </Show>
 
+              <Show when={isSseRequest()}>
+                <SseStreamPanel
+                  stream={sseStream()}
+                  connected={isSseConnected()}
+                />
+              </Show>
+
+              <Show when={!isSseRequest()}>
               <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div class="flex flex-wrap items-center gap-1.5">
                   <EditorToggle
@@ -5589,6 +5920,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                   </Match>
                 </Switch>
               </div>
+              </Show>
             </div>
           </div>
         </Show>

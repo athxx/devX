@@ -15,8 +15,8 @@ import (
 	ws "github.com/gofiber/contrib/v3/websocket"
 	"go.mongodb.org/mongo-driver/bson"
 
-	dbrunner "devx/server/internal/db"
-	sshrelay "devx/server/internal/ssh"
+	dbrunner "github.com/athxx/devX/internal/db"
+	sshrelay "github.com/athxx/devX/internal/ssh"
 )
 
 const wsHeartbeatTimeout = 120 * time.Second
