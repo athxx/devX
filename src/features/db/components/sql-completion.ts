@@ -11,25 +11,30 @@ import {
   type SQLNamespace,
 } from "@codemirror/lang-sql"
 import type { DbConnectionKind } from "../models"
+import { getDbAdapter } from "../adapters"
+import type { DbCompletionDialect } from "../adapters"
 
 // ── Dialect mapping ────────────────────────────────────────────────
+// Adapters expose a neutral DbCompletionDialect token; the CodeMirror
+// dialect object stays in this UI layer to keep adapters editor-free.
 
 function getSqlDialect(kind: DbConnectionKind): SQLDialect | null {
-  switch (kind) {
+  return dialectForToken(getDbAdapter(kind).completionDialect())
+}
+
+function dialectForToken(token: DbCompletionDialect): SQLDialect | null {
+  switch (token) {
     case "postgresql":
-    case "gaussdb":
       return PostgreSQL
     case "mysql":
-    case "tidb":
       return MySQL
-    case "sqlserver":
+    case "mssql":
       return MSSQL
     case "sqlite":
       return SQLite
-    case "clickhouse":
-    case "oracle":
+    case "standard":
       return StandardSQL
-    default:
+    case null:
       return null
   }
 }
@@ -306,10 +311,14 @@ export function createDbCompletionSources(
   getDefaultSchema: () => string | undefined,
 ): CompletionSource[] {
   const kwSource: CompletionSource = (ctx) => {
-    const kind = getKind()
-    if (kind === "redis") return redisSource(ctx)
-    if (kind === "mongodb") return mongoSource(ctx)
-    return sqlKeywordSource(ctx)
+    switch (getDbAdapter(getKind()).completionKeywords()) {
+      case "redis":
+        return redisSource(ctx)
+      case "mongo":
+        return mongoSource(ctx)
+      case "sql":
+        return sqlKeywordSource(ctx)
+    }
   }
 
   // Cache for schema source (recreate only when schema/dialect changes)
@@ -320,10 +329,10 @@ export function createDbCompletionSources(
 
   const schSource: CompletionSource = async (ctx) => {
     const kind = getKind()
-    if (kind === "redis" || kind === "mongodb") return null
+    const dialect = getSqlDialect(kind) ?? undefined
+    if (!dialect) return null
     const schema = getSchema()
     if (!schema) return null
-    const dialect = getSqlDialect(kind) ?? undefined
     const defaultSchema = getDefaultSchema()
     if (schema !== _schemaRef || defaultSchema !== _defaultSchemaRef || dialect !== _schDialect) {
       _schemaRef = schema
@@ -338,7 +347,7 @@ export function createDbCompletionSources(
 
     // Auto-quote: if the completion follows a quoted parent (e.g. "public".)
     // but the cursor is NOT already inside quotes, wrap completions in quotes.
-    const quoteChar = kind === "mysql" || kind === "tidb" ? "`" : '"'
+    const quoteChar = getDbAdapter(kind).identifierQuoteChar()
     const textBefore = ctx.state.sliceDoc(Math.max(0, resolved.from - 2), resolved.from)
     const needsQuote = textBefore.endsWith(quoteChar + ".")
     const charAfter = ctx.state.sliceDoc(ctx.pos, ctx.pos + 1)
@@ -360,8 +369,7 @@ export function createDbCompletionSources(
   // Smart source (alias + bare columns) — only for SQL databases
   const smartSource = createSmartSqlCompletion(getSchema)
   const colSource: CompletionSource = (ctx) => {
-    const kind = getKind()
-    if (kind === "redis" || kind === "mongodb") return null
+    if (!getSqlDialect(getKind())) return null
     return smartSource(ctx)
   }
 

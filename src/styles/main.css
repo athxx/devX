@@ -367,6 +367,11 @@ a {
 
 .workspace-sidebar {
   min-width: 0;
+  /* Grid items default to min-height: auto, which lets the sidebar grow to
+     its content height and breaks the percentage flex-basis / overflow-auto
+     of the panes inside. Clamp it to the grid row so inner regions scroll. */
+  min-height: 0;
+  overflow: hidden;
 }
 
 .workspace-sidebar-resizer {

@@ -66,6 +66,7 @@ import {
   startDbExecution,
   testDbConnection,
 } from "../service";
+import { getDbAdapter } from "../adapters";
 
 type DbPanelProps = {
   sidebarOpen: boolean;
@@ -137,90 +138,11 @@ function getInitialWorkspace(): DbWorkspaceState {
 }
 
 function getConnectionBadge(connection: DbConnection) {
-  switch (connection.kind) {
-    case "redis":
-      return {
-        label: "RDS",
-        class: "theme-method-badge theme-method-patch",
-      };
-    case "postgresql":
-      return {
-        label: "PG",
-        class: "theme-method-badge theme-method-post",
-      };
-    case "mysql":
-      return {
-        label: "MY",
-        class: "theme-method-badge theme-method-get",
-      };
-    case "mongodb":
-      return {
-        label: "MGO",
-        class: "theme-method-badge theme-method-trace",
-      };
-    case "clickhouse":
-      return {
-        label: "CHK",
-        class: "theme-method-badge theme-method-head",
-      };
-    case "gaussdb":
-      return {
-        label: "GDB",
-        class: "theme-method-badge theme-method-patch",
-      };
-    case "oracle":
-      return {
-        label: "ORA",
-        class: "theme-method-badge theme-method-delete",
-      };
-    case "sqlite":
-      return {
-        label: "LITE",
-        class: "theme-method-badge theme-method-default",
-      };
-    case "sqlserver":
-      return {
-        label: "MSS",
-        class: "theme-method-badge theme-method-post",
-      };
-    case "tidb":
-      return {
-        label: "TIDB",
-        class: "theme-method-badge theme-method-get",
-      };
-    default:
-      return {
-        label: "DB",
-        class: "theme-method-badge theme-method-default",
-      };
-  }
+  return getDbAdapter(connection.kind).badge();
 }
 
 function getConnectionTypeLabel(kind: DbConnectionKind) {
-  switch (kind) {
-    case "redis":
-      return "Redis";
-    case "postgresql":
-      return "PostgreSQL";
-    case "mysql":
-      return "MySQL";
-    case "mongodb":
-      return "MongoDB";
-    case "clickhouse":
-      return "ClickHouse";
-    case "gaussdb":
-      return "GaussDB";
-    case "oracle":
-      return "Oracle";
-    case "sqlite":
-      return "SQLite";
-    case "sqlserver":
-      return "SQL Server";
-    case "tidb":
-      return "TiDB";
-    default:
-      return "Database";
-  }
+  return getDbAdapter(kind).displayName();
 }
 
 function formatResultSize(value: unknown) {
@@ -378,28 +300,7 @@ function ExplorerLeafIcon(props: {
 }
 
 function describeConnection(connection: DbConnection) {
-  if (connection.kind === "sqlite") {
-    return connection.config.filePath.trim() || "Local file";
-  }
-
-  if (connection.kind === "oracle") {
-    const serviceName =
-      connection.config.serviceName.trim() ||
-      connection.config.database.trim() ||
-      "FREEPDB1";
-    return `${connection.config.host.trim() || "localhost"}:${connection.config.port.trim() || "1521"} / ${serviceName}`;
-  }
-
-  const host = connection.config.host.trim() || "localhost";
-  const port = connection.config.port.trim();
-  const database = connection.config.database.trim();
-  const hostLabel = `${host}${port ? `:${port}` : ""}`;
-
-  if (database) {
-    return `${hostLabel} / ${database}`;
-  }
-
-  return hostLabel;
+  return getDbAdapter(connection.kind).describeConnection(connection);
 }
 
 function getEnvironmentBadgeClass(environment: DbConnection["environment"]) {
@@ -1266,19 +1167,7 @@ export function DbPanel(props: DbPanelProps) {
   }
 
   function getDefaultSchemaName(connection: DbConnection): string | undefined {
-    switch (connection.kind) {
-      case "postgresql":
-      case "gaussdb":
-        return "public";
-      case "mysql":
-      case "tidb":
-      case "clickhouse":
-        return connection.config.database || undefined;
-      case "sqlserver":
-        return "dbo";
-      default:
-        return undefined;
-    }
+    return getDbAdapter(connection.kind).defaultCompletionSchema(connection) ?? undefined;
   }
 
   function getSchemaNodesForRoot(root: ExplorerGroupNode | null) {
@@ -1424,153 +1313,32 @@ export function DbPanel(props: DbPanelProps) {
     return labels.slice(0, 3).join(", ");
   }
 
-  function escapeSqlString(value: string) {
-    return value.replace(/'/g, "''");
-  }
-
   function buildExplorerStructureQuery(
     connection: DbConnection,
     node: ExplorerLeafNode,
   ) {
-    const qualifiedName = node.qualifiedName ?? node.label;
-    const schemaName = node.schemaName ?? "";
-    const objectName = node.label;
-
-    if (node.kind === "function") {
-      switch (connection.kind) {
-        case "postgresql":
-        case "gaussdb":
-        case "mysql":
-        case "tidb":
-          return `SELECT routine_schema, routine_name, routine_type, data_type
-FROM information_schema.routines
-WHERE routine_schema = '${escapeSqlString(schemaName)}'
-  AND routine_name = '${escapeSqlString(objectName)}';`;
-        default:
-          return `-- Function metadata template
--- ${qualifiedName}`;
-      }
-    }
-
-    switch (connection.kind) {
-      case "sqlite":
-        return `PRAGMA table_info(${qualifiedName});`;
-      case "mysql":
-      case "tidb":
-      case "clickhouse":
-        return `DESCRIBE ${qualifiedName};`;
-      case "sqlserver":
-        return `SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA = '${escapeSqlString(schemaName)}'
-  AND TABLE_NAME = '${escapeSqlString(objectName)}'
-ORDER BY ORDINAL_POSITION;`;
-      case "oracle":
-        return `SELECT COLUMN_NAME, DATA_TYPE, NULLABLE, DATA_DEFAULT
-FROM USER_TAB_COLUMNS
-WHERE TABLE_NAME = UPPER('${escapeSqlString(objectName)}')
-ORDER BY COLUMN_ID;`;
-      default:
-        return `SELECT column_name, data_type, is_nullable, column_default
-FROM information_schema.columns
-WHERE table_schema = '${escapeSqlString(schemaName)}'
-  AND table_name = '${escapeSqlString(objectName)}'
-ORDER BY ordinal_position;`;
-    }
+    return getDbAdapter(connection.kind).buildStructureQuery(node);
   }
 
   function buildExplorerShowSqlQuery(
     connection: DbConnection,
     node: ExplorerLeafNode,
   ) {
-    const qualifiedName = node.qualifiedName ?? node.label;
-    const schemaName = node.schemaName ?? "";
-    const objectName = node.label;
-
-    if (node.kind === "view") {
-      switch (connection.kind) {
-        case "postgresql":
-        case "gaussdb":
-          return `SELECT pg_get_viewdef('${escapeSqlString(
-            qualifiedName,
-          )}'::regclass, true);`;
-        case "mysql":
-        case "tidb":
-          return `SHOW CREATE VIEW ${qualifiedName};`;
-      }
-    }
-
-    if (node.kind === "function") {
-      switch (connection.kind) {
-        case "postgresql":
-        case "gaussdb":
-          return `SELECT pg_get_functiondef(p.oid)
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE n.nspname = '${escapeSqlString(schemaName)}'
-  AND p.proname = '${escapeSqlString(objectName)}';`;
-        case "mysql":
-        case "tidb":
-          return `SHOW CREATE FUNCTION ${qualifiedName};`;
-        default:
-          return `-- Function DDL template
--- ${qualifiedName}`;
-      }
-    }
-
-    switch (connection.kind) {
-      case "mysql":
-      case "tidb":
-        return `SHOW CREATE TABLE ${qualifiedName};`;
-      case "clickhouse":
-        return `SHOW CREATE TABLE ${qualifiedName};`;
-      case "sqlite":
-        return `SELECT sql
-FROM sqlite_master
-WHERE type = 'table'
-  AND name = '${escapeSqlString(objectName)}';`;
-      case "postgresql":
-      case "gaussdb":
-        return `-- PostgreSQL table DDL helper
--- Use pg_dump -s -t ${qualifiedName}
-SELECT column_name, data_type, is_nullable, column_default
-FROM information_schema.columns
-WHERE table_schema = '${escapeSqlString(schemaName)}'
-  AND table_name = '${escapeSqlString(objectName)}'
-ORDER BY ordinal_position;`;
-      default:
-        return `-- DDL helper
--- ${qualifiedName}`;
-    }
+    return getDbAdapter(connection.kind).buildShowSqlQuery(node);
   }
 
   function buildExplorerRenameQuery(
     connection: DbConnection,
     node: ExplorerLeafNode,
   ) {
-    const qualifiedName = node.qualifiedName ?? node.label;
-
-    switch (connection.kind) {
-      case "mysql":
-      case "tidb":
-      case "clickhouse":
-        return `RENAME TABLE ${qualifiedName} TO new_${node.label};`;
-      case "sqlserver":
-        return `EXEC sp_rename '${qualifiedName.replace(/'/g, "''")}', 'new_${node.label}';`;
-      default:
-        return `ALTER TABLE ${qualifiedName} RENAME TO new_${node.label};`;
-    }
+    return getDbAdapter(connection.kind).buildRenameQuery(node);
   }
 
   function buildExplorerTruncateQuery(
     connection: DbConnection,
     node: ExplorerLeafNode,
   ) {
-    const qualifiedName = node.qualifiedName ?? node.label;
-    if (connection.kind === "sqlite") {
-      return `DELETE FROM ${qualifiedName};`;
-    }
-    return `TRUNCATE TABLE ${qualifiedName};`;
+    return getDbAdapter(connection.kind).buildTruncateQuery(node);
   }
 
   async function copyExplorerNodeName(node: ExplorerLeafNode) {
@@ -1656,19 +1424,7 @@ ORDER BY ordinal_position;`;
       return options.databaseName;
     }
 
-    if (connection.kind === "mongodb" || connection.kind === "redis") {
-      return (
-        options?.source?.schemaName ??
-        node.schemaName ??
-        getDefaultDatabaseForConnection(connection)
-      );
-    }
-
-    if (
-      connection.kind === "mysql" ||
-      connection.kind === "tidb" ||
-      connection.kind === "clickhouse"
-    ) {
+    if (getDbAdapter(connection.kind).treatsSchemaAsDatabase()) {
       return (
         options?.source?.schemaName ??
         node.schemaName ??
@@ -1756,77 +1512,22 @@ ORDER BY ordinal_position;`;
   }
 
   function canCreateDatabase(connection: DbConnection) {
-    return (
-      connection.kind !== "redis" &&
-      connection.kind !== "sqlite" &&
-      connection.kind !== "oracle"
-    );
+    return getDbAdapter(connection.kind).canCreateDatabase();
   }
 
   function canShowConnectionSummary(connection: DbConnection) {
-    return connection.kind !== "redis";
+    return getDbAdapter(connection.kind).canShowConnectionSummary();
   }
 
   function buildCreateDatabaseTemplate(connection: DbConnection) {
-    switch (connection.kind) {
-      case "postgresql":
-      case "gaussdb":
-        return "CREATE DATABASE new_database;";
-      case "mysql":
-      case "tidb":
-        return "CREATE DATABASE `new_database`;";
-      case "sqlserver":
-        return "CREATE DATABASE [new_database];";
-      case "clickhouse":
-        return "CREATE DATABASE new_database;";
-      case "mongodb":
-        return 'use new_database\n\ndb.createCollection("sample_collection")';
-      default:
-        return "CREATE DATABASE new_database;";
-    }
+    return getDbAdapter(connection.kind).buildCreateDatabaseTemplate();
   }
 
   function buildCreateTableTemplate(
     connection: DbConnection,
     databaseName: string,
   ) {
-    switch (connection.kind) {
-      case "mysql":
-      case "tidb":
-        return `USE \`${databaseName}\`;
-
-CREATE TABLE new_table (
-  id BIGINT PRIMARY KEY,
-  name VARCHAR(255) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);`;
-      case "sqlserver":
-        return `USE [${databaseName}];
-
-CREATE TABLE dbo.new_table (
-  id BIGINT PRIMARY KEY,
-  name NVARCHAR(255) NOT NULL,
-  created_at DATETIME2 DEFAULT SYSDATETIME()
-);`;
-      case "clickhouse":
-        return `CREATE TABLE ${databaseName}.new_table (
-  id UInt64,
-  name String,
-  created_at DateTime DEFAULT now()
-)
-ENGINE = MergeTree
-ORDER BY id;`;
-      case "mongodb":
-        return `use ${databaseName}
-
-db.createCollection('new_collection')`;
-      default:
-        return `CREATE TABLE ${databaseName}.new_table (
-  id BIGINT PRIMARY KEY,
-  name VARCHAR(255) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);`;
-    }
+    return getDbAdapter(connection.kind).buildCreateTableTemplate(databaseName);
   }
 
   function buildImportTemplate(
@@ -1834,71 +1535,17 @@ db.createCollection('new_collection')`;
     databaseName: string,
     source: "sql" | "json" | "csv",
   ) {
-    if (connection.kind === "mongodb") {
-      if (source === "json") {
-        return `use ${databaseName}
-
-mongoimport --db ${databaseName} --collection new_collection --file ./data.json --jsonArray`;
-      }
-
-      if (source === "csv") {
-        return `use ${databaseName}
-
-mongoimport --db ${databaseName} --collection new_collection --type csv --headerline --file ./data.csv`;
-      }
-
-      return `use ${databaseName}
-
-// Paste or run your SQL migration equivalent here`;
-    }
-
-    if (source === "json") {
-      return `-- Import JSON into ${databaseName}
--- Replace file paths and table names as needed
--- Example workflow: stage JSON -> transform -> insert`;
-    }
-
-    if (source === "csv") {
-      switch (connection.kind) {
-        case "postgresql":
-        case "gaussdb":
-          return `\c ${databaseName}
-\copy new_table FROM './data.csv' WITH (FORMAT csv, HEADER true);`;
-        case "mysql":
-        case "tidb":
-          return `USE \`${databaseName}\`;
-LOAD DATA LOCAL INFILE './data.csv'
-INTO TABLE new_table
-FIELDS TERMINATED BY ','
-ENCLOSED BY '"'
-LINES TERMINATED BY '\n'
-IGNORE 1 LINES;`;
-        default:
-          return `-- Import CSV into ${databaseName}
--- Replace file paths and table names as needed`;
-      }
-    }
-
-    return `-- Import SQL into ${databaseName}
--- Paste your schema/data script here`;
+    return getDbAdapter(connection.kind).buildImportTemplate(
+      databaseName,
+      source,
+    );
   }
 
   function buildDropDatabaseTemplate(
     connection: DbConnection,
     databaseName: string,
   ) {
-    switch (connection.kind) {
-      case "mysql":
-      case "tidb":
-        return `DROP DATABASE \`${databaseName}\`;`;
-      case "sqlserver":
-        return `DROP DATABASE [${databaseName}];`;
-      case "mongodb":
-        return `use ${databaseName}
-db.dropDatabase()`;
-      default:
-        return `DROP DATABASE ${databaseName};`;
-    }
+    return getDbAdapter(connection.kind).buildDropDatabaseTemplate(databaseName);
   }
 
   function openDatabaseExportModal(connectionId: string, databaseName: string) {
@@ -1967,26 +1614,7 @@ db.dropDatabase()`;
   }
 
   function buildConnectionSummaryQuery(connection: DbConnection) {
-    switch (connection.kind) {
-      case "postgresql":
-      case "gaussdb":
-        return "SELECT name, setting, unit, short_desc FROM pg_settings ORDER BY name;";
-      case "mysql":
-      case "tidb":
-        return "SHOW VARIABLES;";
-      case "sqlserver":
-        return "SELECT name, value_in_use, description FROM sys.configurations ORDER BY name;";
-      case "clickhouse":
-        return "SELECT name, value, changed, description FROM system.settings ORDER BY name;";
-      case "oracle":
-        return "SELECT name, value, display_value, description FROM v$parameter ORDER BY name";
-      case "sqlite":
-        return "PRAGMA compile_options;";
-      case "mongodb":
-        return "db.adminCommand({ getCmdLineOpts: 1 })";
-      default:
-        return "SELECT 1;";
-    }
+    return getDbAdapter(connection.kind).buildConnectionSummaryQuery();
   }
 
   async function openExplorerQuery(
@@ -4511,7 +4139,7 @@ WHERE ${whereClause};`;
               }
             />
 
-            <div class="min-h-[180px] min-w-0 flex-1 overflow-hidden">
+            <div class="min-h-[120px] min-w-0 flex-1 overflow-hidden">
               <div class="flex h-full min-h-0 flex-col overflow-hidden">
                 <div class="min-h-0 flex-1 overflow-hidden">
                   {renderObjectBrowserPanel()}

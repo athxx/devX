@@ -16,7 +16,7 @@ export function DbConnectionsPane<T>(props: DbConnectionsPaneProps<T>) {
   return (
     <>
       <div
-        class="flex min-h-[220px] flex-col overflow-hidden"
+        class="flex min-h-[120px] flex-col overflow-hidden"
         style={{ flex: `0 0 ${props.sidebarConnectionsHeight}%` }}
       >
         <div

@@ -1,34 +1,6 @@
 import { format as sqlFormat } from "sql-formatter"
 import type { DbConnectionKind } from "./models"
-
-type SqlFormatterLanguage =
-  | "sql"
-  | "mysql"
-  | "postgresql"
-  | "sqlite"
-  | "transactsql"
-  | "plsql"
-
-function getSqlDialect(kind: DbConnectionKind): SqlFormatterLanguage | null {
-  switch (kind) {
-    case "mysql":
-    case "tidb":
-      return "mysql"
-    case "postgresql":
-    case "gaussdb":
-      return "postgresql"
-    case "sqlite":
-      return "sqlite"
-    case "sqlserver":
-      return "transactsql"
-    case "oracle":
-      return "plsql"
-    case "clickhouse":
-      return "sql"
-    default:
-      return null
-  }
-}
+import { getDbAdapter } from "./adapters"
 
 async function formatJavaScript(code: string): Promise<string> {
   const prettier = await import("prettier/standalone")
@@ -45,22 +17,22 @@ async function formatJavaScript(code: string): Promise<string> {
 }
 
 export function supportsFormat(kind: DbConnectionKind): boolean {
-  return kind !== "redis"
+  return getDbAdapter(kind).formatLanguage() !== null
 }
 
 export async function formatQuery(
   kind: DbConnectionKind,
   query: string,
 ): Promise<string> {
-  if (kind === "mongodb") {
+  const language = getDbAdapter(kind).formatLanguage()
+  if (language === null) return query
+
+  if (language === "javascript") {
     return formatJavaScript(query)
   }
 
-  const dialect = getSqlDialect(kind)
-  if (!dialect) return query
-
   return sqlFormat(query, {
-    language: dialect,
+    language,
     tabWidth: 2,
     useTabs: false,
     keywordCase: "upper",

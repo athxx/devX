@@ -17,6 +17,7 @@ import {
   type SQLNamespace,
 } from "@codemirror/lang-sql";
 import { createDbCompletionSources } from "./sql-completion";
+import { getDbAdapter } from "../adapters";
 import {
   HighlightStyle,
   defaultHighlightStyle,
@@ -38,23 +39,21 @@ type DbCodeEditorProps = {
 };
 
 function languageExtension(kind: DbConnectionKind) {
-  switch (kind) {
-    case "redis":
-      return [];
-    case "mongodb":
-      return javascript();
+  const adapter = getDbAdapter(kind);
+  switch (adapter.completionDialect()) {
     case "postgresql":
-    case "gaussdb":
       return sql({ dialect: PostgreSQL, upperCaseKeywords: true });
     case "mysql":
-    case "tidb":
       return sql({ dialect: MySQL, upperCaseKeywords: true });
-    case "sqlserver":
+    case "mssql":
       return sql({ dialect: MSSQL, upperCaseKeywords: true });
     case "sqlite":
       return sql({ dialect: SQLite, upperCaseKeywords: true });
-    default:
+    case "standard":
       return sql({ dialect: StandardSQL, upperCaseKeywords: true });
+    case null:
+      // Non-SQL kinds: Mongo shell uses JS highlighting; Redis has none.
+      return adapter.completionKeywords() === "mongo" ? javascript() : [];
   }
 }
 
