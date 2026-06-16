@@ -913,38 +913,10 @@ async function loadMongoExplorer(connection: DbConnection) {
   return databaseNodes;
 }
 
-async function loadRedisExplorer(connection: DbConnection) {
-  let databaseCount = 16;
-
-  try {
-    const result = await executeDbSocketCommand(
-      {
-        id: makeId("db-tree"),
-        type: "redis",
-        payload: {
-          url: connection.url,
-          command: "CONFIG",
-          arguments: ["GET", "databases"],
-          timeoutMs: 3000,
-        },
-      },
-      connection,
-    );
-
-    if (result.kind === "redis") {
-      const payload = result.data.result;
-      if (Array.isArray(payload) && payload.length >= 2) {
-        const parsedCount = Number.parseInt(asString(payload[1]), 10);
-        if (Number.isFinite(parsedCount) && parsedCount > 0) {
-          databaseCount = parsedCount;
-        }
-      }
-    }
-  } catch {
-    databaseCount = 16;
-  }
-
-  return Array.from({ length: databaseCount }, (_, index) =>
+async function loadRedisExplorer(_connection: DbConnection) {
+  // Redis defaults to 16 databases (db0–db15). Skip CONFIG GET to avoid
+  // hanging when the command times out. Keys are loaded lazily per-database.
+  return Array.from({ length: 16 }, (_, index) =>
     makeExplorerGroup(`db${index}`, "database", [], undefined, true),
   );
 }

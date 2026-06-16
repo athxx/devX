@@ -125,11 +125,13 @@ export class RedisAdapter implements DbAdapter {
   }
 
   private effectiveUrl(tab: DbTab, connection: DbConnection): string {
-    const effectiveDatabase =
+    const raw =
       tab.databaseName?.trim() || connection.config.database.trim();
-    if (!effectiveDatabase) {
+    if (!raw) {
       return this.buildConnectionUrl(connection) || connection.url;
     }
+    // Explorer nodes use labels like "db0" but the URL needs just "0"
+    const effectiveDatabase = raw.replace(/^db/i, "");
     return this.buildConnectionUrl({
       ...connection,
       config: { ...connection.config, database: effectiveDatabase },

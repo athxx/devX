@@ -36,6 +36,9 @@ type DbCodeEditorProps = {
   defaultSchema?: string;
   onChange: (value: string) => void;
   onRun?: () => void;
+  onCompact?: () => void;
+  onFormat?: () => void;
+  onEditorReady?: (editor: EditorView) => void;
 };
 
 function languageExtension(kind: DbConnectionKind) {
@@ -250,6 +253,27 @@ export function DbCodeEditor(props: DbCodeEditorProps) {
                 return true;
               },
             },
+            {
+              key: "Alt-c",
+              run: () => {
+                props.onCompact?.();
+                return true;
+              },
+            },
+            {
+              key: "Alt-f",
+              run: () => {
+                props.onFormat?.();
+                return true;
+              },
+            },
+            {
+              key: "Alt-r",
+              run: () => {
+                props.onRun?.();
+                return true;
+              },
+            },
           ]),
           EditorView.lineWrapping,
           themeCompartment.of(getEditorThemeExtension(isDarkMode())),
@@ -270,6 +294,8 @@ export function DbCodeEditor(props: DbCodeEditorProps) {
       }),
       parent: containerRef,
     });
+
+    props.onEditorReady?.(editor);
 
     onCleanup(() => {
       observer.disconnect();

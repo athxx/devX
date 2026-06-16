@@ -1,5 +1,6 @@
 import type { JSX } from "solid-js";
 import type { SQLNamespace } from "@codemirror/lang-sql";
+import type { EditorView } from "@codemirror/view";
 import {
   For,
   Show,
@@ -24,11 +25,10 @@ import { DbConnectionsPane } from "./db-connections-pane";
 import { DbConnectionModal } from "./db-connection-modal";
 import { DbContextMenu } from "./db-context-menus";
 import { DbEditorPane } from "./db-editor-pane";
-import { DbExplorerPane } from "./db-explorer-pane";
 import { DbResultGrid } from "./db-result-grid";
 import { DbResultsPane } from "./db-results-pane";
 import { DbSavedConnectionsModal } from "./db-saved-connections-modal";
-import { formatQuery, supportsFormat } from "../format";
+import { compactQuery, formatQuery, supportsFormat } from "../format";
 import type {
   DbConnection,
   DbConnectionConfig,
@@ -341,14 +341,59 @@ function getConnectionSearchText(connection: DbConnection) {
     .toLowerCase();
 }
 
+function ShortcutHintButton(
+  props: {
+    class: string;
+    shortcut: string;
+    onClick: () => void;
+    children: JSX.Element;
+  },
+) {
+  const [showHint, setShowHint] = createSignal(false);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const onEnter = () => {
+    timer = setTimeout(() => setShowHint(true), 500);
+  };
+  const onLeave = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    setShowHint(false);
+  };
+
+  onCleanup(() => {
+    if (timer) clearTimeout(timer);
+  });
+
+  return (
+    <div class="relative inline-flex">
+      <button
+        class={props.class}
+        onClick={props.onClick}
+        onMouseEnter={onEnter}
+        onMouseLeave={onLeave}
+      >
+        {props.children}
+      </button>
+      <Show when={showHint()}>
+        <div
+          class="theme-text-soft pointer-events-none absolute left-1/2 top-full z-50 mt-1.5 -translate-x-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-medium"
+          style={{ background: "var(--app-surface, #1e1e1e)", border: "1px solid var(--app-border)" }}
+        >
+          {props.shortcut}
+        </div>
+      </Show>
+    </div>
+  );
+}
+
 export function DbPanel(props: DbPanelProps) {
   const [workspace, setWorkspace] = createSignal<DbWorkspaceState>(
     getInitialWorkspace(),
   );
   const [filter, setFilter] = createSignal("");
-  const [objectFilter, setObjectFilter] = createSignal("");
-  const [sidebarConnectionsHeight, setSidebarConnectionsHeight] =
-    createSignal(58);
   const [editorPaneSplit, setEditorPaneSplit] = createSignal(48);
   const [expandedConnectionIds, setExpandedConnectionIds] = createSignal<
     string[]
@@ -440,11 +485,6 @@ export function DbPanel(props: DbPanelProps) {
   const [loadingExplorerNodeIds, setLoadingExplorerNodeIds] = createSignal<
     string[]
   >([]);
-  const [selectedExplorerRootIds, setSelectedExplorerRootIds] = createSignal<
-    Record<string, string>
-  >({});
-  const [selectedExplorerSchemaIds, setSelectedExplorerSchemaIds] =
-    createSignal<Record<string, string>>({});
   const [
     selectedExplorerLeafByConnectionId,
     setSelectedExplorerLeafByConnectionId,
@@ -476,13 +516,10 @@ export function DbPanel(props: DbPanelProps) {
   const [liveQueryByTabId, setLiveQueryByTabId] = createSignal<
     Record<string, string>
   >({});
-  let sidebarSectionsRef: HTMLDivElement | undefined;
   let queryPersistTimer: ReturnType<typeof setTimeout> | null = null;
+  let activeEditorView: EditorView | null = null;
 
   const normalizedFilter = createMemo(() => filter().trim().toLowerCase());
-  const normalizedObjectFilter = createMemo(() =>
-    objectFilter().trim().toLowerCase(),
-  );
   const normalizedSavedConnectionsFilter = createMemo(() =>
     savedConnectionsFilter().trim().toLowerCase(),
   );
@@ -514,7 +551,7 @@ export function DbPanel(props: DbPanelProps) {
 
       const explorer = explorerByConnectionId()[connection.id];
       return (explorer?.nodes ?? []).some((node) =>
-        node.label.toLowerCase().includes(normalizedFilter()),
+        nodeMatchesFilter(node, normalizedFilter()),
       );
     });
   });
@@ -611,15 +648,6 @@ export function DbPanel(props: DbPanelProps) {
     });
 
     void loadDbUiStateFromDb().then((uiState) => {
-      const sidebarParsed = Number(uiState?.sidebarConnectionsHeight);
-      if (
-        Number.isFinite(sidebarParsed) &&
-        sidebarParsed >= 24 &&
-        sidebarParsed <= 76
-      ) {
-        setSidebarConnectionsHeight(sidebarParsed);
-      }
-
       const editorSplitParsed = Number(uiState?.editorPaneSplit);
       if (
         Number.isFinite(editorSplitParsed) &&
@@ -652,7 +680,6 @@ export function DbPanel(props: DbPanelProps) {
 
   createEffect(() => {
     void saveDbUiStateToDb({
-      sidebarConnectionsHeight: sidebarConnectionsHeight(),
       editorPaneSplit: editorPaneSplit(),
     });
   });
@@ -805,7 +832,6 @@ export function DbPanel(props: DbPanelProps) {
         label: string;
         groupKind: ExplorerGroupNode["groupKind"];
       } | null;
-      preferredSchemaLabel?: string | null;
       preferredLeaf?: {
         kind: ExplorerLeafNode["kind"];
         label: string;
@@ -833,64 +859,17 @@ export function DbPanel(props: DbPanelProps) {
 
       // Load schema completion data in background (non-blocking)
       loadAndCacheSchema(connection);
-      const nextRoot =
-        (options?.preferredRoot
-          ? nodes.find(
-              (node) =>
-                node.kind === "group" &&
-                node.groupKind === options.preferredRoot!.groupKind &&
-                node.label === options.preferredRoot!.label,
-            )
-          : null) ??
-        nodes.find((node) => node.kind === "group") ??
-        null;
 
-      if (nextRoot?.kind === "group") {
-        setSelectedExplorerRootIds((current) => ({
-          ...current,
-          [connection.id]: nextRoot.id,
-        }));
-
-        if (nextRoot.lazy && nextRoot.children.length === 0) {
-          await loadLazyExplorerNode(connection.id, nextRoot);
-        }
-
-        const refreshedRoot = findExplorerNode(
-          explorerByConnectionId()[connection.id]?.nodes ?? [],
-          nextRoot.id,
+      if (options?.preferredLeaf) {
+        const matchingLeaf = findMatchingExplorerLeaf(
+          nodes,
+          options.preferredLeaf,
         );
-
-        if (
-          options?.preferredSchemaLabel &&
-          refreshedRoot &&
-          refreshedRoot.kind === "group"
-        ) {
-          const schemaNodes = getSchemaNodesForRoot(refreshedRoot);
-          const matchingSchema = schemaNodes.find(
-            (schemaNode) => schemaNode.label === options.preferredSchemaLabel,
-          );
-          if (matchingSchema) {
-            setSelectedExplorerSchemaIds((current) => ({
-              ...current,
-              [getSchemaSelectionKey(connection.id, refreshedRoot.id)]:
-                matchingSchema.id,
-            }));
-          }
-        }
-
-        if (options?.preferredLeaf) {
-          const refreshedNodes =
-            explorerByConnectionId()[connection.id]?.nodes ?? [];
-          const matchingLeaf = findMatchingExplorerLeaf(
-            refreshedNodes,
-            options.preferredLeaf,
-          );
-          if (matchingLeaf) {
-            setSelectedExplorerLeafByConnectionId((current) => ({
-              ...current,
-              [connection.id]: matchingLeaf.id,
-            }));
-          }
+        if (matchingLeaf) {
+          setSelectedExplorerLeafByConnectionId((current) => ({
+            ...current,
+            [connection.id]: matchingLeaf.id,
+          }));
         }
       }
     } catch (error) {
@@ -910,7 +889,11 @@ export function DbPanel(props: DbPanelProps) {
 
   function toggleConnectionExpanded(connection: DbConnection) {
     const willExpand = !isConnectionExpanded(connection.id);
-    setExpandedConnectionIds(willExpand ? [connection.id] : []);
+    setExpandedConnectionIds((current) =>
+      willExpand
+        ? [...current, connection.id]
+        : current.filter((id) => id !== connection.id),
+    );
 
     if (!willExpand) {
       return;
@@ -930,61 +913,6 @@ export function DbPanel(props: DbPanelProps) {
     await commitWorkspace((draft) => {
       draft.activeConnectionId = connection.id;
     });
-  }
-
-  function startSidebarSplitResize(event: PointerEvent) {
-    const container = sidebarSectionsRef;
-    if (!container) {
-      return;
-    }
-
-    event.preventDefault();
-    const rect = container.getBoundingClientRect();
-    const minRatio = 24;
-    const maxRatio = 76;
-
-    const updateRatio = (clientY: number) => {
-      const nextRatio = ((clientY - rect.top) / rect.height) * 100;
-      setSidebarConnectionsHeight(
-        Math.min(maxRatio, Math.max(minRatio, nextRatio)),
-      );
-    };
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      updateRatio(moveEvent.clientY);
-    };
-
-    const handlePointerUp = () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-    updateRatio(event.clientY);
-  }
-
-  async function selectExplorerRoot(
-    connection: DbConnection,
-    node: ExplorerGroupNode,
-  ) {
-    setWorkspace((current) => ({
-      ...current,
-      activeConnectionId: connection.id,
-    }));
-    setSelectedExplorerRootIds((current) => ({
-      ...current,
-      [connection.id]: node.id,
-    }));
-    setExpandedConnectionIds([connection.id]);
-    void saveDbWorkspace({
-      ...workspace(),
-      activeConnectionId: connection.id,
-    });
-
-    if (node.lazy && node.children.length === 0) {
-      await loadLazyExplorerNode(connection.id, node);
-    }
   }
 
   function findExplorerLeafNode(
@@ -1074,53 +1002,11 @@ export function DbPanel(props: DbPanelProps) {
     }
   }
 
-  function getExplorerCategoryLabel(kind: ExplorerLeafNode["kind"]) {
-    switch (kind) {
-      case "table":
-        return "Tables";
-      case "view":
-        return "Views";
-      case "function":
-        return "Functions";
-      case "collection":
-        return "Collections";
-      case "key":
-      default:
-        return "Keys";
-    }
-  }
-
-  function makeBrowserCategoryId(parentId: string, label: string) {
-    return `${parentId}::${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-  }
-
-  function cloneLeafForSchema(
-    node: ExplorerLeafNode,
-    schemaLabel: string,
-  ): ExplorerLeafNode {
-    return {
-      ...node,
-      id: `${schemaLabel}::${node.id}`,
-      description: node.description
-        ? `${schemaLabel} · ${node.description}`
-        : schemaLabel,
-    };
-  }
-
-  function getSelectedExplorerRoot(connection: DbConnection | null) {
+  function getFirstDatabaseNode(connection: DbConnection | null): ExplorerGroupNode | null {
     if (!connection) return null;
     const explorer = explorerByConnectionId()[connection.id];
     const nodes = explorer?.nodes ?? [];
-    const selectedId = selectedExplorerRootIds()[connection.id];
-    return (
-      (nodes.find((node) => node.id === selectedId) as
-        | ExplorerGroupNode
-        | undefined) ??
-      (nodes.find((node) => node.kind === "group") as
-        | ExplorerGroupNode
-        | undefined) ??
-      null
-    );
+    return (nodes.find((node) => node.kind === "group") as ExplorerGroupNode | undefined) ?? null;
   }
 
   function getSelectedExplorerLeaf(connection: DbConnection | null) {
@@ -1162,155 +1048,8 @@ export function DbPanel(props: DbPanelProps) {
     return node.query;
   }
 
-  function getSchemaSelectionKey(connectionId: string, rootId: string) {
-    return `${connectionId}:${rootId}`;
-  }
-
   function getDefaultSchemaName(connection: DbConnection): string | undefined {
     return getDbAdapter(connection.kind).defaultCompletionSchema(connection) ?? undefined;
-  }
-
-  function getSchemaNodesForRoot(root: ExplorerGroupNode | null) {
-    if (!root) return [] as ExplorerGroupNode[];
-    return root.children.filter(
-      (node): node is ExplorerGroupNode =>
-        node.kind === "group" && node.groupKind === "schema",
-    );
-  }
-
-  function getSelectedSchemaId(
-    connectionId: string,
-    rootId: string,
-    schemaNodes: ExplorerGroupNode[],
-  ) {
-    const key = getSchemaSelectionKey(connectionId, rootId);
-    const selectedId = selectedExplorerSchemaIds()[key];
-    if (
-      selectedId === "__all__" ||
-      schemaNodes.some((schemaNode) => schemaNode.id === selectedId)
-    ) {
-      return selectedId ?? "__all__";
-    }
-    return "__all__";
-  }
-
-  function buildObjectBrowserCategories(
-    connection: DbConnection,
-    root: ExplorerGroupNode | null,
-  ) {
-    if (!root) return [] as ExplorerGroupNode[];
-
-    const schemaNodes = getSchemaNodesForRoot(root);
-    const sourceNodes =
-      schemaNodes.length === 0
-        ? root.children
-        : (() => {
-            const selectedSchemaId = getSelectedSchemaId(
-              connection.id,
-              root.id,
-              schemaNodes,
-            );
-            if (selectedSchemaId !== "__all__") {
-              return (
-                schemaNodes.find(
-                  (schemaNode) => schemaNode.id === selectedSchemaId,
-                )?.children ?? []
-              );
-            }
-
-            const buckets = new Map<string, ExplorerLeafNode[]>();
-            for (const schemaNode of schemaNodes) {
-              for (const child of schemaNode.children) {
-                if (child.kind !== "group" || child.groupKind !== "category") {
-                  continue;
-                }
-                const bucket = buckets.get(child.label) ?? [];
-                for (const leaf of child.children) {
-                  if (leaf.kind === "group") continue;
-                  bucket.push(cloneLeafForSchema(leaf, schemaNode.label));
-                }
-                buckets.set(child.label, bucket);
-              }
-            }
-
-            return Array.from(buckets.entries()).map(([label, children]) => ({
-              id: makeBrowserCategoryId(root.id, label),
-              kind: "group" as const,
-              groupKind: "category" as const,
-              label,
-              description: `${children.length} objects`,
-              children,
-            }));
-          })();
-
-    const categoryNodes = sourceNodes.filter(
-      (node): node is ExplorerGroupNode =>
-        node.kind === "group" && node.groupKind === "category",
-    );
-
-    if (categoryNodes.length > 0) {
-      return categoryNodes
-        .map((categoryNode) => {
-          const children = categoryNode.children.filter((child) => {
-            if (child.kind === "group") {
-              return false;
-            }
-            if (!normalizedObjectFilter()) {
-              return true;
-            }
-            return (
-              child.label.toLowerCase().includes(normalizedObjectFilter()) ||
-              (child.description ?? "")
-                .toLowerCase()
-                .includes(normalizedObjectFilter())
-            );
-          });
-
-          return {
-            ...categoryNode,
-            description: `${children.length} objects`,
-            children,
-          };
-        })
-        .filter((categoryNode) => categoryNode.children.length > 0);
-    }
-
-    const groupedLeaves = new Map<string, ExplorerLeafNode[]>();
-    for (const node of sourceNodes) {
-      if (node.kind === "group") {
-        continue;
-      }
-      if (
-        normalizedObjectFilter() &&
-        !node.label.toLowerCase().includes(normalizedObjectFilter()) &&
-        !(node.description ?? "")
-          .toLowerCase()
-          .includes(normalizedObjectFilter())
-      ) {
-        continue;
-      }
-      const label = getExplorerCategoryLabel(node.kind);
-      const bucket = groupedLeaves.get(label) ?? [];
-      bucket.push(node);
-      groupedLeaves.set(label, bucket);
-    }
-
-    return Array.from(groupedLeaves.entries()).map(([label, children]) => ({
-      id: makeBrowserCategoryId(root.id, label),
-      kind: "group" as const,
-      groupKind: "category" as const,
-      label,
-      description: `${children.length} objects`,
-      children: children.sort((a, b) => a.label.localeCompare(b.label)),
-    }));
-  }
-
-  function getObjectBrowserHeading(categories: ExplorerGroupNode[]) {
-    const labels = categories.map((category) => category.label.toUpperCase());
-    if (labels.length === 0) {
-      return "OBJECTS";
-    }
-    return labels.slice(0, 3).join(", ");
   }
 
   function buildExplorerStructureQuery(
@@ -1886,9 +1625,9 @@ export function DbPanel(props: DbPanelProps) {
   }
 
   function getDefaultDatabaseForConnection(connection: DbConnection) {
-    const selectedRoot = getSelectedExplorerRoot(connection);
-    if (selectedRoot?.groupKind === "database") {
-      return selectedRoot.label;
+    const firstDb = getFirstDatabaseNode(connection);
+    if (firstDb?.groupKind === "database") {
+      return firstDb.label;
     }
 
     return connection.config.database.trim() || null;
@@ -2300,18 +2039,6 @@ WHERE ${whereClause};`;
     setExpandedConnectionIds((current) =>
       current.filter((id) => id !== connectionId),
     );
-    setSelectedExplorerRootIds((current) => {
-      const next = { ...current };
-      delete next[connectionId];
-      return next;
-    });
-    setSelectedExplorerSchemaIds((current) =>
-      Object.fromEntries(
-        Object.entries(current).filter(
-          ([key]) => !key.startsWith(`${connectionId}:`),
-        ),
-      ),
-    );
     setSelectedExplorerLeafByConnectionId((current) => {
       const next = { ...current };
       delete next[connectionId];
@@ -2325,26 +2052,16 @@ WHERE ${whereClause};`;
   }
 
   async function refreshConnectionExplorer(connection: DbConnection) {
-    const selectedRoot = getSelectedExplorerRoot(connection);
     const selectedLeaf = getSelectedExplorerLeaf(connection);
-    const schemaNodes = getSchemaNodesForRoot(selectedRoot);
-    const selectedSchemaId = selectedRoot
-      ? getSelectedSchemaId(connection.id, selectedRoot.id, schemaNodes)
-      : "__all__";
-    const selectedSchemaLabel =
-      selectedSchemaId !== "__all__"
-        ? (schemaNodes.find((schemaNode) => schemaNode.id === selectedSchemaId)
-            ?.label ?? null)
-        : null;
+    const firstDb = getFirstDatabaseNode(connection);
 
     setExpandedExplorerNodeIds([]);
     closeFloatingMenus();
 
     await loadConnectionExplorer(connection, {
-      preferredRoot: selectedRoot
-        ? { label: selectedRoot.label, groupKind: selectedRoot.groupKind }
+      preferredRoot: firstDb
+        ? { label: firstDb.label, groupKind: firstDb.groupKind }
         : null,
-      preferredSchemaLabel: selectedSchemaLabel,
       preferredLeaf: selectedLeaf
         ? {
             kind: selectedLeaf.kind,
@@ -2357,13 +2074,6 @@ WHERE ${whereClause};`;
 
   async function resetConnectionExplorerCache(connection: DbConnection) {
     setExpandedExplorerNodeIds([]);
-    setSelectedExplorerSchemaIds((current) =>
-      Object.fromEntries(
-        Object.entries(current).filter(
-          ([key]) => !key.startsWith(`${connection.id}:`),
-        ),
-      ),
-    );
     setSelectedExplorerLeafByConnectionId((current) => {
       const next = { ...current };
       delete next[connection.id];
@@ -2601,6 +2311,38 @@ WHERE ${whereClause};`;
       queryPersistTimer = null;
       flushLiveQuery(tab.id);
     }, 600);
+  }
+
+  /** Returns the current editor selection range, or null if nothing is selected. */
+  function getEditorSelection(): { from: number; to: number } | null {
+    const ev = activeEditorView;
+    if (!ev) return null;
+    const { from, to } = ev.state.selection.main;
+    return from === to ? null : { from, to };
+  }
+
+  /** Returns selected text if there is a selection, otherwise the full live query. */
+  function getEffectiveQuery(): string {
+    const ev = activeEditorView;
+    const sel = getEditorSelection();
+    if (ev && sel) return ev.state.sliceDoc(sel.from, sel.to);
+    const tab = activeTab();
+    return tab ? getTabQuery(tab) : "";
+  }
+
+  /**
+   * Apply a text result back to the editor.
+   * If there was a selection, replaces just the selection.
+   * Otherwise replaces the full document via updateActiveQuery.
+   */
+  function applyTextResult(newText: string) {
+    const ev = activeEditorView;
+    const sel = getEditorSelection();
+    if (ev && sel) {
+      ev.dispatch({ changes: { from: sel.from, to: sel.to, insert: newText } });
+    } else {
+      updateActiveQuery(newText);
+    }
   }
 
   async function openConnectionTab(
@@ -2915,7 +2657,7 @@ WHERE ${whereClause};`;
     const connection = activeConnection();
     if (!tab || !connection) return;
 
-    const freshTab = { ...tab, query: getTabQuery(tab) };
+    const freshTab = { ...tab, query: getEffectiveQuery() };
 
     const execution = startDbExecution(freshTab, connection);
 
@@ -3669,24 +3411,36 @@ WHERE ${whereClause};`;
                   History
                 </button>
                 <Show when={supportsFormat(connection.kind)}>
-                  <button
+                  <ShortcutHintButton
                     class="theme-control h-8 rounded-md px-3 text-sm font-medium"
+                    shortcut="Alt+C"
                     onClick={() => {
-                      const query = liveQueryByTabId()[tab.id] ?? tab.query;
-                      void formatQuery(connection.kind, query).then((formatted) => {
-                        updateActiveQuery(formatted);
+                      const text = getEffectiveQuery();
+                      applyTextResult(compactQuery(connection.kind, text));
+                    }}
+                  >
+                    Compact
+                  </ShortcutHintButton>
+                  <ShortcutHintButton
+                    class="theme-control h-8 rounded-md px-3 text-sm font-medium"
+                    shortcut="Alt+F"
+                    onClick={() => {
+                      const text = getEffectiveQuery();
+                      void formatQuery(connection.kind, text).then((formatted) => {
+                        applyTextResult(formatted);
                       });
                     }}
                   >
                     Pretty
-                  </button>
+                  </ShortcutHintButton>
                 </Show>
-                <button
+                <ShortcutHintButton
                   class="theme-success h-8 rounded-md px-3 text-sm font-semibold"
+                  shortcut="Alt+R"
                   onClick={() => void runCurrentTab()}
                 >
                   Run
-                </button>
+                </ShortcutHintButton>
               </>
             }
           >
@@ -3769,11 +3523,48 @@ WHERE ${whereClause};`;
               readOnly={readOnlyEditor}
               onChange={(value) => updateActiveQuery(value)}
               onRun={() => void runCurrentTab()}
+              onCompact={() => {
+                const text = getEffectiveQuery();
+                applyTextResult(compactQuery(connection.kind, text));
+              }}
+              onFormat={() => {
+                const text = getEffectiveQuery();
+                void formatQuery(connection.kind, text).then((formatted) => {
+                  applyTextResult(formatted);
+                });
+              }}
+              onEditorReady={(view) => {
+                activeEditorView = view;
+              }}
             />
           </div>
         }
         results={<DbResultsPane>{renderResultView()}</DbResultsPane>}
       />
+    );
+  }
+
+  function nodeMatchesFilter(node: DbExplorerNode, filter: string): boolean {
+    if (!filter) return true;
+    if (node.label.toLowerCase().includes(filter)) return true;
+    if ((node.description ?? "").toLowerCase().includes(filter)) return true;
+    if (node.kind === "group") {
+      // Group nodes pass if any descendant matches
+      return node.children.some((child) => nodeMatchesFilter(child, filter));
+    }
+    return false;
+  }
+
+  /** Like nodeMatchesFilter but group nodes always pass (they are containers). */
+  function groupOrLeafMatchesFilter(
+    node: DbExplorerNode,
+    filter: string,
+  ): boolean {
+    if (!filter) return true;
+    if (node.kind === "group") return true;
+    return (
+      node.label.toLowerCase().includes(filter) ||
+      (node.description ?? "").toLowerCase().includes(filter)
     );
   }
 
@@ -3785,7 +3576,8 @@ WHERE ${whereClause};`;
     const paddingLeft = `${depth * 14 + 12}px`;
 
     if (node.kind === "group") {
-      const expanded = () => isExplorerNodeExpanded(node.id);
+      const filterActive = () => Boolean(normalizedFilter());
+      const expanded = () => filterActive() || isExplorerNodeExpanded(node.id);
       const isLazy = Boolean(node.lazy);
       const isNodeLoading = () => loadingExplorerNodeIds().includes(node.id);
       const handleClick = () => {
@@ -3837,7 +3629,7 @@ WHERE ${whereClause};`;
                   Loading...
                 </div>
               </Show>
-              <For each={node.children}>
+              <For each={node.children.filter((child) => groupOrLeafMatchesFilter(child, normalizedFilter()))}>
                 {(child) => renderExplorerNode(connection, child, depth + 1)}
               </For>
             </div>
@@ -3886,7 +3678,12 @@ WHERE ${whereClause};`;
         status: "idle" as const,
         nodes: [] as DbExplorerNode[],
       };
-    const selectedRoot = () => getSelectedExplorerRoot(connection);
+    const filteredNodes = () => {
+      const filter = normalizedFilter();
+      const nodes = explorer().nodes;
+      if (!filter) return nodes;
+      return nodes.filter((node) => nodeMatchesFilter(node, filter));
+    };
 
     return (
       <div class="grid gap-1">
@@ -3974,141 +3771,19 @@ WHERE ${whereClause};`;
             </Show>
             <Show
               when={
-                explorer().status === "ready" && explorer().nodes.length === 0
+                explorer().status === "ready" && filteredNodes().length === 0
               }
             >
               <div class="theme-text-soft px-2 py-1 text-[11px]">
                 No objects found.
               </div>
             </Show>
-            <For each={explorer().nodes}>
-              {(node) =>
-                node.kind === "group" ? (
-                  <button
-                    class={`theme-sidebar-item ml-6 flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 text-left ${
-                      selectedRoot()?.id === node.id
-                        ? "theme-sidebar-item-active"
-                        : ""
-                    }`}
-                    onClick={() => void selectExplorerRoot(connection, node)}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setExplorerNodeMenu({
-                        connectionId: connection.id,
-                        nodeId: node.id,
-                        x: event.clientX,
-                        y: event.clientY,
-                      });
-                      setConnectionMenu(null);
-                      setTabMenu(null);
-                    }}
-                  >
-                    <DatabaseStackIcon
-                      active={selectedRoot()?.id === node.id}
-                    />
-                    <div class="min-w-0 flex-1">
-                      <p class="truncate text-[11px] font-medium leading-5">
-                        {node.label}
-                      </p>
-                    </div>
-                  </button>
-                ) : null
-              }
+            <For each={filteredNodes()}>
+              {(node) => renderExplorerNode(connection, node, 1)}
             </For>
           </div>
         </Show>
       </div>
-    );
-  }
-
-  function renderObjectBrowserPanel() {
-    const connection = () => {
-      const connId = workspace().activeConnectionId;
-      return (
-        (connId ? (connectionMap().get(connId) ?? null) : null) ??
-        activeConnection() ??
-        connectedConnections()[0] ??
-        null
-      );
-    };
-    const explorer = () => {
-      const conn = connection();
-      return conn
-        ? (explorerByConnectionId()[conn.id] ?? {
-            status: "idle" as const,
-            nodes: [] as DbExplorerNode[],
-          })
-        : null;
-    };
-    const root = () => getSelectedExplorerRoot(connection());
-    const schemaNodes = () => getSchemaNodesForRoot(root());
-    const categories = () => {
-      const conn = connection();
-      const r = root();
-      return conn && r ? buildObjectBrowserCategories(conn, r) : [];
-    };
-    const selectedSchemaId = () => {
-      const conn = connection();
-      const r = root();
-      const sn = schemaNodes();
-      return conn && r ? getSelectedSchemaId(conn.id, r.id, sn) : "__all__";
-    };
-    const totalSchemaObjectCount = () =>
-      schemaNodes().reduce(
-        (total, schemaNode) =>
-          total +
-          schemaNode.children.reduce(
-            (schemaTotal, child) =>
-              schemaTotal +
-              (child.kind === "group" ? child.children.length : 1),
-            0,
-          ),
-        0,
-      );
-    const isRootLoading = () => {
-      const r = root();
-      return r ? loadingExplorerNodeIds().includes(r.id) : false;
-    };
-
-    return (
-      <DbExplorerPane
-        heading={getObjectBrowserHeading(categories())}
-        subtitle={root() ? `${connection()?.name} / ${root()!.label}` : ""}
-        objectFilter={objectFilter()}
-        showSchemaSelect={
-          schemaNodes().length > 0 && Boolean(connection() && root())
-        }
-        totalSchemaObjectCount={totalSchemaObjectCount()}
-        selectedSchemaId={selectedSchemaId()}
-        schemaNodes={schemaNodes()}
-        categories={categories()}
-        hasConnection={Boolean(connection())}
-        hasRoot={Boolean(root())}
-        isRootLoading={isRootLoading()}
-        explorerStatus={explorer()?.status}
-        explorerError={explorer()?.error}
-        renderSchemaOption={(schemaNode) => (
-          <option value={schemaNode.id}>{schemaNode.label}</option>
-        )}
-        renderCategory={(category) =>
-          renderExplorerNode(connection()!, category, 0)
-        }
-        onObjectFilterInput={setObjectFilter}
-        onSchemaChange={(value) =>
-          setSelectedExplorerSchemaIds((current) => ({
-            ...current,
-            [getSchemaSelectionKey(connection()!.id, root()!.id)]: value,
-          }))
-        }
-        onRefreshConnection={() =>
-          void refreshConnectionExplorer(connection()!)
-        }
-        onRetryExplorer={() => {
-          const c = connection();
-          if (c) void loadConnectionExplorer(c);
-        }}
-      />
     );
   }
 
@@ -4122,31 +3797,16 @@ WHERE ${whereClause};`;
         contentClass="theme-workspace-pane min-h-0 flex flex-col border-l"
         contentStyle={{ "border-color": "var(--app-border)" }}
         sidebar={
-          <div
-            ref={sidebarSectionsRef}
-            class="flex h-full min-h-0 flex-col overflow-hidden"
-          >
-            <DbConnectionsPane
-              sidebarConnectionsHeight={sidebarConnectionsHeight()}
-              filter={filter()}
-              connectedCount={connectedConnections().length}
-              filteredItems={filteredConnectedConnections()}
-              onFilterInput={setFilter}
-              onOpenSavedConnections={openSavedConnectionsModal}
-              onResizeStart={startSidebarSplitResize}
-              renderItem={(connection) =>
-                renderConnectedConnectionRow(connection)
-              }
-            />
-
-            <div class="min-h-[120px] min-w-0 flex-1 overflow-hidden">
-              <div class="flex h-full min-h-0 flex-col overflow-hidden">
-                <div class="min-h-0 flex-1 overflow-hidden">
-                  {renderObjectBrowserPanel()}
-                </div>
-              </div>
-            </div>
-          </div>
+          <DbConnectionsPane
+            filter={filter()}
+            connectedCount={connectedConnections().length}
+            filteredItems={filteredConnectedConnections()}
+            onFilterInput={setFilter}
+            onOpenSavedConnections={openSavedConnectionsModal}
+            renderItem={(connection) =>
+              renderConnectedConnectionRow(connection)
+            }
+          />
         }
       >
         <div class="flex min-h-0 flex-1 flex-col">
