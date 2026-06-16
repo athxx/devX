@@ -8,11 +8,10 @@ import (
 	"runtime"
 	"syscall"
 
-	"github.com/getlantern/systray"
-
-	"devx/server/internal/config"
-	serverruntime "devx/server/internal/runtime"
-	"devx/server/internal/ui"
+	"fyne.io/systray"
+	"github.com/athxx/devX/internal/config"
+	serverruntime "github.com/athxx/devX/internal/runtime"
+	"github.com/athxx/devX/internal/ui"
 )
 
 func main() {
