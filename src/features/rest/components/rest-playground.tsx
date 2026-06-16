@@ -3005,9 +3005,19 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
     document.addEventListener("pointerdown", handlePointerDown);
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.altKey && event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        const requestId = workspace.activeRequestId;
+        if (requestId) closeRequestTab(requestId);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+
     onCleanup(() => {
       disposed = true;
       document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
       if (persistTimer) {
         window.clearTimeout(persistTimer);
       }
@@ -4763,6 +4773,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                   items={requestTabItems()}
                   draggedId={draggedTabId()}
                   dropTargetId={tabDropTargetId()}
+                  closeButtonShortcut="Alt+T"
                   renderCloseIcon={() => (
                     <ControlDot size="small" variant="delete" />
                   )}

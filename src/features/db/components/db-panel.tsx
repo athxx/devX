@@ -670,6 +670,7 @@ export function DbPanel(props: DbPanelProps) {
     };
 
     document.addEventListener("pointerdown", handlePointerDown);
+
     onCleanup(() => {
       document.removeEventListener("pointerdown", handlePointerDown);
       if (queryPersistTimer !== null) {
@@ -3536,6 +3537,10 @@ WHERE ${whereClause};`;
               onEditorReady={(view) => {
                 activeEditorView = view;
               }}
+              onCloseTab={() => {
+                const tab = activeTab();
+                if (tab) void closeTab(tab.id);
+              }}
             />
           </div>
         }
@@ -3819,6 +3824,7 @@ WHERE ${whereClause};`;
                 items={tabItems()}
                 draggedId={draggedTabId()}
                 dropTargetId={tabDropTargetId()}
+                closeButtonShortcut="Alt+T"
                 renderCloseIcon={() => (
                   <ControlDot size="small" variant="delete" />
                 )}

@@ -857,9 +857,20 @@ export function SshPanel(props: SshPanelProps) {
       setConnectionSwitcherPaneId(null);
     };
     document.addEventListener("pointerdown", handlePointerDown);
-    onCleanup(() =>
-      document.removeEventListener("pointerdown", handlePointerDown),
-    );
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.altKey && event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        const tabId = activeTabId();
+        if (tabId) closeTab(tabId);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+
+    onCleanup(() => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    });
   });
 
   onCleanup(() => {
@@ -2464,6 +2475,7 @@ export function SshPanel(props: SshPanelProps) {
                 items={tabItems()}
                 draggedId={draggedTabId()}
                 dropTargetId={tabDropTargetId()}
+                closeButtonShortcut="Alt+T"
                 renderCloseIcon={() => (
                   <ControlDot size="small" variant="delete" />
                 )}

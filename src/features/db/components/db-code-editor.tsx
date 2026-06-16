@@ -38,6 +38,7 @@ type DbCodeEditorProps = {
   onRun?: () => void;
   onCompact?: () => void;
   onFormat?: () => void;
+  onCloseTab?: () => void;
   onEditorReady?: (editor: EditorView) => void;
 };
 
@@ -271,6 +272,13 @@ export function DbCodeEditor(props: DbCodeEditorProps) {
               key: "Alt-r",
               run: () => {
                 props.onRun?.();
+                return true;
+              },
+            },
+            {
+              key: "Alt-t",
+              run: () => {
+                props.onCloseTab?.();
                 return true;
               },
             },
