@@ -33,14 +33,16 @@ jobs:
             runs_on: ubuntu-24.04
             goos: linux
             goarch: amd64
-            cli_name: devx-cli-linux-amd64
-            ui_name: devx-ui-linux-amd64
+            artifact_name: devX-serv-linux-amd64
+            cli_name: devX-serv-linux-amd64
+            ui_name: devX-serv-tray-linux-amd64
           - name: linux-arm64
             runs_on: ubuntu-24.04-arm
             goos: linux
             goarch: arm64
-            cli_name: devx-cli-linux-arm64
-            ui_name: devx-ui-linux-arm64
+            artifact_name: devX-serv-linux-arm64
+            cli_name: devX-serv-linux-arm64
+            ui_name: devX-serv-tray-linux-arm64
           - name: windows-amd64
             runs_on: windows-2025
             goos: windows
@@ -49,8 +51,9 @@ jobs:
             toolchain: mingw-w64-ucrt-x86_64-gcc
             compiler_path: ucrt64\bin\gcc.exe
             cxx_path: ucrt64\bin\g++.exe
-            cli_name: devx-cli-windows-amd64.exe
-            ui_name: devx-ui-windows-amd64.exe
+            artifact_name: devX-serv-win-amd64
+            cli_name: devX-serv-win-amd64.exe
+            ui_name: devX-serv-tray-win-amd64.exe
           - name: windows-arm64
             runs_on: windows-11-arm
             goos: windows
@@ -59,22 +62,25 @@ jobs:
             toolchain: mingw-w64-clang-aarch64-clang
             compiler_path: clangarm64\bin\clang.exe
             cxx_path: clangarm64\bin\clang++.exe
-            cli_name: devx-cli-windows-arm64.exe
-            ui_name: devx-ui-windows-arm64.exe
+            artifact_name: devX-serv-win-arm64
+            cli_name: devX-serv-win-arm64.exe
+            ui_name: devX-serv-tray-win-arm64.exe
           - name: macos-amd64
             runs_on: macos-15-intel
             goos: darwin
             goarch: amd64
-            cli_name: devx-cli-darwin-amd64
-            ui_name: devx-ui-darwin-amd64
-            dmg_name: devx-ui-darwin-amd64.dmg
+            artifact_name: devX-serv-osx-amd64
+            cli_name: devX-serv-osx-amd64
+            ui_name: devX-serv-tray-osx-amd64
+            dmg_name: devX-serv-osx-amd64.dmg
           - name: macos-arm64
             runs_on: macos-15
             goos: darwin
             goarch: arm64
-            cli_name: devx-cli-darwin-arm64
-            ui_name: devx-ui-darwin-arm64
-            dmg_name: devx-ui-darwin-arm64.dmg
+            artifact_name: devX-serv-osx-arm64
+            cli_name: devX-serv-osx-arm64
+            ui_name: devX-serv-tray-osx-arm64
+            dmg_name: devX-serv-osx-arm64.dmg
 
     runs-on: ${{ matrix.target.runs_on }}
 
@@ -221,13 +227,13 @@ jobs:
 
       - name: Build CLI
         working-directory: server
-        run: go build -trimpath -o "dist/${{ matrix.target.cli_name }}" ./cmd/devx-cli
+        run: go build -trimpath -buildvcs=false -ldflags="-s -w" -o "dist/${{ matrix.target.cli_name }}" ./cmd/devx-cli
 
       - name: Build Tray UI
         working-directory: server
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
-            go build -trimpath -ldflags="-H=windowsgui" -o "dist/${{ matrix.target.ui_name }}" ./cmd/devx-ui
+            go build -trimpath -buildvcs=false -ldflags="-s -w -H=windowsgui" -o "dist/${{ matrix.target.ui_name }}" ./cmd/devx-ui
           else
             go build -trimpath -buildvcs=false -ldflags="-s -w" -o "dist/${{ matrix.target.ui_name }}" ./cmd/devx-ui
           fi
@@ -343,7 +349,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.target.name }}
+          name: ${{ matrix.target.artifact_name }}
           path: |
             server/dist/${{ matrix.target.cli_name }}
             server/dist/${{ matrix.target.ui_name }}
