@@ -11,6 +11,8 @@ import {
 import { AppShell } from "../components/app-shell";
 import { DbPanel } from "../features/db/components/db-panel";
 import { SshPanel } from "../features/ssh/components/ssh-panel";
+import { KanbanPanel } from "../features/kanban/components/kanban-panel";
+import { NotePanel } from "../features/note/components/note-panel";
 import {
   HomeWorkspace,
   SettingsWorkspace,
@@ -30,6 +32,8 @@ import { loadSettings, saveSettings } from "../lib/storage";
 type WorkspacePlatform = "extension" | "web";
 type WorkspaceTab =
   | "home"
+  | "kanban"
+  | "note"
   | "api"
   | "db"
   | "tools"
@@ -43,6 +47,8 @@ type WorkspacePageProps = {
 
 const topTabs = [
   { id: "home" },
+  { id: "kanban" },
+  { id: "note" },
   { id: "api" },
   { id: "db" },
   { id: "ssh" },
@@ -425,6 +431,25 @@ export function WorkspacePage(_props: WorkspacePageProps) {
     >
       <div style={tabPanelStyle("home")}>
         <HomeWorkspace />
+      </div>
+      <div style={tabPanelStyle("kanban")}>
+        <ErrorBoundary
+          fallback={(err) => <PanelError error={err} name="Kanban" />}
+        >
+          <KanbanPanel />
+        </ErrorBoundary>
+      </div>
+      <div style={tabPanelStyle("note")}>
+        <ErrorBoundary
+          fallback={(err) => <PanelError error={err} name="Note" />}
+        >
+          <NotePanel
+            sidebarOpen={sidebarOpen()}
+            sidebarWidth={sidebarWidth()}
+            sidebarResizing={sidebarResizing()}
+            onSidebarResizeStart={handleSidebarResizeStart}
+          />
+        </ErrorBoundary>
       </div>
       <div style={tabPanelStyle("api")}>
         <ErrorBoundary

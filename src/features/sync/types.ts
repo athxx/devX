@@ -52,6 +52,8 @@ export type WorkspaceSnapshot = {
   version: 1;
   updatedAt: string;
   settings?: DevxSectionEnvelope<SettingsStoreData>;
+  kanban?: DevxSectionEnvelope<unknown>;
+  note?: DevxSectionEnvelope<unknown>;
   api?: DevxSectionEnvelope<unknown>;
   db?: DevxSectionEnvelope<unknown>;
   ssh?: DevxSectionEnvelope<unknown>;
@@ -103,6 +105,8 @@ export function buildDefaultWorkspaceSnapshot(
       ...appSettings,
       sync: defaultSyncSettings,
     }),
+    kanban: createSection({ tasks: [] }),
+    note: createSection({ notes: [] }),
     api: createSection({}),
     db: createSection({}),
     ssh: createSection({}),
@@ -125,6 +129,8 @@ export function buildSnapshotFromDocument(
     version: 1,
     updatedAt,
     settings: document.settings as WorkspaceSnapshot["settings"],
+    kanban: document.kanban as WorkspaceSnapshot["kanban"],
+    note: document.note as WorkspaceSnapshot["note"],
     api: document.api as WorkspaceSnapshot["api"],
     db: document.db as WorkspaceSnapshot["db"],
     ssh: document.ssh as WorkspaceSnapshot["ssh"],
@@ -137,6 +143,8 @@ export function snapshotToDocument(snapshot: WorkspaceSnapshot): DevxIndexedDocu
 
   for (const storeName of [
     "settings",
+    "kanban",
+    "note",
     "api",
     "db",
     "ssh",

@@ -4,6 +4,8 @@ const SNAPSHOT_LIMIT = 5;
 
 export const DEVX_SECTION_STORES = [
   "settings",
+  "kanban",
+  "note",
   "api",
   "db",
   "ssh",
