@@ -133,6 +133,92 @@ jobs:
       - name: Prepare dist
         run: mkdir -p server/dist
 
+      - name: Configure macOS signing mode
+        id: macos_signing_config
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          required=(
+            MACOS_CERTIFICATE_BASE64
+            MACOS_CERTIFICATE_PASSWORD
+            MACOS_CODESIGN_IDENTITY
+            APPLE_ID
+            APPLE_APP_SPECIFIC_PASSWORD
+            APPLE_TEAM_ID
+          )
+
+          configured=0
+          missing=()
+          for name in "${required[@]}"; do
+            if [ -n "${!name}" ]; then
+              configured=$((configured + 1))
+            else
+              missing+=("$name")
+            fi
+          done
+
+          if [ "$configured" -eq 0 ]; then
+            echo "signing_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "macOS signing/notarization secrets are not configured; building unsigned DMG."
+            exit 0
+          fi
+
+          if [ "${#missing[@]}" -ne 0 ]; then
+            printf 'Missing macOS signing/notarization secrets:\n'
+            printf '  - %s\n' "${missing[@]}"
+            exit 1
+          fi
+
+          echo "signing_enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install Apple signing certificate
+        if: runner.os == 'macOS' && steps.macos_signing_config.outputs.signing_enabled == 'true'
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          certificate_path="$RUNNER_TEMP/devx-certificate.p12"
+          keychain_path="$RUNNER_TEMP/devx-signing.keychain-db"
+
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          Path(os.environ['RUNNER_TEMP'], 'devx-certificate.p12').write_bytes(
+              base64.b64decode(os.environ['MACOS_CERTIFICATE_BASE64'])
+          )
+          PY
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain_path"
+          security default-keychain -s "$keychain_path"
+          security import "$certificate_path" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$keychain_path"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          security find-identity -v -p codesigning "$keychain_path"
+
+          echo "KEYCHAIN_PATH=$keychain_path" >> "$GITHUB_ENV"
+
       - name: Build CLI
         working-directory: server
         run: go build -trimpath -o "dist/${{ matrix.target.cli_name }}" ./cmd/devx-cli
@@ -147,7 +233,7 @@ jobs:
           fi
         shell: bash
 
-      - name: Package macOS Tray UI DMG
+      - name: Create macOS Tray UI app bundle
         if: runner.os == 'macOS'
         working-directory: server
         shell: bash
@@ -188,12 +274,71 @@ jobs:
           </plist>
           PLIST
 
+      - name: Sign macOS Tray UI app bundle
+        if: runner.os == 'macOS' && steps.macos_signing_config.outputs.signing_enabled == 'true'
+        working-directory: server
+        shell: bash
+        env:
+          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+        run: |
+          app_dir="build/macos/DevX.app"
+
+          codesign \
+            --force \
+            --options runtime \
+            --timestamp \
+            --sign "$MACOS_CODESIGN_IDENTITY" \
+            "$app_dir/Contents/MacOS/devx-ui"
+          codesign \
+            --force \
+            --options runtime \
+            --timestamp \
+            --sign "$MACOS_CODESIGN_IDENTITY" \
+            "$app_dir"
+          codesign --verify --deep --strict --verbose=2 "$app_dir"
+
+      - name: Package macOS Tray UI DMG
+        if: runner.os == 'macOS'
+        working-directory: server
+        shell: bash
+        run: |
           hdiutil create \
             -volname "DevX" \
-            -srcfolder "$app_dir" \
+            -srcfolder "build/macos/DevX.app" \
             -ov \
             -format UDZO \
             "dist/${{ matrix.target.dmg_name }}"
+
+      - name: Sign macOS Tray UI DMG
+        if: runner.os == 'macOS' && steps.macos_signing_config.outputs.signing_enabled == 'true'
+        working-directory: server
+        shell: bash
+        env:
+          MACOS_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+        run: |
+          codesign \
+            --force \
+            --timestamp \
+            --sign "$MACOS_CODESIGN_IDENTITY" \
+            "dist/${{ matrix.target.dmg_name }}"
+          codesign --verify --verbose=2 "dist/${{ matrix.target.dmg_name }}"
+
+      - name: Notarize and staple macOS Tray UI DMG
+        if: runner.os == 'macOS' && steps.macos_signing_config.outputs.signing_enabled == 'true'
+        working-directory: server
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcrun notarytool submit "dist/${{ matrix.target.dmg_name }}" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "dist/${{ matrix.target.dmg_name }}"
+          xcrun stapler validate "dist/${{ matrix.target.dmg_name }}"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -204,6 +349,14 @@ jobs:
             server/dist/${{ matrix.target.ui_name }}
             server/dist/*.dmg
           if-no-files-found: error
+
+      - name: Cleanup Apple signing keychain
+        if: always() && runner.os == 'macOS' && steps.macos_signing_config.outputs.signing_enabled == 'true'
+        shell: bash
+        run: |
+          if [ -n "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH"
+          fi
 
   publish-release:
     name: Publish GitHub Release
