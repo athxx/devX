@@ -67,12 +67,14 @@ jobs:
             goarch: amd64
             cli_name: devx-cli-darwin-amd64
             ui_name: devx-ui-darwin-amd64
+            dmg_name: devx-ui-darwin-amd64.dmg
           - name: macos-arm64
             runs_on: macos-15
             goos: darwin
             goarch: arm64
             cli_name: devx-cli-darwin-arm64
             ui_name: devx-ui-darwin-arm64
+            dmg_name: devx-ui-darwin-arm64.dmg
 
     runs-on: ${{ matrix.target.runs_on }}
 
@@ -145,6 +147,54 @@ jobs:
           fi
         shell: bash
 
+      - name: Package macOS Tray UI DMG
+        if: runner.os == 'macOS'
+        working-directory: server
+        shell: bash
+        run: |
+          app_dir="build/macos/DevX.app"
+          rm -rf "build/macos" "dist/${{ matrix.target.dmg_name }}"
+          mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
+
+          cp "dist/${{ matrix.target.ui_name }}" "$app_dir/Contents/MacOS/devx-ui"
+          chmod +x "$app_dir/Contents/MacOS/devx-ui"
+
+          cat > "$app_dir/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>devx-ui</string>
+            <key>CFBundleIdentifier</key>
+            <string>dev.athxx.devx.ui</string>
+            <key>CFBundleName</key>
+            <string>DevX</string>
+            <key>CFBundleDisplayName</key>
+            <string>DevX</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>0.1.0</string>
+            <key>CFBundleVersion</key>
+            <string>0.1.0</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>12.0</string>
+            <key>LSUIElement</key>
+            <true/>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          hdiutil create \
+            -volname "DevX" \
+            -srcfolder "$app_dir" \
+            -ov \
+            -format UDZO \
+            "dist/${{ matrix.target.dmg_name }}"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -152,6 +202,7 @@ jobs:
           path: |
             server/dist/${{ matrix.target.cli_name }}
             server/dist/${{ matrix.target.ui_name }}
+            server/dist/*.dmg
           if-no-files-found: error
 
   publish-release:
