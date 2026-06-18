@@ -53,7 +53,7 @@ export const workspaceCopy: Record<
       api: "API",
       db: "DB",
       ssh: "Terminal",
-      tools: "Tools"
+      tools: "ToolBox"
     },
     actions: {
       donate: "Donate",

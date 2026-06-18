@@ -194,7 +194,7 @@ export abstract class AbstractSqlAdapter implements DbAdapter {
         objectType,
         objectName,
         this.buildObjectQuery(schemaName, objectName),
-        objectType === "view" ? "View" : "Table",
+        undefined,
         this.buildCountQuery(schemaName, objectName),
         {
           schemaName,
@@ -223,7 +223,7 @@ export abstract class AbstractSqlAdapter implements DbAdapter {
           "function",
           functionName,
           this.buildFunctionQuery(schemaName, functionName),
-          "Function",
+          undefined,
           undefined,
           {
             schemaName,
@@ -245,7 +245,7 @@ export abstract class AbstractSqlAdapter implements DbAdapter {
               "Tables",
               "category",
               bucket.tables.sort((a, b) => a.label.localeCompare(b.label)),
-              `${bucket.tables.length} objects`,
+              `${bucket.tables.length}`,
             ),
           );
         }
@@ -255,7 +255,7 @@ export abstract class AbstractSqlAdapter implements DbAdapter {
               "Views",
               "category",
               bucket.views.sort((a, b) => a.label.localeCompare(b.label)),
-              `${bucket.views.length} objects`,
+              `${bucket.views.length}`,
             ),
           );
         }
@@ -265,7 +265,7 @@ export abstract class AbstractSqlAdapter implements DbAdapter {
               "Functions",
               "category",
               bucket.functions.sort((a, b) => a.label.localeCompare(b.label)),
-              `${bucket.functions.length} objects`,
+              `${bucket.functions.length}`,
             ),
           );
         }

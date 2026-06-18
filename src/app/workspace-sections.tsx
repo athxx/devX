@@ -28,7 +28,7 @@ const homeCards = [
     summary: "预留数据库连接、查询历史和结果查看的工作区。",
   },
   {
-    title: "Tools",
+    title: "ToolBox",
     meta: "8 utilities",
     summary: "格式转换、Diff、编码解码、JSON 处理等工具集入口。",
   },
@@ -253,9 +253,17 @@ export function VaultWorkspace(props: SidebarWorkspaceProps) {
 
   const sectionMeta = [
     { id: "all" as const, title: "All", summary: "显示所有已保存凭据。" },
-    { id: "db" as const, title: "Database", summary: "数据库连接里记住的密码。" },
+    {
+      id: "db" as const,
+      title: "Database",
+      summary: "数据库连接里记住的密码。",
+    },
     { id: "ssh" as const, title: "SSH", summary: "SSH 的密码、私钥和口令。" },
-    { id: "api" as const, title: "API", summary: "REST 请求里保存的 token 和密钥。" },
+    {
+      id: "api" as const,
+      title: "API",
+      summary: "REST 请求里保存的 token 和密钥。",
+    },
   ];
 
   const filteredEntries = () =>
@@ -323,7 +331,9 @@ export function VaultWorkspace(props: SidebarWorkspaceProps) {
             </div>
 
             <Show when={error()}>
-              <div class="theme-warn rounded-2xl px-4 py-3 text-sm">{error()}</div>
+              <div class="theme-warn rounded-2xl px-4 py-3 text-sm">
+                {error()}
+              </div>
             </Show>
 
             <Show when={loading()}>
@@ -345,7 +355,9 @@ export function VaultWorkspace(props: SidebarWorkspaceProps) {
                   <div class="theme-control rounded-3xl p-4">
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0">
-                        <p class="theme-text text-sm font-semibold">{entry.title}</p>
+                        <p class="theme-text text-sm font-semibold">
+                          {entry.title}
+                        </p>
                         <p class="theme-text-soft mt-1 text-xs uppercase tracking-[0.16em]">
                           {entry.kind}
                         </p>
@@ -358,10 +370,16 @@ export function VaultWorkspace(props: SidebarWorkspaceProps) {
                       </button>
                     </div>
                     <Show when={entry.account}>
-                      <p class="theme-text-soft mt-3 text-xs">{entry.account}</p>
+                      <p class="theme-text-soft mt-3 text-xs">
+                        {entry.account}
+                      </p>
                     </Show>
                     <pre class="theme-code mt-3 overflow-auto rounded-2xl border px-3 py-3 text-xs leading-6">
-                      {revealed() ? entry.secret : "•".repeat(Math.max(8, Math.min(entry.secret.length, 24)))}
+                      {revealed()
+                        ? entry.secret
+                        : "•".repeat(
+                            Math.max(8, Math.min(entry.secret.length, 24)),
+                          )}
                     </pre>
                     <Show when={entry.detail}>
                       <p class="theme-text-soft mt-3 break-all text-xs leading-5">
@@ -378,9 +396,12 @@ export function VaultWorkspace(props: SidebarWorkspaceProps) {
             <p class="theme-text-soft text-xs uppercase tracking-[0.18em]">
               Summary
             </p>
-            <p class="theme-text mt-2 text-lg font-semibold">{entries().length}</p>
+            <p class="theme-text mt-2 text-lg font-semibold">
+              {entries().length}
+            </p>
             <p class="theme-text-muted mt-3 text-sm leading-6">
-              这里是一个应用内的 vault 视图，专门集中查看当前已经保存下来的凭据。
+              这里是一个应用内的 vault
+              视图，专门集中查看当前已经保存下来的凭据。
             </p>
           </div>
         </div>
@@ -542,7 +563,7 @@ export function ToolsWorkspace(props: SidebarWorkspaceProps) {
             <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.24em]">
               Utilities
             </p>
-            <h2 class="theme-text mt-2 text-lg font-semibold">Tools</h2>
+            <h2 class="theme-text mt-2 text-lg font-semibold">ToolBox</h2>
             <p class="theme-text-soft mt-1 text-sm leading-6">
               格式转换、差异对比和编码工具统一放在左侧菜单里。
             </p>

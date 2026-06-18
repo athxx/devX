@@ -880,7 +880,7 @@ async function loadMongoCollectionsForDatabase(
       "Collections",
       "category",
       collectionNodes,
-      `${collectionNodes.length} collections`,
+      `${collectionNodes.length}`,
     ),
   ];
 }
@@ -956,14 +956,14 @@ async function loadRedisDatabaseChildren(
     .filter(Boolean)
     .slice(0, 200)
     .map((keyName) =>
-      makeExplorerLeaf("key", keyName, buildRedisKeyQuery(keyName), "Key", undefined, {
+      makeExplorerLeaf("key", keyName, buildRedisKeyQuery(keyName), undefined, undefined, {
         schemaName: databaseName,
       }),
     )
     .sort((a, b) => a.label.localeCompare(b.label));
 
   return [
-    makeExplorerGroup("Keys", "category", keys, `${keys.length} loaded`),
+    makeExplorerGroup("Keys", "category", keys, `${keys.length}`),
   ];
 }
 
