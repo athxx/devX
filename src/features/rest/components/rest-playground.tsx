@@ -23,6 +23,12 @@ import {
 import { WorkspaceSidebarLayout } from "../../../components/workspace-sidebar-layout";
 import { arrayMove, makeId, reorderByDirection } from "../../../lib/utils";
 import {
+  matchShortcut,
+  shortcutLabel,
+  type ShortcutOverrides,
+} from "../../../lib/shortcuts";
+import { loadSettings } from "../../../lib/storage";
+import {
   isHtmlContentType,
   isJsonContentType,
   JsonHighlightedCode,
@@ -1087,9 +1093,10 @@ export function RestPlayground(props: RestPlaygroundProps) {
   const [sidebarPanel, setSidebarPanel] =
     createSignal<SidebarPanelId>("collections");
   const [editorTab, setEditorTab] = createSignal<EditorTabId>("params");
-  const [topEditorTab, setTopEditorTab] = createSignal<"headers" | "auth">(
-    "headers",
+  const [topEditorTab, setTopEditorTab] = createSignal<"params" | "headers" | "auth">(
+    "params",
   );
+  const [shortcutOverrides, setShortcutOverrides] = createSignal<ShortcutOverrides>({});
   const [bottomEditorTab, setBottomEditorTab] =
     createSignal<BottomEditorTabId>("body");
   const [responseTab, setResponseTab] = createSignal<ResponseTabId>("body");
@@ -3005,8 +3012,11 @@ export function RestPlayground(props: RestPlaygroundProps) {
 
     document.addEventListener("pointerdown", handlePointerDown);
 
+    void loadSettings().then((s) => setShortcutOverrides(s.shortcutOverrides));
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.altKey && event.key.toLowerCase() === "t") {
+      const overrides = shortcutOverrides();
+      if (matchShortcut(event, "closeTab", overrides)) {
         event.preventDefault();
         const requestId = workspace.activeRequestId;
         if (requestId) closeRequestTab(requestId);
@@ -4773,7 +4783,7 @@ export function RestPlayground(props: RestPlaygroundProps) {
                   items={requestTabItems()}
                   draggedId={draggedTabId()}
                   dropTargetId={tabDropTargetId()}
-                  closeButtonShortcut="Alt+T"
+                  closeButtonShortcut={shortcutLabel("closeTab", shortcutOverrides())}
                   renderCloseIcon={() => (
                     <ControlDot size="small" variant="delete" />
                   )}
@@ -4991,6 +5001,11 @@ export function RestPlayground(props: RestPlaygroundProps) {
                 <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div class="flex flex-wrap items-center gap-1.5">
                     <EditorToggle
+                      active={topEditorTab() === "params"}
+                      label="Params"
+                      onClick={() => setTopEditorTab("params")}
+                    />
+                    <EditorToggle
                       active={topEditorTab() === "headers"}
                       label="Headers"
                       onClick={() => setTopEditorTab("headers")}
@@ -5001,6 +5016,22 @@ export function RestPlayground(props: RestPlaygroundProps) {
                       onClick={() => setTopEditorTab("auth")}
                     />
                   </div>
+                  <Show when={topEditorTab() === "params"}>
+                    <button
+                      class="inline-flex h-6 w-6 items-center justify-center rounded-full transition"
+                      title="Add parameter"
+                      onClick={() =>
+                        updateActiveRequest((current) => {
+                          current.query = [
+                            ...current.query,
+                            createKeyValueEntry(),
+                          ];
+                        })
+                      }
+                    >
+                      <ControlDot size="small" variant="add" />
+                    </button>
+                  </Show>
                   <Show when={topEditorTab() === "headers"}>
                     <button
                       class="inline-flex h-6 w-6 items-center justify-center rounded-full transition"
@@ -5029,6 +5060,46 @@ export function RestPlayground(props: RestPlaygroundProps) {
                   <Show when={activeRequest()}>
                     {(request) => (
                       <Switch>
+                        <Match when={topEditorTab() === "params"}>
+                          <KeyValueTableEditor
+                            rows={request().query}
+                            resizeStorageKey="devx-kv-request-params"
+                            valuePlaceholder=""
+                            onUpdate={(id, key, value) =>
+                              updateActiveRequest((current) => {
+                                current.query = current.query.map((entry) =>
+                                  entry.id === id
+                                    ? { ...entry, [key]: value }
+                                    : entry,
+                                );
+                              })
+                            }
+                            onToggle={(id) =>
+                              updateActiveRequest((current) => {
+                                current.query = current.query.map((entry) =>
+                                  entry.id === id
+                                    ? { ...entry, enabled: !entry.enabled }
+                                    : entry,
+                                );
+                              })
+                            }
+                            onRemove={(id) =>
+                              updateActiveRequest((current) => {
+                                current.query = current.query.filter(
+                                  (entry) => entry.id !== id,
+                                );
+                              })
+                            }
+                            onAdd={() =>
+                              updateActiveRequest((current) => {
+                                current.query = [
+                                  ...current.query,
+                                  createKeyValueEntry(),
+                                ];
+                              })
+                            }
+                          />
+                        </Match>
                         <Match when={topEditorTab() === "headers"}>
                           <KeyValueTableEditor
                             rows={request().headers}

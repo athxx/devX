@@ -19,6 +19,8 @@ import {
 } from "../../../components/ui-primitives";
 import { WorkspaceSidebarLayout } from "../../../components/workspace-sidebar-layout";
 import { arrayMove, cloneValue } from "../../../lib/utils";
+import { matchShortcut, shortcutLabel, type ShortcutOverrides } from "../../../lib/shortcuts";
+import { loadSettings } from "../../../lib/storage";
 import { loadDbUiStateFromDb, saveDbUiStateToDb } from "../local-db";
 import { DbCodeEditor } from "./db-code-editor";
 import { DbConnectionsPane } from "./db-connections-pane";
@@ -407,6 +409,7 @@ export function DbPanel(props: DbPanelProps) {
   const [schemaCompletionCache, setSchemaCompletionCache] = createSignal<
     Record<string, SQLNamespace>
   >({});
+  const [shortcutOverrides, setShortcutOverrides] = createSignal<ShortcutOverrides>({});
 
   function schemaCompletionKey(
     connectionId: string,
@@ -671,8 +674,42 @@ export function DbPanel(props: DbPanelProps) {
 
     document.addEventListener("pointerdown", handlePointerDown);
 
+    void loadSettings().then((s) => setShortcutOverrides(s.shortcutOverrides));
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const overrides = shortcutOverrides();
+      if (matchShortcut(event, "closeTab", overrides)) {
+        event.preventDefault();
+        const tabId = workspace().activeTabId;
+        if (tabId) void closeTab(tabId);
+        return;
+      }
+      if (matchShortcut(event, "runQuery", overrides)) {
+        event.preventDefault();
+        void runCurrentTab();
+        return;
+      }
+      const connection = activeConnection();
+      if (connection && supportsFormat(connection.kind)) {
+        if (matchShortcut(event, "compactQuery", overrides)) {
+          event.preventDefault();
+          const text = getEffectiveQuery();
+          applyTextResult(compactQuery(connection.kind, text));
+          return;
+        }
+        if (matchShortcut(event, "formatQuery", overrides)) {
+          event.preventDefault();
+          const text = getEffectiveQuery();
+          void formatQuery(connection.kind, text).then(applyTextResult);
+          return;
+        }
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+
     onCleanup(() => {
       document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
       if (queryPersistTimer !== null) {
         clearTimeout(queryPersistTimer);
       }
@@ -3414,7 +3451,7 @@ WHERE ${whereClause};`;
                 <Show when={supportsFormat(connection.kind)}>
                   <ShortcutHintButton
                     class="theme-control h-8 rounded-md px-3 text-sm font-medium"
-                    shortcut="Alt+C"
+                    shortcut={shortcutLabel("compactQuery", shortcutOverrides())}
                     onClick={() => {
                       const text = getEffectiveQuery();
                       applyTextResult(compactQuery(connection.kind, text));
@@ -3424,7 +3461,7 @@ WHERE ${whereClause};`;
                   </ShortcutHintButton>
                   <ShortcutHintButton
                     class="theme-control h-8 rounded-md px-3 text-sm font-medium"
-                    shortcut="Alt+F"
+                    shortcut={shortcutLabel("formatQuery", shortcutOverrides())}
                     onClick={() => {
                       const text = getEffectiveQuery();
                       void formatQuery(connection.kind, text).then((formatted) => {
@@ -3437,7 +3474,7 @@ WHERE ${whereClause};`;
                 </Show>
                 <ShortcutHintButton
                   class="theme-success h-8 rounded-md px-3 text-sm font-semibold"
-                  shortcut="Alt+R"
+                  shortcut={shortcutLabel("runQuery", shortcutOverrides())}
                   onClick={() => void runCurrentTab()}
                 >
                   Run
@@ -3824,7 +3861,7 @@ WHERE ${whereClause};`;
                 items={tabItems()}
                 draggedId={draggedTabId()}
                 dropTargetId={tabDropTargetId()}
-                closeButtonShortcut="Alt+T"
+                closeButtonShortcut={shortcutLabel("closeTab", shortcutOverrides())}
                 renderCloseIcon={() => (
                   <ControlDot size="small" variant="delete" />
                 )}

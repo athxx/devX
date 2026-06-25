@@ -1,4 +1,5 @@
 import { readDevxSection, writeDevxSection } from "./indexed-db";
+import type { ShortcutOverrides } from "./shortcuts";
 
 export type AppSettings = {
   workspaceName: string;
@@ -8,6 +9,7 @@ export type AppSettings = {
   defaultToolId: string;
   theme: "dark" | "light";
   locale: "zh-CN" | "en-US";
+  shortcutOverrides: ShortcutOverrides;
   proxy: {
     api: {
       mode: "none" | "proxy";
@@ -32,6 +34,7 @@ export const defaultSettings: AppSettings = {
   defaultToolId: "api-client",
   theme: "dark",
   locale: "zh-CN",
+  shortcutOverrides: {},
   proxy: {
     api: {
       mode: "none",
@@ -54,6 +57,10 @@ export async function loadSettings(): Promise<AppSettings> {
   return {
     ...defaultSettings,
     ...stored,
+    shortcutOverrides: {
+      ...defaultSettings.shortcutOverrides,
+      ...stored?.shortcutOverrides,
+    },
     proxy: {
       api: {
         ...defaultSettings.proxy.api,

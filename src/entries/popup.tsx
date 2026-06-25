@@ -1,22 +1,16 @@
-import { For } from "solid-js";
 import { render } from "solid-js/web";
 import "./setup";
-import { tools } from "../app/tool-registry";
 import { AppShell } from "../components/app-shell";
-import { openAppPage, openOptionsPage } from "../lib/runtime";
+import { openAppPage } from "../lib/runtime";
 
 function PopupApp() {
-  const quickTools = tools
-    .filter((tool) => tool.status === "ready")
-    .slice(0, 4);
-
   const handleOpenApp = async () => {
     await openAppPage();
     window.close();
   };
 
-  const handleOpenOptions = async () => {
-    await openOptionsPage();
+  const handleOpenSettings = async () => {
+    await openAppPage("settings");
     window.close();
   };
 
@@ -31,7 +25,7 @@ function PopupApp() {
         </button>
         <button
           class="rounded-2xl border border-white/12 bg-white/6 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/10"
-          onClick={() => void handleOpenOptions()}
+          onClick={() => void handleOpenSettings()}
         >
           Settings
         </button>

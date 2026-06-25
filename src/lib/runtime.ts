@@ -1,9 +1,6 @@
-export async function openOptionsPage() {
-  await chrome.runtime.openOptionsPage();
-}
-
-export async function openAppPage() {
-  await chrome.tabs.create({
-    url: chrome.runtime.getURL("app.html")
-  });
+export async function openAppPage(tab?: string) {
+  const url = tab
+    ? chrome.runtime.getURL(`app.html?tab=${encodeURIComponent(tab)}`)
+    : chrome.runtime.getURL("app.html");
+  await chrome.tabs.create({ url });
 }

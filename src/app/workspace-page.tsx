@@ -39,6 +39,7 @@ type WorkspaceTab =
 
 type WorkspacePageProps = {
   platform: WorkspacePlatform;
+  initialTab?: WorkspaceTab;
 };
 
 const topTabs = [
@@ -133,7 +134,7 @@ export function WorkspacePage(_props: WorkspacePageProps) {
   const [darkMode, setDarkMode] = createSignal(true);
   const [locale, setLocale] = createSignal<WorkspaceLocale>("zh-CN");
   const [localeMenuOpen, setLocaleMenuOpen] = createSignal(false);
-  const [activeTab, setActiveTab] = createSignal<WorkspaceTab>("home");
+  const [activeTab, setActiveTab] = createSignal<WorkspaceTab>(_props.initialTab ?? "home");
   const [sidebarOpen, setSidebarOpen] = createSignal(true);
   const [sidebarWidth, setSidebarWidth] = createSignal(220);
   const [sidebarResizing, setSidebarResizing] = createSignal(false);

@@ -8,6 +8,18 @@ import { ProxyPanel } from "../features/proxy/components/proxy-panel";
 import { loadRestWorkspace } from "../features/rest/service";
 import { loadSshWorkspace } from "../features/ssh/service";
 import { SyncPanel } from "../features/sync/components/sync-panel";
+import {
+  defaultSettings,
+  loadSettings,
+  saveSettings,
+  type AppSettings,
+} from "../lib/storage";
+import {
+  shortcutDefs,
+  shortcutLabel,
+  modifierLabel,
+  type ShortcutOverrides,
+} from "../lib/shortcuts";
 
 type SidebarWorkspaceProps = {
   sidebarOpen: boolean;
@@ -41,6 +53,8 @@ const toolGroups = [
 ];
 
 type SettingsSectionId =
+  | "general"
+  | "shortcuts"
   | "proxy"
   | "sync"
   | "account"
@@ -53,6 +67,8 @@ const settingsSections: Array<{
   title: string;
   summary: string;
 }> = [
+  { id: "general", title: "General", summary: "工作区名称、超时、默认模块等全局偏好。" },
+  { id: "shortcuts", title: "Shortcuts", summary: "自定义键盘快捷键。" },
   {
     id: "proxy",
     title: "Proxy",
@@ -457,12 +473,210 @@ export function HomeWorkspace() {
   );
 }
 
+function GeneralSettingsPanel() {
+  const [settings, setSettings] = createSignal<AppSettings>(defaultSettings);
+  const [saved, setSaved] = createSignal(false);
+
+  onMount(async () => {
+    const current = await loadSettings();
+    setSettings(current);
+  });
+
+  const updateField = <K extends keyof AppSettings>(
+    key: K,
+    value: AppSettings[K],
+  ) => {
+    setSaved(false);
+    setSettings((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  };
+
+  const handleSave = async () => {
+    await saveSettings(settings());
+    setSaved(true);
+  };
+
+  return (
+    <SectionCard eyebrow="Settings / General" title="General Preferences">
+      <div class="grid gap-4 md:grid-cols-2">
+        <label class="grid gap-2 text-sm text-white/72">
+          <span class="font-medium text-white">Workspace name</span>
+          <input
+            class="rounded-2xl border border-white/10 bg-ink-950/80 px-4 py-3 outline-none ring-0 transition focus:border-accent-400/45"
+            value={settings().workspaceName}
+            onInput={(event) =>
+              updateField("workspaceName", event.currentTarget.value)
+            }
+          />
+        </label>
+
+        <label class="grid gap-2 text-sm text-white/72">
+          <span class="font-medium text-white">Default API base URL</span>
+          <input
+            class="rounded-2xl border border-white/10 bg-ink-950/80 px-4 py-3 outline-none ring-0 transition focus:border-accent-400/45"
+            placeholder="https://api.example.com"
+            value={settings().apiBaseUrl}
+            onInput={(event) =>
+              updateField("apiBaseUrl", event.currentTarget.value)
+            }
+          />
+        </label>
+
+        <label class="grid gap-2 text-sm text-white/72">
+          <span class="font-medium text-white">Request timeout (ms)</span>
+          <input
+            class="rounded-2xl border border-white/10 bg-ink-950/80 px-4 py-3 outline-none ring-0 transition focus:border-accent-400/45"
+            type="number"
+            min="1000"
+            step="500"
+            value={String(settings().requestTimeoutMs)}
+            onInput={(event) =>
+              updateField(
+                "requestTimeoutMs",
+                Number(
+                  event.currentTarget.value || defaultSettings.requestTimeoutMs,
+                ),
+              )
+            }
+          />
+        </label>
+
+        <label class="grid gap-2 text-sm text-white/72">
+          <span class="font-medium text-white">Default module</span>
+          <select
+            class="rounded-2xl border border-white/10 bg-ink-950/80 px-4 py-3 outline-none ring-0 transition focus:border-accent-400/45"
+            value={settings().defaultToolId}
+            onChange={(event) =>
+              updateField("defaultToolId", event.currentTarget.value)
+            }
+          >
+            <option value="api-client">API Requests</option>
+            <option value="ws-client">WebSocket</option>
+            <option value="data-format">Format Convert</option>
+            <option value="text-diff">Text Diff</option>
+          </select>
+        </label>
+      </div>
+
+      <label class="mt-4 flex items-center gap-3 rounded-2xl border border-white/8 bg-white/4 px-4 py-3 text-sm text-white/72">
+        <input
+          type="checkbox"
+          checked={settings().persistHistory}
+          onChange={(event) =>
+            updateField("persistHistory", event.currentTarget.checked)
+          }
+        />
+        <span>Persist request and tool history in extension storage.</span>
+      </label>
+
+      <div class="mt-5 flex items-center gap-3">
+        <button
+          class="rounded-2xl bg-accent-500 px-4 py-3 text-sm font-semibold text-ink-950 transition hover:bg-accent-400"
+          onClick={() => void handleSave()}
+        >
+          Save Settings
+        </button>
+        {saved() ? (
+          <span class="text-sm text-accent-400">Saved</span>
+        ) : null}
+      </div>
+    </SectionCard>
+  );
+}
+
+function ShortcutsSettingsPanel() {
+  const [settings, setSettings] = createSignal<AppSettings>(defaultSettings);
+  const [saved, setSaved] = createSignal(false);
+
+  onMount(async () => {
+    const current = await loadSettings();
+    setSettings(current);
+  });
+
+  const handleSave = async () => {
+    await saveSettings(settings());
+    setSaved(true);
+  };
+
+  return (
+    <SectionCard eyebrow="Settings / Shortcuts" title="Keyboard Shortcuts">
+      <p class="mb-4 text-sm text-white/48">
+        Modifier: <span class="font-mono text-white/72">{modifierLabel}</span>{" "}
+        &middot; Default keys are shown as placeholders. Leave blank to use the
+        default.
+      </p>
+      <div class="grid gap-3">
+        <For each={shortcutDefs}>
+          {(def) => {
+            const currentKey = () =>
+              settings().shortcutOverrides[def.id] ?? "";
+            const display = () =>
+              shortcutLabel(def.id, settings().shortcutOverrides);
+            return (
+              <div class="flex items-center gap-4 rounded-2xl border border-white/8 bg-white/4 px-4 py-3">
+                <span class="min-w-[140px] text-sm font-medium text-white/72">
+                  {def.label}
+                </span>
+                <input
+                  class="w-20 rounded-lg border border-white/10 bg-ink-950/80 px-3 py-1.5 text-center font-mono text-sm text-white outline-none ring-0 transition focus:border-accent-400/45"
+                  maxLength={1}
+                  placeholder={def.defaultKey}
+                  value={currentKey()}
+                  onInput={(event) => {
+                    const val = event.currentTarget.value
+                      .toUpperCase()
+                      .replace(/[^A-Z0-9]/g, "");
+                    const overrides: ShortcutOverrides = {
+                      ...settings().shortcutOverrides,
+                    };
+                    if (val) {
+                      overrides[def.id] = val;
+                    } else {
+                      delete overrides[def.id];
+                    }
+                    setSettings((current) => ({
+                      ...current,
+                      shortcutOverrides: overrides,
+                    }));
+                    setSaved(false);
+                  }}
+                />
+                <span class="font-mono text-xs text-white/36">
+                  {display()}
+                </span>
+              </div>
+            );
+          }}
+        </For>
+      </div>
+
+      <div class="mt-5 flex items-center gap-3">
+        <button
+          class="rounded-2xl bg-accent-500 px-4 py-3 text-sm font-semibold text-ink-950 transition hover:bg-accent-400"
+          onClick={() => void handleSave()}
+        >
+          Save Shortcuts
+        </button>
+        {saved() ? (
+          <span class="text-sm text-accent-400">Saved</span>
+        ) : null}
+      </div>
+    </SectionCard>
+  );
+}
+
 export function SettingsWorkspace(props: SidebarWorkspaceProps) {
   const [activeSection, setActiveSection] =
-    createSignal<SettingsSectionId>("proxy");
+    createSignal<SettingsSectionId>("general");
 
   const renderSettingsContent = () => {
     switch (activeSection()) {
+      case "general":
+        return <GeneralSettingsPanel />;
+      case "shortcuts":
+        return <ShortcutsSettingsPanel />;
       case "proxy":
         return <ProxyPanel />;
       case "account":

@@ -8,4 +8,8 @@ if (!root) {
   throw new Error("App root element not found");
 }
 
-render(() => <WorkspacePage platform="extension" />, root);
+const validTabs = ["home", "api", "db", "tools", "ssh", "settings", "vault"] as const;
+const tabParam = new URLSearchParams(window.location.search).get("tab");
+const initialTab = validTabs.includes(tabParam as any) ? tabParam as any : undefined;
+
+render(() => <WorkspacePage platform="extension" initialTab={initialTab} />, root);

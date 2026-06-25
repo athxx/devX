@@ -15,6 +15,8 @@ import { TabsBar } from "../../../components/tabs-bar";
 import { ControlDot, PinIcon } from "../../../components/ui-primitives";
 import { WorkspaceSidebarLayout } from "../../../components/workspace-sidebar-layout";
 import { makeId, arrayMove, reorderByDirection } from "../../../lib/utils";
+import { matchShortcut, shortcutLabel, type ShortcutOverrides } from "../../../lib/shortcuts";
+import { loadSettings } from "../../../lib/storage";
 import type {
   SshConnectPayload,
   SshFolder,
@@ -453,6 +455,7 @@ export function SshPanel(props: SshPanelProps) {
   >(null);
   const [uiStateReady, setUiStateReady] = createSignal(false);
   const [profileFilter, setProfileFilter] = createSignal("");
+  const [shortcutOverrides, setShortcutOverrides] = createSignal<ShortcutOverrides>({});
   const normalizedProfileFilter = createMemo(() =>
     profileFilter().trim().toLowerCase(),
   );
@@ -858,8 +861,11 @@ export function SshPanel(props: SshPanelProps) {
     };
     document.addEventListener("pointerdown", handlePointerDown);
 
+    void loadSettings().then((s) => setShortcutOverrides(s.shortcutOverrides));
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.altKey && event.key.toLowerCase() === "t") {
+      const overrides = shortcutOverrides();
+      if (matchShortcut(event, "closeTab", overrides)) {
         event.preventDefault();
         const tabId = activeTabId();
         if (tabId) closeTab(tabId);
@@ -2475,7 +2481,7 @@ export function SshPanel(props: SshPanelProps) {
                 items={tabItems()}
                 draggedId={draggedTabId()}
                 dropTargetId={tabDropTargetId()}
-                closeButtonShortcut="Alt+T"
+                closeButtonShortcut={shortcutLabel("closeTab", shortcutOverrides())}
                 renderCloseIcon={() => (
                   <ControlDot size="small" variant="delete" />
                 )}
