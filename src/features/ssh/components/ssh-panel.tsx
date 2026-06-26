@@ -8,7 +8,7 @@ import {
   onMount,
 } from "solid-js";
 import { createStore, produce } from "solid-js/store";
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type IDecoration } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { TabsBar } from "../../../components/tabs-bar";
@@ -107,6 +107,10 @@ type SplitHandleRect = {
   containerWidth: number;
   containerHeight: number;
 };
+
+const isMacPlatform =
+  typeof navigator !== "undefined" &&
+  /Mac|iPod|iPhone|iPad/.test(navigator.userAgent ?? "");
 
 const expandedFoldersStorageKey = "devx-ssh-expanded-folders";
 const sshUiStateStorageKey = "devx-ssh-ui-state";
@@ -456,6 +460,13 @@ export function SshPanel(props: SshPanelProps) {
   const [uiStateReady, setUiStateReady] = createSignal(false);
   const [profileFilter, setProfileFilter] = createSignal("");
   const [shortcutOverrides, setShortcutOverrides] = createSignal<ShortcutOverrides>({});
+  const [searchPaneId, setSearchPaneId] = createSignal<string | null>(null);
+  const [searchQuery, setSearchQuery] = createSignal("");
+  const [searchCaseSensitive, setSearchCaseSensitive] = createSignal(false);
+  const [searchMatches, setSearchMatches] = createSignal<
+    { line: number; col: number; length: number }[]
+  >([]);
+  const [searchActiveIndex, setSearchActiveIndex] = createSignal(0);
   const normalizedProfileFilter = createMemo(() =>
     profileFilter().trim().toLowerCase(),
   );
@@ -467,6 +478,8 @@ export function SshPanel(props: SshPanelProps) {
   const resizeObservers = new Map<string, ResizeObserver>();
   const wsByPaneId = new Map<string, WebSocket>();
   const termDataDisposers = new Map<string, { dispose: () => void }>();
+  const searchDecorations = new Map<string, IDecoration[]>();
+  let searchInputRef: HTMLInputElement | undefined;
 
   const rootProfiles = createMemo(() =>
     workspace().profiles.filter((profile) => !profile.folderId),
@@ -869,6 +882,16 @@ export function SshPanel(props: SshPanelProps) {
         event.preventDefault();
         const tabId = activeTabId();
         if (tabId) closeTab(tabId);
+        return;
+      }
+      const searchModifier = isMacPlatform ? event.metaKey : event.ctrlKey;
+      if (searchModifier && event.code === "KeyF") {
+        const tabId = activeTabId();
+        const paneId = activePaneId();
+        if (tabId && paneId) {
+          event.preventDefault();
+          openPaneSearch(paneId, tabId);
+        }
       }
     };
     document.addEventListener("keydown", handleKeyDown);
@@ -883,6 +906,10 @@ export function SshPanel(props: SshPanelProps) {
     wsByPaneId.forEach((_, paneId) => disconnectPane(paneId, false));
     resizeObservers.forEach((observer) => observer.disconnect());
     termDataDisposers.forEach((disposer) => disposer.dispose());
+    searchDecorations.forEach((decorations) =>
+      decorations.forEach((decoration) => decoration.dispose()),
+    );
+    searchDecorations.clear();
     terminals.forEach((instance) => instance.dispose());
   });
 
@@ -903,6 +930,7 @@ export function SshPanel(props: SshPanelProps) {
       lineHeight: 1.2,
       cursorBlink: true,
       allowTransparency: true,
+      allowProposedApi: true,
       theme: {
         background: "#181818cc",
         foreground: "#d7dae0",
@@ -998,6 +1026,13 @@ export function SshPanel(props: SshPanelProps) {
     resizeObservers.get(paneId)?.disconnect();
     resizeObservers.delete(paneId);
     fitAddons.delete(paneId);
+    if (searchPaneId() === paneId) {
+      setSearchPaneId(null);
+      setSearchQuery("");
+      setSearchMatches([]);
+      setSearchActiveIndex(0);
+    }
+    clearSearchDecorations(paneId);
     terminals.get(paneId)?.dispose();
     terminals.delete(paneId);
     termMountRefs.delete(paneId);
@@ -1042,6 +1077,137 @@ export function SshPanel(props: SshPanelProps) {
     setTabState(tabId, (tab) => ({ ...tab, activePaneId: paneId }));
     fitPaneTerminal(paneId);
   }
+
+  const searchActiveColor = "#ffcc33";
+  const searchMatchColor = "#3a4a78";
+
+  function clearSearchDecorations(paneId: string) {
+    const decorations = searchDecorations.get(paneId);
+    if (decorations) {
+      decorations.forEach((decoration) => decoration.dispose());
+      searchDecorations.delete(paneId);
+    }
+  }
+
+  function renderSearchDecorations(paneId: string) {
+    const terminal = terminals.get(paneId);
+    if (!terminal) return;
+    clearSearchDecorations(paneId);
+    const matches = searchMatches();
+    if (matches.length === 0) return;
+
+    const buffer = terminal.buffer.active;
+    const cursorAbsolute = buffer.baseY + buffer.cursorY;
+    const activeIndex = searchActiveIndex();
+    const decorations: IDecoration[] = [];
+    matches.forEach((match, index) => {
+      const marker = terminal.registerMarker(match.line - cursorAbsolute);
+      if (!marker) return;
+      const decoration = terminal.registerDecoration({
+        marker,
+        x: match.col,
+        width: match.length,
+        backgroundColor:
+          index === activeIndex ? searchActiveColor : searchMatchColor,
+        layer: "bottom",
+      });
+      if (decoration) {
+        decorations.push(decoration);
+      }
+    });
+    searchDecorations.set(paneId, decorations);
+  }
+
+  function scrollToActiveMatch(paneId: string) {
+    const terminal = terminals.get(paneId);
+    if (!terminal) return;
+    const match = searchMatches()[searchActiveIndex()];
+    if (!match) return;
+    // scrollToLine expects an absolute buffer line; clamp into a visible spot.
+    terminal.scrollToLine(Math.max(0, match.line));
+  }
+
+  function runPaneSearch(paneId: string) {
+    const terminal = terminals.get(paneId);
+    if (!terminal) {
+      setSearchMatches([]);
+      setSearchActiveIndex(0);
+      return;
+    }
+    const rawQuery = searchQuery();
+    if (!rawQuery) {
+      setSearchMatches([]);
+      setSearchActiveIndex(0);
+      clearSearchDecorations(paneId);
+      return;
+    }
+
+    const caseSensitive = searchCaseSensitive();
+    const needle = caseSensitive ? rawQuery : rawQuery.toLowerCase();
+    const buffer = terminal.buffer.active;
+    const matches: { line: number; col: number; length: number }[] = [];
+    for (let i = 0; i < buffer.length; i += 1) {
+      const line = buffer.getLine(i);
+      if (!line) continue;
+      const text = line.translateToString(true);
+      const haystack = caseSensitive ? text : text.toLowerCase();
+      let from = haystack.indexOf(needle);
+      while (from !== -1) {
+        matches.push({ line: i, col: from, length: needle.length });
+        from = haystack.indexOf(needle, from + needle.length);
+      }
+    }
+
+    setSearchMatches(matches);
+    setSearchActiveIndex(0);
+    renderSearchDecorations(paneId);
+    scrollToActiveMatch(paneId);
+  }
+
+  function gotoMatch(delta: number) {
+    const paneId = searchPaneId();
+    if (!paneId) return;
+    const count = searchMatches().length;
+    if (count === 0) return;
+    setSearchActiveIndex((index) => (index + delta + count) % count);
+    renderSearchDecorations(paneId);
+    scrollToActiveMatch(paneId);
+  }
+
+  function openPaneSearch(paneId: string, tabId?: string) {
+    if (tabId) {
+      activatePane(tabId, paneId);
+    }
+    setSearchPaneId(paneId);
+    requestAnimationFrame(() => {
+      searchInputRef?.focus();
+      searchInputRef?.select();
+    });
+  }
+
+  function closePaneSearch() {
+    const paneId = searchPaneId();
+    if (paneId) {
+      clearSearchDecorations(paneId);
+    }
+    setSearchPaneId(null);
+    setSearchQuery("");
+    setSearchMatches([]);
+    setSearchActiveIndex(0);
+    if (paneId) {
+      terminals.get(paneId)?.focus();
+    }
+  }
+
+  createEffect(() => {
+    const paneId = searchPaneId();
+    // Track query/case so edits re-run the search.
+    searchQuery();
+    searchCaseSensitive();
+    if (paneId) {
+      runPaneSearch(paneId);
+    }
+  });
 
   function closePaneInTab(tabId: string, paneId: string) {
     const tab = tabsById[tabId];
@@ -1761,6 +1927,71 @@ export function SshPanel(props: SshPanelProps) {
             }}
           />
         </div>
+        <Show when={tabsById[tabId].activePaneId !== paneId}>
+          <div
+            class="pointer-events-none absolute inset-0 z-10 transition-opacity duration-150"
+            style={{ background: "rgba(8, 10, 16, 0.34)" }}
+          />
+        </Show>
+        <Show when={searchPaneId() === paneId}>
+          <div
+            class="theme-panel-soft absolute inset-x-0 bottom-0 z-30 flex items-center gap-2 border-t px-2.5 py-1.5 text-xs shadow-[0_-8px_20px_rgba(15,23,42,0.18)]"
+            data-ssh-menu-root
+            style={{ "border-color": "var(--app-border)" }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <input
+              ref={(el) => (searchInputRef = el)}
+              class="theme-input h-7 min-w-0 flex-1 rounded-md px-2 text-xs"
+              placeholder="Search output"
+              value={searchQuery()}
+              onInput={(event) => setSearchQuery(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  gotoMatch(event.shiftKey ? -1 : 1);
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  closePaneSearch();
+                }
+              }}
+            />
+            <span class="theme-text-soft shrink-0 tabular-nums">
+              {searchMatches().length ? searchActiveIndex() + 1 : 0} /{" "}
+              {searchMatches().length}
+            </span>
+            <button
+              class={`theme-control inline-flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-semibold ${
+                searchCaseSensitive() ? "theme-sidebar-item-active" : ""
+              }`}
+              title="Match case"
+              onClick={() => setSearchCaseSensitive((current) => !current)}
+            >
+              Aa
+            </button>
+            <button
+              class="theme-control inline-flex h-7 w-7 items-center justify-center rounded-md"
+              title="Previous match (Shift+Enter)"
+              onClick={() => gotoMatch(-1)}
+            >
+              ↑
+            </button>
+            <button
+              class="theme-control inline-flex h-7 w-7 items-center justify-center rounded-md"
+              title="Next match (Enter)"
+              onClick={() => gotoMatch(1)}
+            >
+              ↓
+            </button>
+            <button
+              class="theme-control inline-flex h-7 w-7 items-center justify-center rounded-md"
+              title="Close (Esc)"
+              onClick={() => closePaneSearch()}
+            >
+              ✕
+            </button>
+          </div>
+        </Show>
       </div>
     );
   }
