@@ -17,6 +17,7 @@ import type {
   DbObjectForeignKey,
   DbObjectIndex,
   DbResultPayload,
+  DbSortOrder,
   DbTab,
   DbTabType,
 } from "../models";
@@ -141,6 +142,7 @@ export interface DbAdapter {
     objectName: string,
     page?: number,
     pageSize?: number,
+    orderBy?: DbSortOrder,
   ): string;
   buildCountQuery(schemaName: string, objectName: string): string;
   buildFunctionQuery(schemaName: string, functionName: string): string;

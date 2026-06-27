@@ -1,4 +1,4 @@
-import type { DbConnection, DbConnectionConfig } from "../models";
+import type { DbConnection, DbConnectionConfig, DbSortOrder } from "../models";
 import type { DbConnectionBadge, DbExplorerLeafNode, DbFormatLanguage } from "./types";
 import {
   AbstractSqlAdapter,
@@ -90,8 +90,9 @@ export class DamengAdapter extends AbstractSqlAdapter {
     qualifiedName: string,
     offset: number,
     pageSize: number,
+    orderBy?: DbSortOrder,
   ): string {
-    return `SELECT * FROM ${qualifiedName} OFFSET ${offset} ROWS FETCH NEXT ${pageSize} ROWS ONLY;`;
+    return `SELECT * FROM ${qualifiedName}${this.orderByClause(orderBy)} OFFSET ${offset} ROWS FETCH NEXT ${pageSize} ROWS ONLY;`;
   }
 
   override buildFunctionQuery(schemaName: string, functionName: string): string {

@@ -6,6 +6,11 @@ type DbResultGridProps = {
   editable?: boolean;
   dirtyRowKeys?: string[];
   pendingRowKeys?: string[];
+  /** Active sort indicator for the header; absent = unsorted. */
+  sortColumn?: string | null;
+  sortDir?: "asc" | "desc" | null;
+  /** Header click. When omitted, headers are not interactive. */
+  onSort?: (column: string) => void;
   getCellValue: (row: Record<string, unknown>, column: string) => string;
   getRowKey: (row: Record<string, unknown>, index: number) => string;
   onCellInput?: (rowKey: string, column: string, value: string) => void;
@@ -72,7 +77,9 @@ export function DbResultGrid(props: DbResultGridProps) {
             <For each={props.columns}>
               {(column) => (
                 <th
-                  class="relative select-none whitespace-nowrap px-2.5 py-1.5 text-left text-[11px] font-semibold"
+                  class={`relative select-none whitespace-nowrap px-2.5 py-1.5 text-left text-[11px] font-semibold ${
+                    props.onSort ? "cursor-pointer hover:text-[var(--app-text)]" : ""
+                  }`}
                   style={{
                     width: `${getColumnWidth(column)}px`,
                     "min-width": `${MinColumnWidth}px`,
@@ -81,8 +88,16 @@ export function DbResultGrid(props: DbResultGridProps) {
                     "border-right": `1px solid ${borderColor}`,
                     "border-bottom": `1px solid ${borderColor}`,
                   }}
+                  onClick={() => props.onSort?.(column)}
                 >
-                  <span class="overflow-hidden text-ellipsis">{column}</span>
+                  <span class="flex items-center gap-1 overflow-hidden">
+                    <span class="overflow-hidden text-ellipsis">{column}</span>
+                    <Show when={props.sortColumn === column && props.sortDir}>
+                      <span class="shrink-0 text-[var(--app-accent)]">
+                        {props.sortDir === "desc" ? "▼" : "▲"}
+                      </span>
+                    </Show>
+                  </span>
                   <div
                     class="absolute right-0 top-0 h-full w-1.5 cursor-col-resize"
                     style={{ "z-index": "1" }}

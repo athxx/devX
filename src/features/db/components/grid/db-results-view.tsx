@@ -34,6 +34,10 @@ export function DbResultsView() {
     updateEditedCell,
     resetEditedRow,
     rerunPagedSourceTab,
+    setSourceSort,
+    getClientSort,
+    toggleClientSort,
+    sortRowsForClient,
     saveEditedRow,
   } = useDbPanel();
 
@@ -188,11 +192,16 @@ export function DbResultsView() {
     const canGoNext = tab.source
       ? totalRows >= pageSize
       : currentPage < totalPages;
-    const pagedRows =
-      sqlResult?.data.rows?.slice(
-        (currentPage - 1) * pageSize,
-        currentPage * pageSize,
-      ) ?? [];
+    // Ad-hoc results sort in memory (no re-query); server-paged sources are
+    // already ordered by the re-queried ORDER BY, so we don't re-sort them.
+    const sortedRows = tab.source
+      ? (sqlResult?.data.rows ?? [])
+      : sortRowsForClient(tab.id, sqlResult?.data.rows ?? []);
+    const pagedRows = sortedRows.slice(
+      (currentPage - 1) * pageSize,
+      currentPage * pageSize,
+    );
+    const activeSort = tab.source?.sort ?? getClientSort(tab.id);
     const activeDetail = getTabObjectDetail(tab) ?? getActiveObjectDetail();
     const dirtyRowKeys = Object.keys(getEditedRows(tab.id));
     const editableSql = Boolean(
@@ -366,6 +375,15 @@ export function DbResultsView() {
                       editable={editableSql}
                       dirtyRowKeys={dirtyRowKeys}
                       pendingRowKeys={rowSavePendingKeys()}
+                      sortColumn={activeSort?.column ?? null}
+                      sortDir={activeSort?.dir ?? null}
+                      onSort={(column) => {
+                        if (tab.source) {
+                          void setSourceSort(tab.id, column);
+                        } else {
+                          toggleClientSort(tab.id, column);
+                        }
+                      }}
                       getRowKey={(row, index) => getRowKey(row, index)}
                       getCellValue={(row, column) =>
                         getVisibleRowValue(

@@ -43,6 +43,7 @@ import type {
   DbConnection,
   DbExecutionState,
   DbResultPayload,
+  DbSortOrder,
   DbTab,
 } from "../models";
 
@@ -87,6 +88,11 @@ export function createExecutionStore(deps: {
   );
   const [liveQueryByTabId, setLiveQueryByTabId] = createSignal<
     Record<string, string>
+  >({});
+  // Client-side (in-memory) sort for AD-HOC results — never re-queries. Server-
+  // paged table sources sort via tab.source.sort + rerunPagedSourceTab instead.
+  const [clientSortByTabId, setClientSortByTabId] = createSignal<
+    Record<string, DbSortOrder>
   >({});
 
   function loadAndCacheSchema(
@@ -234,6 +240,60 @@ export function createExecutionStore(deps: {
     return liveQueryByTabId()[tab.id] ?? tab.query;
   }
 
+  function getClientSort(tabId: string): DbSortOrder | undefined {
+    return clientSortByTabId()[tabId];
+  }
+
+  /** Cycle an ad-hoc result column asc → desc → unsorted (mirrors server sort). */
+  function toggleClientSort(tabId: string, column: string) {
+    setClientSortByTabId((current) => {
+      const existing = current[tabId];
+      const next = { ...current };
+      if (!existing || existing.column !== column) {
+        next[tabId] = { column, dir: "asc" };
+      } else if (existing.dir === "asc") {
+        next[tabId] = { column, dir: "desc" };
+      } else {
+        delete next[tabId];
+      }
+      return next;
+    });
+  }
+
+  /**
+   * Stable, type-aware in-memory sort of ad-hoc rows. Numbers compare
+   * numerically, everything else by locale string; nullish sorts last on asc.
+   * Returns the input untouched when no sort is set (no copy, no churn).
+   */
+  function sortRowsForClient(
+    tabId: string,
+    rows: Array<Record<string, unknown>>,
+  ): Array<Record<string, unknown>> {
+    const sort = clientSortByTabId()[tabId];
+    if (!sort) return rows;
+    const factor = sort.dir === "desc" ? -1 : 1;
+    return rows
+      .map((row, index) => ({ row, index }))
+      .sort((a, b) => {
+        const av = a.row[sort.column];
+        const bv = b.row[sort.column];
+        if (av == null && bv == null) return a.index - b.index;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        let cmp: number;
+        if (typeof av === "number" && typeof bv === "number") {
+          cmp = av - bv;
+        } else {
+          cmp = String(av).localeCompare(String(bv), undefined, {
+            numeric: true,
+          });
+        }
+        if (cmp === 0) return a.index - b.index;
+        return cmp * factor;
+      })
+      .map((entry) => entry.row);
+  }
+
   return {
     // execution atoms
     schemaCompletionCache,
@@ -262,6 +322,8 @@ export function createExecutionStore(deps: {
     setExecutionWarning,
     liveQueryByTabId,
     setLiveQueryByTabId,
+    clientSortByTabId,
+    setClientSortByTabId,
     // methods
     loadAndCacheSchema,
     cancelCurrentExecution,
@@ -275,5 +337,8 @@ export function createExecutionStore(deps: {
     updateEditedCell,
     resetEditedRow,
     getTabQuery,
+    getClientSort,
+    toggleClientSort,
+    sortRowsForClient,
   };
 }

@@ -1,4 +1,4 @@
-import type { DbConnection } from "../models";
+import type { DbConnection, DbSortOrder } from "../models";
 import type {
   DbCompletionDialect,
   DbConnectionBadge,
@@ -57,8 +57,13 @@ export class SqlServerAdapter extends AbstractSqlAdapter {
     qualifiedName: string,
     offset: number,
     pageSize: number,
+    orderBy?: DbSortOrder,
   ): string {
-    return `SELECT * FROM ${qualifiedName} ORDER BY 1 OFFSET ${offset} ROWS FETCH NEXT ${pageSize} ROWS ONLY;`;
+    // OFFSET/FETCH requires an ORDER BY; fall back to ordinal 1 when unsorted.
+    const order = orderBy?.column
+      ? `${this.escapeIdentifier(orderBy.column)} ${orderBy.dir === "desc" ? "DESC" : "ASC"}`
+      : "1";
+    return `SELECT * FROM ${qualifiedName} ORDER BY ${order} OFFSET ${offset} ROWS FETCH NEXT ${pageSize} ROWS ONLY;`;
   }
 
   override buildExplorerQuery(): string {

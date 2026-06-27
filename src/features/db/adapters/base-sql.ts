@@ -16,6 +16,7 @@ import type {
   DbObjectForeignKey,
   DbObjectIndex,
   DbResultPayload,
+  DbSortOrder,
   DbTab,
   DbTabType,
 } from "../models";
@@ -292,18 +293,32 @@ export abstract class AbstractSqlAdapter implements DbAdapter {
     objectName: string,
     page = 1,
     pageSize = 200,
+    orderBy?: DbSortOrder,
   ): string {
     const qualifiedName = this.buildQualifiedName(schemaName, objectName);
     const offset = Math.max(0, (page - 1) * pageSize);
-    return this.formatLimitedSelect(qualifiedName, offset, pageSize);
+    return this.formatLimitedSelect(qualifiedName, offset, pageSize, orderBy);
+  }
+
+  /**
+   * Render a trailing-optional ORDER BY clause for a paged object query.
+   * Returns "" (no clause) when no sort is requested, so existing callers and
+   * non-sorting paths are byte-for-byte unchanged. The column is quoted via the
+   * dialect's identifier escaping; the direction is a fixed enum.
+   */
+  protected orderByClause(orderBy?: DbSortOrder): string {
+    if (!orderBy?.column) return "";
+    const direction = orderBy.dir === "desc" ? "DESC" : "ASC";
+    return ` ORDER BY ${this.escapeIdentifier(orderBy.column)} ${direction}`;
   }
 
   protected formatLimitedSelect(
     qualifiedName: string,
     _offset: number,
     pageSize: number,
+    orderBy?: DbSortOrder,
   ): string {
-    return `SELECT * FROM ${qualifiedName} LIMIT ${pageSize};`;
+    return `SELECT * FROM ${qualifiedName}${this.orderByClause(orderBy)} LIMIT ${pageSize};`;
   }
 
   buildCountQuery(schemaName: string, objectName: string): string {

@@ -23,6 +23,7 @@ import type {
   DbConnectionKind,
   DbExplorerNode,
   DbObjectDetail,
+  DbSortOrder,
   DbTab,
   DbTabType,
   DbWorkspaceState,
@@ -315,6 +316,8 @@ export function createDbPanelState(props: DbPanelProps) {
     setExecutionWarning,
     liveQueryByTabId,
     setLiveQueryByTabId,
+    clientSortByTabId,
+    setClientSortByTabId,
     loadAndCacheSchema,
     cancelCurrentExecution,
     getActiveResultRows,
@@ -327,6 +330,9 @@ export function createDbPanelState(props: DbPanelProps) {
     updateEditedCell,
     resetEditedRow,
     getTabQuery,
+    getClientSort,
+    toggleClientSort,
+    sortRowsForClient,
   } = executionStore;
   let queryPersistTimer: ReturnType<typeof setTimeout> | null = null;
   let activeEditorView: EditorView | null = null;
@@ -1385,6 +1391,7 @@ export function createDbPanelState(props: DbPanelProps) {
       tab.source.label,
       page,
       tab.source.pageSize,
+      tab.source.sort,
     );
 
     await commitWorkspace((draft) => {
@@ -1397,6 +1404,40 @@ export function createDbPanelState(props: DbPanelProps) {
     if (workspace().activeTabId === tabId) {
       await runCurrentTab();
     }
+  }
+
+  // Header-click sort for a SERVER-PAGED table source: cycles the column through
+  // asc → desc → unsorted, persists it into tab.source.sort, then re-queries
+  // from page 1 (control flow shared with paging via rerunPagedSourceTab). For
+  // ad-hoc/client-paged results this is never called — the grid sorts in memory.
+  async function setSourceSort(tabId: string, column: string) {
+    const tab = workspace().tabsById[tabId];
+    if (!tab?.source) return;
+    if (tab.source.nodeKind !== "table" && tab.source.nodeKind !== "view")
+      return;
+
+    const current = tab.source.sort;
+    let next: DbSortOrder | undefined;
+    if (!current || current.column !== column) {
+      next = { column, dir: "asc" };
+    } else if (current.dir === "asc") {
+      next = { column, dir: "desc" };
+    } else {
+      next = undefined;
+    }
+
+    await commitWorkspace((draft) => {
+      const target = draft.tabsById[tabId];
+      if (!target?.source) return;
+      if (next) {
+        target.source.sort = next;
+      } else {
+        delete target.source.sort;
+      }
+      target.source.page = 1;
+    });
+
+    await rerunPagedSourceTab(tabId, 1);
   }
 
   async function saveEditedRow(rowKey: string) {
@@ -1514,6 +1555,11 @@ WHERE ${whereClause};`;
       ),
     );
     setResultPageSizeByTabId((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([tabId]) => !tabIds.includes(tabId)),
+      ),
+    );
+    setClientSortByTabId((current) =>
       Object.fromEntries(
         Object.entries(current).filter(([tabId]) => !tabIds.includes(tabId)),
       ),
@@ -2100,6 +2146,8 @@ WHERE ${whereClause};`;
     filteredSavedConnections,
     historyModalOpen,
     liveQueryByTabId,
+    clientSortByTabId,
+    setClientSortByTabId,
     loadingExplorerNodeIds,
     normalizedFilter,
     normalizedSavedConnectionsFilter,
@@ -2236,6 +2284,7 @@ WHERE ${whereClause};`;
     resetEditedRow,
     sqlLiteral,
     rerunPagedSourceTab,
+    setSourceSort,
     saveEditedRow,
     resetConnectionExplorer,
     refreshConnectionExplorer,
@@ -2251,6 +2300,9 @@ WHERE ${whereClause};`;
     updateConnectionDraftConfig,
     saveConnectionDraft,
     getTabQuery,
+    getClientSort,
+    toggleClientSort,
+    sortRowsForClient,
     flushLiveQuery,
     updateActiveQuery,
     getEditorSelection,

@@ -18,6 +18,7 @@ import type {
   DbFavoriteQuery,
   DbQueryHistoryItem,
   DbResultPayload,
+  DbSortOrder,
   DbTab,
   DbTabSource,
   DbTabType,
@@ -192,6 +193,14 @@ function normalizeTabSource(source: Partial<DbTabSource> | null | undefined) {
     return undefined;
   }
 
+  const sort: DbSortOrder | undefined =
+    source.sort && typeof source.sort.column === "string" && source.sort.column
+      ? {
+          column: source.sort.column,
+          dir: source.sort.dir === "desc" ? "desc" : "asc",
+        }
+      : undefined;
+
   return {
     nodeId: source.nodeId,
     nodeKind: source.nodeKind,
@@ -202,6 +211,7 @@ function normalizeTabSource(source: Partial<DbTabSource> | null | undefined) {
     pageSize: Number.isFinite(source.pageSize)
       ? Math.max(1, Number(source.pageSize))
       : 50,
+    ...(sort ? { sort } : {}),
   } satisfies DbTabSource;
 }
 
@@ -453,12 +463,14 @@ function buildSqlObjectQuery(
   objectName: string,
   page = 1,
   pageSize = 200,
+  orderBy?: DbSortOrder,
 ) {
   return getDbAdapter(connection.kind).buildObjectQuery(
     schemaName,
     objectName,
     page,
     pageSize,
+    orderBy,
   );
 }
 
@@ -468,8 +480,16 @@ export function buildPagedSqlObjectQuery(
   objectName: string,
   page: number,
   pageSize: number,
+  orderBy?: DbSortOrder,
 ) {
-  return buildSqlObjectQuery(connection, schemaName, objectName, page, pageSize);
+  return buildSqlObjectQuery(
+    connection,
+    schemaName,
+    objectName,
+    page,
+    pageSize,
+    orderBy,
+  );
 }
 
 function asString(value: unknown) {

@@ -42,6 +42,12 @@ export type DbConnection = {
   defaultQuery: string;
 };
 
+/** A single ORDER BY directive threaded into server-side paged object queries. */
+export type DbSortOrder = {
+  column: string;
+  dir: 'asc' | 'desc';
+};
+
 export type DbTabSource = {
   nodeId: string;
   nodeKind: DbExplorerLeafKind;
@@ -50,6 +56,8 @@ export type DbTabSource = {
   qualifiedName?: string;
   page: number;
   pageSize: number;
+  /** Header-click sort for server-paged table sources; absent = unsorted. */
+  sort?: DbSortOrder;
 };
 
 export type DbTabType = 'query' | 'data' | 'structure' | 'redis' | 'mongo' | 'raw';
