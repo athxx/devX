@@ -58,6 +58,7 @@ import {
   type ExplorerLeafNode,
   type ExplorerLoadState,
 } from "./db-explorer-store";
+import { createWorkspaceStore } from "./db-workspace-store";
 
 export type DbPanelProps = {
   sidebarOpen: boolean;
@@ -95,20 +96,6 @@ export const databaseKinds: DbConnectionKind[] = [
   "elasticsearch",
   "bigtable",
 ];
-
-function getInitialWorkspace(): DbWorkspaceState {
-  return {
-    savedConnections: [],
-    connectedConnectionIds: [],
-    activeConnectionId: null,
-    openTabIds: [],
-    pinnedTabIds: [],
-    activeTabId: null,
-    tabsById: {},
-    favorites: [],
-    history: [],
-  };
-}
 
 export function getConnectionBadge(connection: DbConnection) {
   return getDbAdapter(connection.kind).badge();
@@ -265,9 +252,30 @@ export function createDbPanelState(props: DbPanelProps) {
     closeDatabaseExportModal,
   } = ui;
 
-  const [workspace, setWorkspace] = createSignal<DbWorkspaceState>(
-    getInitialWorkspace(),
-  );
+  // WORKSPACE (persistent) store (Phase 1, PR #3): owns the single persistent
+  // signal and the memos derived purely from it (connectionMap,
+  // connectedConnections, activeTab, activeConnection, activeConnectionId,
+  // tabItems). The two label helpers tabItems needs are injected so the store
+  // avoids the adapter registry and there is no circular import. Created here, at
+  // the workspace signal's original position and BEFORE the explorer store (which
+  // injects connectionMap / activeConnection), so injection ordering holds.
+  // Destructured into this scope so the rest of the factory and the flat return
+  // object are textually unchanged. The cross-domain seams (commitWorkspace, the
+  // filtered* memos, and every tab/connection mutation) stay in this coordinator.
+  const workspaceStore = createWorkspaceStore({
+    getConnectionBadge,
+    getDbTabTypeLabel,
+  });
+  const {
+    workspace,
+    setWorkspace,
+    connectionMap,
+    connectedConnections,
+    activeTab,
+    activeConnection,
+    activeConnectionId,
+    tabItems,
+  } = workspaceStore;
   const [schemaCompletionCache, setSchemaCompletionCache] = createSignal<
     Record<string, SQLNamespace>
   >({});
@@ -323,22 +331,6 @@ export function createDbPanelState(props: DbPanelProps) {
   const normalizedSavedConnectionsFilter = createMemo(() =>
     savedConnectionsFilter().trim().toLowerCase(),
   );
-  const connectionMap = createMemo(
-    () =>
-      new Map(
-        workspace().savedConnections.map((connection) => [
-          connection.id,
-          connection,
-        ]),
-      ),
-  );
-  const connectedConnections = createMemo(() =>
-    workspace()
-      .connectedConnectionIds.map((connectionId) =>
-        connectionMap().get(connectionId),
-      )
-      .filter((connection): connection is DbConnection => Boolean(connection)),
-  );
   const filteredConnectedConnections = createMemo(() => {
     if (!normalizedFilter()) {
       return connectedConnections();
@@ -365,23 +357,6 @@ export function createDbPanelState(props: DbPanelProps) {
         normalizedSavedConnectionsFilter(),
       ),
     );
-  });
-  const activeTab = createMemo(() => {
-    const tabId = workspace().activeTabId;
-    return tabId ? (workspace().tabsById[tabId] ?? null) : null;
-  });
-  const activeConnection = createMemo(() => {
-    const tab = activeTab();
-    if (tab) {
-      return connectionMap().get(tab.connectionId) ?? null;
-    }
-
-    const connectionId = workspace().activeConnectionId;
-    if (connectionId) {
-      return connectionMap().get(connectionId) ?? null;
-    }
-
-    return null;
   });
 
   // EXPLORER TREE CORE store (Phase 1, PR #2): owns the explorer-tree atoms
@@ -429,28 +404,6 @@ export function createDbPanelState(props: DbPanelProps) {
     getTabObjectDetail,
     resetConnectionExplorer,
   } = explorer;
-
-  const activeConnectionId = createMemo(
-    () => activeConnection()?.id ?? workspace().activeConnectionId,
-  );
-  const tabItems = createMemo(() =>
-    workspace()
-      .openTabIds.map((tabId) => {
-        const tab = workspace().tabsById[tabId];
-        const connection = tab ? connectionMap().get(tab.connectionId) : null;
-        if (!tab || !connection) return null;
-        const badge = getConnectionBadge(connection);
-        return {
-          id: tab.id,
-          name: `${tab.title} · ${getDbTabTypeLabel(tab.type)}`,
-          badgeLabel: badge.label,
-          badgeClass: badge.class,
-          active: workspace().activeTabId === tab.id,
-          pinned: workspace().pinnedTabIds.includes(tab.id),
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => Boolean(item)),
-  );
 
   onMount(() => {
     void loadDbWorkspace().then((loaded) => {
