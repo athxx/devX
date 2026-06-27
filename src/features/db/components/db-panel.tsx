@@ -119,6 +119,8 @@ function DbPanelInner() {
     connectSavedConnection,
     closeTab,
     togglePinnedTab,
+    duplicateTab,
+    copyTabName,
     closeOtherTabs,
     closeAllTabs,
     reorderTabs,
@@ -173,6 +175,7 @@ function DbPanelInner() {
                   })
                 }
                 onTabClose={(tabId) => void closeTab(tabId)}
+                onTabAuxClose={(tabId) => void closeTab(tabId)}
                 onTabContextMenu={(tabId, event) => {
                   setConnectionMenu(null);
                   setExplorerNodeMenu(null);
@@ -1019,6 +1022,18 @@ function DbPanelInner() {
                 onClick={() => void togglePinnedTab(menu.id)}
               >
                 {isPinned ? "Unpin Tab" : "Pin Tab"}
+              </button>
+              <button
+                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                onClick={() => void duplicateTab(menu.id)}
+              >
+                Duplicate Tab
+              </button>
+              <button
+                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
+                onClick={() => void copyTabName(menu.id)}
+              >
+                Copy Name
               </button>
               <button
                 class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"

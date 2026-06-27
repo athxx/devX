@@ -19,6 +19,8 @@ type TabsBarProps = {
   renderPinIcon: () => JSX.Element;
   onTabOpen: (id: string) => void;
   onTabClose: (id: string) => void;
+  /** Optional middle-click (mouse button 1) close, mirroring native tab bars. */
+  onTabAuxClose?: (id: string) => void;
   onTabContextMenu: (id: string, event: MouseEvent) => void;
   onDragStart: (id: string, event: DragEvent) => void;
   onDragEnd: () => void;
@@ -107,6 +109,13 @@ export function TabsBar(props: TabsBarProps) {
                 event.preventDefault();
                 event.stopPropagation();
                 props.onTabContextMenu(item.id, event);
+              }}
+              onAuxClick={(event) => {
+                if (event.button !== 1 || !props.onTabAuxClose) return;
+                event.preventDefault();
+                event.stopPropagation();
+                clearHoverOpenTimer();
+                props.onTabAuxClose(item.id);
               }}
             >
               <button

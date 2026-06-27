@@ -10,7 +10,11 @@ import {
   useContext,
 } from "solid-js";
 import { arrayMove, cloneValue } from "../../../lib/utils";
-import { matchShortcut, type ShortcutOverrides } from "../../../lib/shortcuts";
+import {
+  isModifierHeld,
+  matchShortcut,
+  type ShortcutOverrides,
+} from "../../../lib/shortcuts";
 import { loadSettings } from "../../../lib/storage";
 import { loadDbUiStateFromDb, saveDbUiStateToDb } from "../local-db";
 import { compactQuery, formatQuery, supportsFormat } from "../format";
@@ -484,6 +488,21 @@ export function createDbPanelState(props: DbPanelProps) {
       if (matchShortcut(event, "runQuery", overrides)) {
         event.preventDefault();
         void runCurrentTab();
+        return;
+      }
+      // Tab navigation (mirrors dbx): modifier+Tab cycles forward,
+      // modifier+Shift+Tab cycles back, modifier+1..9 jumps to the nth tab
+      // (9 selects the last). Uses the platform modifier (⌘ on macOS, Alt
+      // elsewhere) consistent with the rest of the shortcut system.
+      if (isModifierHeld(event) && event.code === "Tab") {
+        event.preventDefault();
+        selectTabByOffset(event.shiftKey ? -1 : 1);
+        return;
+      }
+      if (isModifierHeld(event) && /^Digit[1-9]$/.test(event.code)) {
+        event.preventDefault();
+        const digit = Number(event.code.slice(5));
+        selectTabByIndex(digit === 9 ? Number.MAX_SAFE_INTEGER : digit - 1);
         return;
       }
       const connection = activeConnection();
@@ -1739,6 +1758,73 @@ WHERE ${whereClause};`;
     setTabMenu(null);
   }
 
+  function activateTab(tabId: string) {
+    void commitWorkspace((draft) => {
+      if (!draft.tabsById[tabId]) return;
+      draft.activeTabId = tabId;
+      draft.activeConnectionId =
+        draft.tabsById[tabId]?.connectionId ?? draft.activeConnectionId;
+    });
+  }
+
+  /** Cycle the active tab by `offset` (e.g. +1 / -1), wrapping at the ends. */
+  function selectTabByOffset(offset: number) {
+    const ids = workspace().openTabIds;
+    if (ids.length === 0) return;
+    const current = workspace().activeTabId;
+    const index = current ? ids.indexOf(current) : -1;
+    const base = index < 0 ? 0 : index;
+    const nextIndex = (base + offset + ids.length) % ids.length;
+    activateTab(ids[nextIndex]);
+  }
+
+  /** Activate the nth open tab (0-based); the last index selects the last tab. */
+  function selectTabByIndex(index: number) {
+    const ids = workspace().openTabIds;
+    if (ids.length === 0) return;
+    const target = index >= ids.length ? ids.length - 1 : index;
+    if (target < 0) return;
+    activateTab(ids[target]);
+  }
+
+  async function duplicateTab(tabId: string) {
+    const original = workspace().tabsById[tabId];
+    const connection = original
+      ? connectionMap().get(original.connectionId)
+      : null;
+    if (!original || !connection) {
+      setTabMenu(null);
+      return;
+    }
+
+    const liveQuery = getTabQuery(original);
+    await commitWorkspace((draft) => {
+      const tab = createDbTab(connection, original.type);
+      tab.title = `${original.title} (copy)`;
+      tab.query = liveQuery;
+      tab.databaseName = original.databaseName;
+      // A duplicate is a fresh scratch tab: it does NOT inherit the server-side
+      // paging `source`, so it behaves as an ad-hoc (client-paged) query tab.
+      draft.tabsById[tab.id] = tab;
+      const anchor = draft.openTabIds.indexOf(tabId);
+      if (anchor < 0) {
+        draft.openTabIds.push(tab.id);
+      } else {
+        draft.openTabIds.splice(anchor + 1, 0, tab.id);
+      }
+      draft.activeTabId = tab.id;
+      draft.activeConnectionId = connection.id;
+    });
+    setTabMenu(null);
+  }
+
+  async function copyTabName(tabId: string) {
+    const tab = workspace().tabsById[tabId];
+    setTabMenu(null);
+    if (!tab || !navigator?.clipboard?.writeText) return;
+    await navigator.clipboard.writeText(tab.title);
+  }
+
   async function closeOtherTabs(tabId: string) {
     const keepIds = workspace().openTabIds.filter(
       (id) => id === tabId || workspace().pinnedTabIds.includes(id),
@@ -2176,6 +2262,10 @@ WHERE ${whereClause};`;
     focusConnectedConnection,
     closeTab,
     togglePinnedTab,
+    duplicateTab,
+    copyTabName,
+    selectTabByOffset,
+    selectTabByIndex,
     closeOtherTabs,
     closeAllTabs,
     reorderTabs,
