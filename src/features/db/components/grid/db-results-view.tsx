@@ -1,6 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { DbResultGrid } from "../db-result-grid";
 import { DbExplainView } from "../explain/db-explain-view";
+import { DbChartView } from "../chart/db-chart-view";
 import { ContextMenu } from "../db-menu";
 import type { ContextMenuItem } from "../db-menu";
 import { canCancelDbExecution } from "../../service";
@@ -247,6 +248,21 @@ export function DbResultsView() {
       activeDetail?.primaryKeys?.length &&
       sqlResult?.data.columns?.length,
     );
+    // Chart is offered only when the SQL result has at least one column whose
+    // values parse as numbers — mirrors dbx QueryChart's numeric-series gate.
+    const chartable = Boolean(
+      sqlResult?.data.columns?.some((column) =>
+        (sqlResult.data.rows ?? []).some((row) => {
+          const value = row[column];
+          if (typeof value === "number") return Number.isFinite(value);
+          return (
+            typeof value === "string" &&
+            value.trim() !== "" &&
+            Number.isFinite(Number(value))
+          );
+        }),
+      ),
+    );
 
     // ── Grid context menus (dbx DataGrid.vue gridContextMenuItems) ──────────
     // Server-paged sources sort by re-querying with ORDER BY; ad-hoc results
@@ -443,6 +459,23 @@ export function DbResultsView() {
             >
               Raw
             </button>
+            <Show when={chartable}>
+              <button
+                class={`rounded-lg px-2 py-1 text-[11px] font-medium transition ${
+                  resultView === "chart"
+                    ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
+                    : "theme-text-soft hover:text-[var(--app-text)]"
+                }`}
+                onClick={() =>
+                  setResultViewByTabId((current) => ({
+                    ...current,
+                    [tab.id]: "chart",
+                  }))
+                }
+              >
+                Chart
+              </button>
+            </Show>
             <Show when={resultView === "explain"}>
               <button
                 class="rounded-lg bg-[var(--app-accent-soft)] px-2 py-1 text-[11px] font-medium text-[var(--app-accent)]"
@@ -673,6 +706,7 @@ export function DbResultsView() {
               </div>
             }
           >
+            <Show when={resultView === "chart"} fallback={
             <Show when={resultView === "explain"} fallback={
             <Show
               when={resultView === "raw" || result?.kind !== "sql"}
@@ -924,6 +958,9 @@ export function DbResultsView() {
             </Show>
             }>
               <DbExplainView />
+            </Show>
+            }>
+              <DbChartView />
             </Show>
           </Show>
         </div>

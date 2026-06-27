@@ -115,7 +115,7 @@ export function createExecutionStore(deps: {
     Record<string, string>
   >({});
   const [resultViewByTabId, setResultViewByTabId] = createSignal<
-    Record<string, "table" | "raw" | "explain">
+    Record<string, "table" | "raw" | "explain" | "chart">
   >({});
   const [resultPageByTabId, setResultPageByTabId] = createSignal<
     Record<string, number>
