@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	dameng "github.com/godoes/gorm-dameng"
 	"github.com/glebarez/sqlite"
 	oracle "github.com/dzwvip/gorm-oracle"
 	"gorm.io/driver/clickhouse"
@@ -222,6 +223,8 @@ func buildDialector(driver, dsn string) (gorm.Dialector, error) {
 		return sqlserver.Open(dsn), nil
 	case "oracle":
 		return oracle.Open(dsn), nil
+	case "dm", "dameng":
+		return dameng.Open(dsn), nil
 	default:
 		return nil, fmt.Errorf("unsupported sql driver: %s", driver)
 	}

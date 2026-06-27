@@ -40,3 +40,4 @@ export { StarRocksAdapter } from "./starrocks";
 export { CockroachDbAdapter } from "./cockroachdb";
 export { KingBaseAdapter } from "./kingbase";
 export { OpenGaussAdapter } from "./opengauss";
+export { DamengAdapter } from "./dameng";

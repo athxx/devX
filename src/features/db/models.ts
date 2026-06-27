@@ -15,7 +15,8 @@ export type DbConnectionKind =
   | "starrocks"
   | "cockroachdb"
   | "kingbase"
-  | "opengauss";
+  | "opengauss"
+  | "dameng";
 
 export type DbConnectionConfig = {
   host: string;

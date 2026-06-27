@@ -115,6 +115,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "cockroachdb",
   "kingbase",
   "opengauss",
+  "dameng",
 ];
 
 function getInitialWorkspace(): DbWorkspaceState {
