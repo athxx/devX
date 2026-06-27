@@ -127,6 +127,7 @@ function DbPanelInner() {
     togglePinnedTab,
     duplicateTab,
     copyTabName,
+    promptRenameTab,
     closeOtherTabs,
     closeAllTabs,
     reorderTabs,
@@ -182,6 +183,7 @@ function DbPanelInner() {
                 }
                 onTabClose={(tabId) => void closeTab(tabId)}
                 onTabAuxClose={(tabId) => void closeTab(tabId)}
+                onTabRename={(tabId) => promptRenameTab(tabId)}
                 onTabContextMenu={(tabId, event) => {
                   setConnectionMenu(null);
                   setExplorerNodeMenu(null);

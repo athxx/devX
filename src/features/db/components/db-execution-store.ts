@@ -145,6 +145,51 @@ export function createExecutionStore(deps: {
   const [hiddenColumnsByTabId, setHiddenColumnsByTabId] = createSignal<
     Record<string, string[]>
   >({});
+  // Per-tab grid view options (dbx ContentArea "View Options"). Purely
+  // presentational — Hide NULL columns drops all-NULL columns on the current
+  // page; Transpose flips the grid into a row-per-column key/value layout.
+  const [viewOptionsByTabId, setViewOptionsByTabId] = createSignal<
+    Record<string, { hideNullColumns: boolean; transpose: boolean }>
+  >({});
+
+  function getViewOptions(tabId: string) {
+    return (
+      viewOptionsByTabId()[tabId] ?? { hideNullColumns: false, transpose: false }
+    );
+  }
+
+  function toggleViewOption(
+    tabId: string,
+    option: "hideNullColumns" | "transpose",
+  ) {
+    setViewOptionsByTabId((current) => {
+      const existing = current[tabId] ?? {
+        hideNullColumns: false,
+        transpose: false,
+      };
+      return {
+        ...current,
+        [tabId]: { ...existing, [option]: !existing[option] },
+      };
+    });
+  }
+
+  /**
+   * Columns whose value is NULL/empty across every supplied row — the set
+   * "Hide NULL Columns" removes. Pure read over the current page's rows.
+   */
+  function getNullColumns(
+    columns: string[],
+    rows: Record<string, unknown>[],
+  ): string[] {
+    if (rows.length === 0) return [];
+    return columns.filter((column) =>
+      rows.every((row) => {
+        const value = row[column];
+        return value === null || value === undefined || value === "";
+      }),
+    );
+  }
 
   function loadAndCacheSchema(
     connection: DbConnection,
@@ -430,6 +475,8 @@ export function createExecutionStore(deps: {
     setClientSortByTabId,
     hiddenColumnsByTabId,
     setHiddenColumnsByTabId,
+    viewOptionsByTabId,
+    setViewOptionsByTabId,
     // methods
     loadAndCacheSchema,
     cancelCurrentExecution,
@@ -450,5 +497,8 @@ export function createExecutionStore(deps: {
     getVisibleColumns,
     toggleColumnVisibility,
     resetColumnVisibility,
+    getViewOptions,
+    toggleViewOption,
+    getNullColumns,
   };
 }

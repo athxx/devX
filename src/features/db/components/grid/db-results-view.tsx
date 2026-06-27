@@ -43,10 +43,15 @@ export function DbResultsView() {
     getVisibleColumns,
     toggleColumnVisibility,
     resetColumnVisibility,
+    getViewOptions,
+    toggleViewOption,
+    getNullColumns,
+    refreshActiveTab,
     saveEditedRow,
   } = useDbPanel();
 
   const [columnMenuOpen, setColumnMenuOpen] = createSignal(false);
+  const [viewOptionsOpen, setViewOptionsOpen] = createSignal(false);
 
   function renderRedisResult(
     result: Extract<DbResultPayload, { kind: "redis" }>,
@@ -210,8 +215,16 @@ export function DbResultsView() {
     );
     const activeSort = tab.source?.sort ?? getClientSort(tab.id);
     const allColumns = sqlResult?.data.columns ?? [];
-    const visibleColumns = getVisibleColumns(tab.id, allColumns);
     const hiddenColumns = getHiddenColumns(tab.id);
+    const viewOptions = getViewOptions(tab.id);
+    // Columns that are NULL across the current page — the "Hide NULL Columns"
+    // toggle drops these on top of the manual hidden-columns set.
+    const nullColumns = sqlResult
+      ? getNullColumns(allColumns, pagedRows as Record<string, unknown>[])
+      : [];
+    const visibleColumns = getVisibleColumns(tab.id, allColumns).filter(
+      (column) => !viewOptions.hideNullColumns || !nullColumns.includes(column),
+    );
     const activeDetail = getTabObjectDetail(tab) ?? getActiveObjectDetail();
     const dirtyRowKeys = Object.keys(getEditedRows(tab.id));
     const editableSql = Boolean(
@@ -354,6 +367,70 @@ export function DbResultsView() {
                 </Show>
               </div>
             </Show>
+            <Show when={sqlResult && allColumns.length > 0}>
+              <div class="relative">
+                <button
+                  class="theme-control h-7 rounded-md px-2.5 text-[11px]"
+                  onClick={() => setViewOptionsOpen((open) => !open)}
+                >
+                  View
+                  <Show
+                    when={
+                      viewOptions.hideNullColumns || viewOptions.transpose
+                    }
+                  >
+                    {" "}
+                    <span class="text-[var(--app-accent)]">•</span>
+                  </Show>
+                </button>
+                <Show when={viewOptionsOpen()}>
+                  <div
+                    class="theme-panel-soft absolute right-0 z-20 mt-1 w-56 overflow-auto rounded-lg border p-1 shadow-lg"
+                    style={{ "border-color": "var(--app-border)" }}
+                  >
+                    <div class="px-2 py-1">
+                      <span class="theme-text-soft text-[10px] uppercase tracking-[0.14em]">
+                        View Options
+                      </span>
+                    </div>
+                    <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-[11px] hover:bg-[var(--app-hover)]">
+                      <input
+                        type="checkbox"
+                        checked={viewOptions.hideNullColumns}
+                        onChange={() =>
+                          toggleViewOption(tab.id, "hideNullColumns")
+                        }
+                      />
+                      <span>
+                        Hide NULL Columns
+                        <Show when={nullColumns.length > 0}>
+                          {" "}
+                          <span class="theme-text-soft">
+                            ({nullColumns.length})
+                          </span>
+                        </Show>
+                      </span>
+                    </label>
+                    <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-[11px] hover:bg-[var(--app-hover)]">
+                      <input
+                        type="checkbox"
+                        checked={viewOptions.transpose}
+                        onChange={() => toggleViewOption(tab.id, "transpose")}
+                      />
+                      <span>Transpose Row</span>
+                    </label>
+                  </div>
+                </Show>
+              </div>
+            </Show>
+            <button
+              class="theme-control h-7 rounded-md px-2.5 text-[11px]"
+              disabled={!result}
+              title="Refresh"
+              onClick={() => void refreshActiveTab()}
+            >
+              Refresh
+            </button>
             <button
               class="theme-control h-7 rounded-md px-2.5 text-[11px]"
               disabled={!result}
@@ -460,6 +537,9 @@ export function DbResultsView() {
                     </div>
                   }
                 >
+                  <Show
+                    when={viewOptions.transpose}
+                    fallback={
                   <div class="min-h-0 flex-1">
                     <DbResultGrid
                       columns={visibleColumns}
@@ -502,6 +582,49 @@ export function DbResultsView() {
                       onResetRow={(rowKey) => resetEditedRow(tab.id, rowKey)}
                     />
                   </div>
+                    }
+                  >
+                    {/* Transposed view: one row per column key, one value
+                        column per source row (dbx "Transpose Multi-Row"). */}
+                    <div
+                      class="theme-code min-h-0 flex-1 overflow-auto rounded-[18px] border"
+                      style={{ "border-color": "var(--app-border)" }}
+                    >
+                      <table class="min-w-full border-collapse text-sm">
+                        <tbody>
+                          <For each={visibleColumns}>
+                            {(column) => (
+                              <tr>
+                                <td
+                                  class="theme-kv-head border-b px-3 py-2 align-top font-medium"
+                                  style={{ "border-color": "var(--app-border)" }}
+                                >
+                                  {column}
+                                </td>
+                                <For each={pagedRows}>
+                                  {(row, rowIndex) => (
+                                    <td
+                                      class="theme-kv-cell border-b px-3 py-2 align-top font-mono text-xs"
+                                      style={{
+                                        "border-color": "var(--app-border)",
+                                      }}
+                                    >
+                                      {getVisibleRowValue(
+                                        tab.id,
+                                        row,
+                                        rowIndex(),
+                                        column,
+                                      )}
+                                    </td>
+                                  )}
+                                </For>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </Show>
                   <Show
                     when={sqlResult && (tab.source || totalRows > pageSize)}
                   >

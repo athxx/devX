@@ -21,6 +21,8 @@ type TabsBarProps = {
   onTabClose: (id: string) => void;
   /** Optional middle-click (mouse button 1) close, mirroring native tab bars. */
   onTabAuxClose?: (id: string) => void;
+  /** Optional double-click rename, mirroring dbx's tab title editing. */
+  onTabRename?: (id: string) => void;
   onTabContextMenu: (id: string, event: MouseEvent) => void;
   onDragStart: (id: string, event: DragEvent) => void;
   onDragEnd: () => void;
@@ -123,6 +125,12 @@ export function TabsBar(props: TabsBarProps) {
                 onClick={() => {
                   clearHoverOpenTimer();
                   props.onTabOpen(item.id);
+                }}
+                onDblClick={(event) => {
+                  if (!props.onTabRename) return;
+                  event.stopPropagation();
+                  clearHoverOpenTimer();
+                  props.onTabRename(item.id);
                 }}
               >
                 <span class={`${item.badgeClass} shrink-0`}>

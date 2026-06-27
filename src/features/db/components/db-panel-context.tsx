@@ -342,6 +342,11 @@ export function createDbPanelState(props: DbPanelProps) {
     getVisibleColumns,
     toggleColumnVisibility,
     resetColumnVisibility,
+    viewOptionsByTabId,
+    setViewOptionsByTabId,
+    getViewOptions,
+    toggleViewOption,
+    getNullColumns,
   } = executionStore;
   let queryPersistTimer: ReturnType<typeof setTimeout> | null = null;
   let activeEditorView: EditorView | null = null;
@@ -1415,6 +1420,18 @@ export function createDbPanelState(props: DbPanelProps) {
     }
   }
 
+  // Re-run the active tab (dbx ContentArea "Refresh"). Server-paged sources
+  // re-query at their current page; everything else re-executes the editor query.
+  async function refreshActiveTab() {
+    const tab = activeTab();
+    if (!tab) return;
+    if (tab.source) {
+      await rerunPagedSourceTab(tab.id, tab.source.page ?? 1);
+      return;
+    }
+    await runCurrentTab();
+  }
+
   // Header-click sort for a SERVER-PAGED table source: cycles the column through
   // asc → desc → unsorted, persists it into tab.source.sort, then re-queries
   // from page 1 (control flow shared with paging via rerunPagedSourceTab). For
@@ -1934,6 +1951,28 @@ WHERE ${whereClause};`;
     setTabMenu(null);
     if (!tab || !navigator?.clipboard?.writeText) return;
     await navigator.clipboard.writeText(tab.title);
+  }
+
+  // Rename a tab to an explicit title (dbx "Rename" tab action / double-click).
+  // A blank title is ignored so a tab never loses its label entirely.
+  async function renameTab(tabId: string, nextTitle: string) {
+    setTabMenu(null);
+    const trimmed = nextTitle.trim();
+    if (!trimmed) return;
+    if (!workspace().tabsById[tabId]) return;
+    await commitWorkspace((draft) => {
+      const tab = draft.tabsById[tabId];
+      if (tab) tab.title = trimmed;
+    });
+  }
+
+  // Convenience used by the tab context menu: prompt for a new title.
+  function promptRenameTab(tabId: string) {
+    const tab = workspace().tabsById[tabId];
+    setTabMenu(null);
+    if (!tab) return;
+    const next = window.prompt("Rename tab", tab.title);
+    if (next != null) void renameTab(tabId, next);
   }
 
   async function closeOtherTabs(tabId: string) {
@@ -2463,6 +2502,12 @@ WHERE ${whereClause};`;
     getVisibleColumns,
     toggleColumnVisibility,
     resetColumnVisibility,
+    viewOptionsByTabId,
+    setViewOptionsByTabId,
+    getViewOptions,
+    toggleViewOption,
+    getNullColumns,
+    refreshActiveTab,
     flushLiveQuery,
     updateActiveQuery,
     getEditorSelection,
@@ -2477,6 +2522,8 @@ WHERE ${whereClause};`;
     togglePinnedTab,
     duplicateTab,
     copyTabName,
+    renameTab,
+    promptRenameTab,
     selectTabByOffset,
     selectTabByIndex,
     closeOtherTabs,

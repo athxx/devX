@@ -385,6 +385,11 @@ export function tabMenuItems(
       action: () => void api.togglePinnedTab(tabId),
     },
     {
+      label: "Rename",
+      icon: "Pencil",
+      action: () => api.promptRenameTab(tabId),
+    },
+    {
       label: "Duplicate Tab",
       icon: "CopyPlus",
       action: () => void api.duplicateTab(tabId),
