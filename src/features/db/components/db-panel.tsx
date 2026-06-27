@@ -575,9 +575,11 @@ function DbPanelInner() {
                       buildConnectionSummaryQuery(connection),
                       {
                         forceNew: true,
-                        resultView: getDbAdapter(connection.kind).isDocumentStore()
-                          ? "raw"
-                          : "table",
+                        resultView:
+                          getDbAdapter(connection.kind).isDocumentStore() ||
+                          getDbAdapter(connection.kind).isSearchStore()
+                            ? "raw"
+                            : "table",
                       },
                     )
                   }
@@ -608,7 +610,9 @@ function DbPanelInner() {
           if (!connection || !node) return null;
           if (node.kind === "group") {
             const databaseName = node.label;
-            const showExtendedMenu = !getDbAdapter(connection.kind).isKeyValueStore();
+            const showExtendedMenu =
+              !getDbAdapter(connection.kind).isKeyValueStore() &&
+              !getDbAdapter(connection.kind).isSearchStore();
 
             return (
               <DbContextMenu open={true} menu={menu} zIndex={305}>

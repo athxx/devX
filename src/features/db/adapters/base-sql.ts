@@ -530,6 +530,10 @@ export abstract class AbstractSqlAdapter implements DbAdapter {
     return this.dataModel() === "keyValue";
   }
 
+  isSearchStore(): boolean {
+    return this.dataModel() === "search";
+  }
+
   databaseListingStrategy(): DbDatabaseListingStrategy {
     return "single";
   }

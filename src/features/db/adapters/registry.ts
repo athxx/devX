@@ -23,6 +23,7 @@ import { CockroachDbAdapter } from "./cockroachdb";
 import { KingBaseAdapter } from "./kingbase";
 import { OpenGaussAdapter } from "./opengauss";
 import { DamengAdapter } from "./dameng";
+import { ElasticsearchAdapter } from "./elasticsearch";
 
 const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redis: new RedisAdapter(),
@@ -43,6 +44,7 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   kingbase: new KingBaseAdapter(),
   opengauss: new OpenGaussAdapter(),
   dameng: new DamengAdapter(),
+  elasticsearch: new ElasticsearchAdapter(),
 };
 
 export function getDbAdapter(kind: DbConnectionKind): DbAdapter {

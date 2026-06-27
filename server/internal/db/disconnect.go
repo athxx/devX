@@ -11,6 +11,8 @@ func DisconnectConnection(kind, driver, dsn, url, uri string) error {
 		return DisconnectRedisClient(url)
 	case "mongodb", "mongo":
 		return DisconnectMongoClient(uri)
+	case "elasticsearch":
+		return DisconnectESClient(url)
 	default:
 		if strings.TrimSpace(driver) == "" {
 			driver = kind

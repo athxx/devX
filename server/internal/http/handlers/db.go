@@ -334,6 +334,32 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 			"type": "mongo",
 			"data": result,
 		})
+	case "elasticsearch":
+		var request dbrunner.ESQueryRequest
+		if err := json.Unmarshal(command.Payload, &request); err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": "invalid elasticsearch payload",
+			})
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		registerDBRequest(command.ID, cancel)
+		defer finishDBRequest(command.ID)
+		result, err := dbrunner.RunESQuery(ctx, request, deps.Config.DatabaseTimeout)
+		cancel()
+		if err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": err.Error(),
+			})
+		}
+		return conn.WriteJSON(fiber.Map{
+			"id":   command.ID,
+			"type": "search",
+			"data": result,
+		})
 	case "dbCancel":
 		var request struct {
 			RequestID string `json:"requestId"`

@@ -19,26 +19,25 @@ import type {
   DbExplorerLeafNode,
   DbFormatLanguage,
 } from "./types";
-import {
-  appendUrlOptions,
-  buildAuthPart,
-  formatSearchParams,
-  parseOptionEntries,
-} from "./base-sql";
 import { makeId } from "../../../lib/utils";
 
-// MongoDB is document-oriented. Like Redis, the SQL-shaped adapter slots are
-// no-ops; collection listing and shell execution are driven by service.ts over
-// the `mongoShell` / `mongoPing` wire protocol.
-export class MongoAdapter implements DbAdapter {
-  readonly kind = "mongodb" as const;
+// Elasticsearch is a search/index store — the first "search" data-model kind.
+// It has no SQL surface and no GORM dialector; instead it speaks the dedicated
+// `elasticsearch` wire protocol (see server/internal/db/elasticsearch.go). Most
+// SQL-shaped adapter slots are inert; the explorer (index listing) and query
+// execution are orchestrated by service.ts off `isSearchStore()`, mirroring how
+// Mongo/Redis are handled.
+export class ElasticsearchAdapter implements DbAdapter {
+  readonly kind = "elasticsearch" as const;
 
   defaultQuery(): string {
-    return "db.collection.find({})";
+    // Default body is a match_all query DSL; the editor sends it as the search
+    // body, with the active index supplied separately.
+    return '{\n  "query": {\n    "match_all": {}\n  }\n}';
   }
 
   defaultPort(): string {
-    return "27017";
+    return "9200";
   }
 
   defaultDatabase(): string {
@@ -51,9 +50,9 @@ export class MongoAdapter implements DbAdapter {
       port: this.defaultPort(),
       username: "",
       password: "",
-      database: this.defaultDatabase(),
+      database: "",
       filePath: "",
-      authSource: "admin",
+      authSource: "",
       serviceName: "",
       options: "",
     };
@@ -63,52 +62,38 @@ export class MongoAdapter implements DbAdapter {
     return "query";
   }
 
+  // The "connection URL" for ES is its HTTP base address. We keep the raw URL
+  // when the user pasted one; otherwise compose http://host:port from fields.
   buildConnectionUrl(
     connection: Pick<DbConnection, "kind" | "config" | "url">,
   ): string {
     const config = connection.config;
     const host = config.host.trim();
     const port = config.port.trim();
-    const username = config.username.trim();
-    const password = config.password.trim();
-    const database = config.database.trim();
 
     if (!host) {
       return connection.url.trim();
     }
 
-    const auth = buildAuthPart(username, password);
-    const shouldKeepSlash =
-      Boolean(database) ||
-      Boolean(config.authSource.trim()) ||
-      parseOptionEntries(config.options).length > 0;
-    const dbPath = database
-      ? `/${encodeURIComponent(database)}`
-      : shouldKeepSlash
-        ? "/"
-        : "";
-    const url = new URL(`mongodb://${auth}${host}${port ? `:${port}` : ""}${dbPath}`);
-    if (config.authSource.trim()) {
-      url.searchParams.set("authSource", config.authSource.trim());
-    }
-    appendUrlOptions(url, config.options);
-    return url.toString();
+    const scheme = /^https?:\/\//i.test(host) ? "" : "http://";
+    const base = `${scheme}${host}${port ? `:${port}` : ""}`;
+    return base;
   }
 
   parseConnectionUrl(raw: string): DbConnectionConfig {
     const fallback = this.defaultConnectionConfig();
+    const normalized = raw.trim();
+    if (!normalized) {
+      return fallback;
+    }
     try {
-      const url = new URL(raw);
-      const pathname = url.pathname.replace(/^\/+/, "");
+      const url = new URL(normalized);
       return {
         ...fallback,
         host: decodeURIComponent(url.hostname || fallback.host),
-        port: url.port || fallback.port,
+        port: url.port || (url.protocol === "https:" ? "443" : fallback.port),
         username: decodeURIComponent(url.username),
         password: decodeURIComponent(url.password),
-        database: decodeURIComponent(pathname),
-        authSource: url.searchParams.get("authSource") ?? fallback.authSource,
-        options: formatSearchParams(url, ["authSource"]),
       };
     } catch {
       return fallback;
@@ -128,36 +113,33 @@ export class MongoAdapter implements DbAdapter {
   }
 
   buildCommandMessage(tab: DbTab, connection: DbConnection): DbSocketCommandMessage {
-    const effectiveUrl = this.effectiveUrl(tab, connection);
+    const address = this.buildConnectionUrl(connection) || connection.url.trim();
+    const index = tab.databaseName?.trim() || connection.config.database.trim();
     return {
       id: tab.id,
-      type: "mongoShell",
+      type: "elasticsearch",
       payload: {
-        url: effectiveUrl,
-        command: tab.query,
+        address,
+        username: connection.config.username.trim(),
+        password: connection.config.password,
+        action: "search",
+        index,
+        body: tab.query,
       },
     };
   }
 
-  private effectiveUrl(tab: DbTab, connection: DbConnection): string {
-    const effectiveDatabase =
-      tab.databaseName?.trim() || connection.config.database.trim();
-    if (!effectiveDatabase) {
-      return this.buildConnectionUrl(connection) || connection.url;
-    }
-    return this.buildConnectionUrl({
-      ...connection,
-      config: { ...connection.config, database: effectiveDatabase },
-    });
-  }
-
   buildTestCommandMessage(connection: DbConnection): DbSocketCommandMessage {
+    const address = this.buildConnectionUrl(connection) || connection.url.trim();
     return {
       id: makeId("db-connect"),
-      type: "mongoPing",
+      type: "elasticsearch",
       payload: {
-        uri: connection.url,
-        database: connection.config.database.trim() || "admin",
+        address,
+        username: connection.config.username.trim(),
+        password: connection.config.password,
+        action: "info",
+        timeoutMs: 3000,
       },
     };
   }
@@ -168,11 +150,14 @@ export class MongoAdapter implements DbAdapter {
       type: "dbDisconnect",
       payload: {
         kind: connection.kind,
-        uri: this.buildConnectionUrl(connection) || connection.url.trim(),
+        // DisconnectConnection routes ES on the `url` arg (the HTTP address).
+        url: this.buildConnectionUrl(connection) || connection.url.trim(),
       },
     };
   }
 
+  // Index listing is driven by service.ts over the `elasticsearch` protocol
+  // (action "listIndices"), not by SQL — these SQL slots are inert.
   buildExplorerQuery(): string | null {
     return null;
   }
@@ -246,6 +231,7 @@ export class MongoAdapter implements DbAdapter {
   }
 
   formatLanguage(): DbFormatLanguage {
+    // Query DSL bodies are JSON — route through the JS/JSON prettier path.
     return "javascript";
   }
 
@@ -263,24 +249,24 @@ export class MongoAdapter implements DbAdapter {
 
   // --- UI metadata -------------------------------------------------------
   badge(): DbConnectionBadge {
-    return { label: "MGO", class: "theme-method-badge theme-method-trace" };
+    return { label: "ES", class: "theme-method-badge theme-method-put" };
   }
 
   displayName(): string {
-    return "MongoDB";
+    return "Elasticsearch";
   }
 
   describeConnection(connection: DbConnection): string {
     const host = connection.config.host.trim() || "localhost";
     const port = connection.config.port.trim();
-    const database = connection.config.database.trim();
+    const index = connection.config.database.trim();
     const hostLabel = `${host}${port ? `:${port}` : ""}`;
-    return database ? `${hostLabel} / ${database}` : hostLabel;
+    return index ? `${hostLabel} / ${index}` : hostLabel;
   }
 
   // --- Capabilities ------------------------------------------------------
   dataModel(): DbDataModel {
-    return "document";
+    return "search";
   }
 
   isRelational(): boolean {
@@ -288,7 +274,7 @@ export class MongoAdapter implements DbAdapter {
   }
 
   isDocumentStore(): boolean {
-    return true;
+    return false;
   }
 
   isKeyValueStore(): boolean {
@@ -296,10 +282,10 @@ export class MongoAdapter implements DbAdapter {
   }
 
   isSearchStore(): boolean {
-    return false;
+    return true;
   }
 
-  // Mongo uses its own document-store explorer loader keyed off `dataModel()`,
+  // ES uses its own search-store explorer loader keyed off `isSearchStore()`,
   // so this enum is not consulted; "single" is the inert default.
   databaseListingStrategy(): DbDatabaseListingStrategy {
     return "single";
@@ -310,11 +296,12 @@ export class MongoAdapter implements DbAdapter {
   }
 
   canCreateDatabase(): boolean {
-    return true;
+    return false;
   }
 
   canShowConnectionSummary(): boolean {
-    return true;
+    // No SQL-style summary query; cluster info is reached via the search path.
+    return false;
   }
 
   treatsSchemaAsDatabase(): boolean {
@@ -322,8 +309,8 @@ export class MongoAdapter implements DbAdapter {
   }
 
   // --- Explorer action SQL ----------------------------------------------
-  // MongoDB is document-oriented; these slots return shell-friendly fallbacks
-  // since the explorer's SQL-only actions never reach them.
+  // ES has no SQL surface; the explorer gates these behind SQL-only actions,
+  // but the interface requires concrete bodies.
   buildStructureQuery(node: DbExplorerLeafNode): string {
     return node.query ?? node.label;
   }
@@ -333,49 +320,32 @@ export class MongoAdapter implements DbAdapter {
   }
 
   buildRenameQuery(node: DbExplorerLeafNode): string {
-    return `db.${node.label}.renameCollection("new_${node.label}")`;
+    return node.query ?? node.label;
   }
 
   buildTruncateQuery(node: DbExplorerLeafNode): string {
-    return `db.${node.label}.deleteMany({})`;
+    return node.query ?? node.label;
   }
 
   // --- Database-level templates ------------------------------------------
   buildCreateDatabaseTemplate(): string {
-    return 'use new_database\n\ndb.createCollection("sample_collection")';
+    return "";
   }
 
-  buildCreateTableTemplate(databaseName: string): string {
-    return `use ${databaseName}
-
-db.createCollection('new_collection')`;
+  buildCreateTableTemplate(): string {
+    return "";
   }
 
-  buildImportTemplate(
-    databaseName: string,
-    source: "sql" | "json" | "csv",
-  ): string {
-    if (source === "json") {
-      return `use ${databaseName}
-
-mongoimport --db ${databaseName} --collection new_collection --file ./data.json --jsonArray`;
-    }
-    if (source === "csv") {
-      return `use ${databaseName}
-
-mongoimport --db ${databaseName} --collection new_collection --type csv --headerline --file ./data.csv`;
-    }
-    return `use ${databaseName}
-
-// Paste or run your SQL migration equivalent here`;
+  buildImportTemplate(): string {
+    return "";
   }
 
-  buildDropDatabaseTemplate(databaseName: string): string {
-    return `use ${databaseName}
-db.dropDatabase()`;
+  buildDropDatabaseTemplate(): string {
+    return "";
   }
 
   buildConnectionSummaryQuery(): string {
-    return "db.adminCommand({ getCmdLineOpts: 1 })";
+    // Surfaced via the search wire path (action "info") rather than a SQL query.
+    return "";
   }
 }

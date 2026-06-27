@@ -16,7 +16,8 @@ export type DbConnectionKind =
   | "cockroachdb"
   | "kingbase"
   | "opengauss"
-  | "dameng";
+  | "dameng"
+  | "elasticsearch";
 
 export type DbConnectionConfig = {
   host: string;
@@ -147,6 +148,13 @@ export type DbResultPayload =
     }
   | {
       kind: "mongo";
+      data: {
+        result: unknown;
+        durationMs?: number;
+      };
+    }
+  | {
+      kind: "search";
       data: {
         result: unknown;
         durationMs?: number;

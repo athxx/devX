@@ -286,6 +286,10 @@ export class RedisAdapter implements DbAdapter {
     return true;
   }
 
+  isSearchStore(): boolean {
+    return false;
+  }
+
   // Redis always exposes a fixed set of numbered databases (db0–db15).
   databaseListingStrategy(): DbDatabaseListingStrategy {
     return "fixed-set";

@@ -802,6 +802,71 @@ async function loadRedisDatabaseChildren(
   ];
 }
 
+/** Default search body used when sampling an Elasticsearch index. */
+function buildElasticsearchIndexQuery(): string {
+  return '{\n  "query": {\n    "match_all": {}\n  }\n}';
+}
+
+/** Build a raw `elasticsearch` wire command against a connection's base address. */
+function buildElasticsearchCommand(
+  connection: DbConnection,
+  action: string,
+  extra: Record<string, unknown> = {},
+): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "elasticsearch",
+    payload: {
+      address: buildDbConnectionUrl(connection) || connection.url.trim(),
+      username: connection.config.username.trim(),
+      password: connection.config.password,
+      action,
+      ...extra,
+    },
+  };
+}
+
+// Elasticsearch is flat — there is no database nesting, only indices. We list
+// them via the `listIndices` action (Cat.Indices) and surface each as a leaf
+// (reusing the "collection" leaf kind) under a single "Indices" group, mirroring
+// how Redis exposes keys.
+async function loadElasticsearchExplorer(connection: DbConnection) {
+  const result = await executeDbSocketCommand(
+    buildElasticsearchCommand(connection, "listIndices"),
+    connection,
+  );
+
+  if (result.kind !== "search" || !Array.isArray(result.data.result)) {
+    return [] as DbExplorerNode[];
+  }
+
+  const indexNodes = result.data.result
+    .map((item) => {
+      const name =
+        item && typeof item === "object"
+          ? asString((item as Record<string, unknown>).index)
+          : asString(item);
+      if (!name || name.startsWith(".")) {
+        // Skip system indices (.kibana, .security, …) by default.
+        return null;
+      }
+      return makeExplorerLeaf(
+        "collection",
+        name,
+        buildElasticsearchIndexQuery(),
+        "Index",
+        undefined,
+        { schemaName: name },
+      );
+    })
+    .filter((node): node is DbExplorerNode => Boolean(node))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return [
+    makeExplorerGroup("Indices", "category", indexNodes, `${indexNodes.length}`),
+  ];
+}
+
 export async function loadDbExplorer(connection: DbConnection) {
   const normalizedConnection = {
     ...connection,
@@ -815,6 +880,9 @@ export async function loadDbExplorer(connection: DbConnection) {
     nodes = await loadMongoExplorer(normalizedConnection);
   } else if (adapter.isKeyValueStore()) {
     nodes = await loadRedisExplorer(normalizedConnection);
+  } else if (adapter.isSearchStore()) {
+    // ES is flat (indices only) — return the leaf list directly, no DB filter.
+    return loadElasticsearchExplorer(normalizedConnection);
   } else {
     nodes = await loadSqlExplorer(normalizedConnection);
   }
@@ -1042,18 +1110,23 @@ export async function loadDbObjectDetail(
           ["Database", node.schemaName || connection.config.database],
           ["Collection", node.label],
         ])
-      : adapter.isKeyValueStore()
+      : adapter.isSearchStore()
         ? toSummaryEntries([
             ["Kind", node.kind],
-            ["Database", connection.config.database || "0"],
-            ["Key", node.label],
+            ["Index", node.label],
           ])
-        : toSummaryEntries([
-            ["Kind", node.kind],
-            ["Schema", node.schemaName ?? "default"],
-            ["Name", node.label],
-            ["Qualified", node.qualifiedName ?? node.label],
-          ]);
+        : adapter.isKeyValueStore()
+          ? toSummaryEntries([
+              ["Kind", node.kind],
+              ["Database", connection.config.database || "0"],
+              ["Key", node.label],
+            ])
+          : toSummaryEntries([
+              ["Kind", node.kind],
+              ["Schema", node.schemaName ?? "default"],
+              ["Name", node.label],
+              ["Qualified", node.qualifiedName ?? node.label],
+            ]);
 
   if (!adapter.isRelational()) {
     if (adapter.isKeyValueStore()) {
@@ -1077,7 +1150,13 @@ export async function loadDbObjectDetail(
         connectionId: connection.id,
         title: node.label,
         query: node.query,
-        type: adapter.isDocumentStore() ? 'mongo' : 'redis',
+        // ES targets the index via databaseName; the leaf label IS the index.
+        databaseName: adapter.isSearchStore() ? node.label : undefined,
+        type: adapter.isDocumentStore()
+          ? 'mongo'
+          : adapter.isSearchStore()
+            ? 'query'
+            : 'redis',
       },
       connection,
     ), connection);

@@ -192,7 +192,9 @@ export function DbConnectionDraftForm(props: { connection: DbConnection }): JSX.
           ? "8123"
           : connection.kind === "mysql" || connection.kind === "tidb"
             ? "3306"
-            : "5432";
+            : connection.kind === "elasticsearch"
+              ? "9200"
+              : "5432";
 
     return (
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

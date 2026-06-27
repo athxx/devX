@@ -140,7 +140,9 @@ async function getDbRelaySocket(relayUrl: string): Promise<WebSocket> {
             ? "redis"
             : pending.kind === "mongodb"
               ? "mongo"
-              : "sql",
+              : pending.kind === "elasticsearch"
+                ? "search"
+                : "sql",
         data: (response.data ?? {}) as Record<string, unknown>,
       } as DbResultPayload);
     };
