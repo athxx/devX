@@ -103,6 +103,86 @@ export function applySqlParams(
   );
 }
 
+/**
+ * Split a SQL document into statement ranges at top-level `;` separators,
+ * ignoring semicolons inside comments and string literals. Each range is the
+ * [start, end) span of one statement (excluding the trailing `;`), with empty
+ * (whitespace/comment-only) spans dropped. Returns [] when there are no real
+ * statements.
+ */
+export function splitSqlStatements(
+  query: string,
+): Array<{ start: number; end: number; text: string }> {
+  const ranges: Array<{ start: number; end: number; text: string }> = [];
+  let start = 0;
+  let i = 0;
+  const n = query.length;
+  const pushRange = (end: number) => {
+    const text = query.slice(start, end);
+    if (text.trim()) ranges.push({ start, end, text });
+  };
+  while (i < n) {
+    const ch = query[i];
+    const next = query[i + 1];
+    if (ch === "-" && next === "-") {
+      i += 2;
+      while (i < n && query[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      i += 2;
+      while (i < n && !(query[i] === "*" && query[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      i++;
+      while (i < n) {
+        if (query[i] === quote) {
+          if (query[i + 1] === quote) {
+            i += 2; // doubled quote = escaped
+            continue;
+          }
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+    if (ch === ";") {
+      pushRange(i);
+      start = i + 1;
+      i++;
+      continue;
+    }
+    i++;
+  }
+  pushRange(n);
+  return ranges;
+}
+
+/**
+ * Return the statement span containing `offset` (cursor position), or the last
+ * statement when the offset sits past the final separator. Returns null when
+ * the document holds fewer than two statements (caller should fall back to the
+ * whole document). Trims the returned text.
+ */
+export function statementAtOffset(
+  query: string,
+  offset: number,
+): string | null {
+  const ranges = splitSqlStatements(query);
+  if (ranges.length < 2) return null;
+  for (const range of ranges) {
+    if (offset >= range.start && offset <= range.end) {
+      return range.text.trim();
+    }
+  }
+  return ranges[ranges.length - 1].text.trim();
+}
+
 export function nodeMatchesFilter(node: DbExplorerNode, filter: string): boolean {
   if (!filter) return true;
   if (node.label.toLowerCase().includes(filter)) return true;

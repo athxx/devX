@@ -53,6 +53,7 @@ import {
   nodeMatchesFilter,
   schemaCompletionKey,
   sqlLiteral,
+  statementAtOffset,
 } from "./db-state-helpers";
 import { createUiStore } from "./db-ui-store";
 import {
@@ -1687,6 +1688,30 @@ WHERE ${whereClause};`;
   }
 
   /**
+   * The statement to EXECUTE (Run/Explain) — distinct from getEffectiveQuery,
+   * which also drives text transforms (format/compact) and must keep whole-doc
+   * behavior. Precedence:
+   *   1. An explicit text selection — run exactly that.
+   *   2. Otherwise, for SQL kinds whose document holds multiple `;`-separated
+   *      statements, run only the statement under the cursor (dbx-style "run
+   *      statement at cursor"). Single-statement docs and non-SQL kinds run the
+   *      whole document, exactly as before.
+   */
+  function getRunnableQuery(): string {
+    const ev = activeEditorView;
+    const sel = getEditorSelection();
+    if (ev && sel) return ev.state.sliceDoc(sel.from, sel.to);
+    const connection = activeConnection();
+    if (ev && connection && getDbAdapter(connection.kind).completionDialect()) {
+      const cursor = ev.state.selection.main.head;
+      const single = statementAtOffset(ev.state.doc.toString(), cursor);
+      if (single) return single;
+    }
+    const tab = activeTab();
+    return tab ? getTabQuery(tab) : "";
+  }
+
+  /**
    * Apply a text result back to the editor.
    * If there was a selection, replaces just the selection.
    * Otherwise replaces the full document via updateActiveQuery.
@@ -2107,7 +2132,7 @@ WHERE ${whereClause};`;
     const connection = activeConnection();
     if (!tab || !connection) return;
 
-    let effectiveQuery = getEffectiveQuery();
+    let effectiveQuery = getRunnableQuery();
 
     // Parameterized query (:name): collect a value for each distinct placeholder
     // before running. Cancelling any prompt aborts the run. Values are bound as
@@ -2198,7 +2223,7 @@ WHERE ${whereClause};`;
     const connection = activeConnection();
     if (!tab || !connection) return;
 
-    const explainQuery = buildExplainSqlQuery(connection, getEffectiveQuery());
+    const explainQuery = buildExplainSqlQuery(connection, getRunnableQuery());
     if (!explainQuery) return;
 
     const explainTab = { ...tab, query: explainQuery };
