@@ -47,6 +47,13 @@ import {
   testDbConnection,
 } from "../service";
 import { getDbAdapter } from "../adapters";
+import {
+  getRowKey,
+  groupOrLeafMatchesFilter,
+  nodeMatchesFilter,
+  schemaCompletionKey,
+  sqlLiteral,
+} from "./db-state-helpers";
 
 export type DbPanelProps = {
   sidebarOpen: boolean;
@@ -241,13 +248,6 @@ export function createDbPanelState(props: DbPanelProps) {
     Record<string, SQLNamespace>
   >({});
   const [shortcutOverrides, setShortcutOverrides] = createSignal<ShortcutOverrides>({});
-
-  function schemaCompletionKey(
-    connectionId: string,
-    databaseName?: string | null,
-  ) {
-    return databaseName ? `${connectionId}::${databaseName}` : connectionId;
-  }
 
   function loadAndCacheSchema(
     connection: DbConnection,
@@ -1771,10 +1771,6 @@ export function createDbPanelState(props: DbPanelProps) {
     return editedRowsByTabId()[tabId] ?? {};
   }
 
-  function getRowKey(row: Record<string, unknown>, _index: number) {
-    return JSON.stringify(row);
-  }
-
   function getVisibleRowValue(
     tabId: string,
     row: Record<string, unknown>,
@@ -1819,18 +1815,6 @@ export function createDbPanelState(props: DbPanelProps) {
     }));
   }
 
-  function sqlLiteral(value: unknown) {
-    if (value === null || value === undefined) return "NULL";
-    if (typeof value === "number") return String(value);
-    if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
-    if (typeof value === "object") {
-      return `'${JSON.stringify(value).replace(/'/g, "''")}'`;
-    }
-    const raw = String(value);
-    if (raw === "null") return "NULL";
-    if (/^-?\d+(\.\d+)?$/u.test(raw)) return raw;
-    return `'${raw.replace(/'/g, "''")}'`;
-  }
 
   async function rerunPagedSourceTab(tabId: string, page: number) {
     const tab = workspace().tabsById[tabId];
@@ -2566,31 +2550,6 @@ WHERE ${whereClause};`;
         [tab.id]: { status: "error", message },
       }));
     }
-  }
-
-
-  function nodeMatchesFilter(node: DbExplorerNode, filter: string): boolean {
-    if (!filter) return true;
-    if (node.label.toLowerCase().includes(filter)) return true;
-    if ((node.description ?? "").toLowerCase().includes(filter)) return true;
-    if (node.kind === "group") {
-      // Group nodes pass if any descendant matches
-      return node.children.some((child) => nodeMatchesFilter(child, filter));
-    }
-    return false;
-  }
-
-  /** Like nodeMatchesFilter but group nodes always pass (they are containers). */
-  function groupOrLeafMatchesFilter(
-    node: DbExplorerNode,
-    filter: string,
-  ): boolean {
-    if (!filter) return true;
-    if (node.kind === "group") return true;
-    return (
-      node.label.toLowerCase().includes(filter) ||
-      (node.description ?? "").toLowerCase().includes(filter)
-    );
   }
 
 
