@@ -1,5 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
 import { DbResultGrid } from "../db-result-grid";
+import { DbExplainView } from "../explain/db-explain-view";
 import { canCancelDbExecution } from "../../service";
 import type { DbResultPayload } from "../../models";
 import {
@@ -265,6 +266,13 @@ export function DbResultsView() {
             >
               Raw
             </button>
+            <Show when={resultView === "explain"}>
+              <button
+                class="rounded-lg bg-[var(--app-accent-soft)] px-2 py-1 text-[11px] font-medium text-[var(--app-accent)]"
+              >
+                Explain
+              </button>
+            </Show>
             <Show when={tab.source && sqlResult && totalRows > 0}>
               <select
                 class="theme-input h-7 rounded-md px-2 text-[11px]"
@@ -417,6 +425,7 @@ export function DbResultsView() {
               </div>
             }
           >
+            <Show when={resultView === "explain"} fallback={
             <Show
               when={resultView === "raw" || result?.kind !== "sql"}
               fallback={
@@ -604,6 +613,9 @@ export function DbResultsView() {
                   </pre>
                 </div>
               </Show>
+            </Show>
+            }>
+              <DbExplainView />
             </Show>
           </Show>
         </div>

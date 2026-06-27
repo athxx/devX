@@ -41,6 +41,8 @@ export function DbEditorPaneView() {
     applyTextResult,
     closeTab,
     runCurrentTab,
+    runExplain,
+    canExplainActiveTab,
     setActiveEditorView,
   } = useDbPanel();
 
@@ -123,6 +125,14 @@ export function DbEditorPaneView() {
                   >
                     Pretty
                   </ShortcutHintButton>
+                </Show>
+                <Show when={canExplainActiveTab()}>
+                  <button
+                    class="theme-control h-8 rounded-md px-3 text-sm font-medium"
+                    onClick={() => void runExplain()}
+                  >
+                    Explain
+                  </button>
                 </Show>
                 <ShortcutHintButton
                   class="theme-success h-8 rounded-md px-3 text-sm font-semibold"

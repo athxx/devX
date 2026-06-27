@@ -158,4 +158,11 @@ ORDER BY COLUMN_ID;`;
   override buildConnectionSummaryQuery(): string {
     return "SELECT name, value, display_value, description FROM v$parameter ORDER BY name";
   }
+
+  // Oracle's EXPLAIN PLAN FOR writes to PLAN_TABLE and yields no rows; reading
+  // it back needs a separate DBMS_XPLAN select, which doesn't fit the
+  // single-statement Explain action. Disable the action for Oracle.
+  override buildExplainQuery(): string | null {
+    return null;
+  }
 }

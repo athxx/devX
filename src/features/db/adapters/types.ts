@@ -223,6 +223,15 @@ export interface DbAdapter {
   /** Truncate-table template. */
   buildTruncateQuery(node: DbExplorerLeafNode): string;
 
+  // --- Query analysis ----------------------------------------------------
+  /**
+   * Wrap a statement in the kind's EXPLAIN form for plan inspection. Optional:
+   * implemented by SQL adapters (via the base), absent for non-SQL kinds
+   * (Mongo/Redis/ES/Bigtable) so the Explain UI is simply not offered there.
+   * Returns null when the kind cannot explain the given statement.
+   */
+  buildExplainQuery?(query: string): string | null;
+
   // --- Database-level templates ------------------------------------------
   buildCreateDatabaseTemplate(): string;
   buildCreateTableTemplate(databaseName: string): string;

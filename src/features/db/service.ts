@@ -457,6 +457,18 @@ function escapeSqlIdentifier(kind: DbConnectionKind, value: string) {
   return getDbAdapter(kind).escapeIdentifier(value);
 }
 
+/**
+ * Wrap a statement in the connection kind's EXPLAIN form, or null when the kind
+ * doesn't offer one (non-SQL adapters, or SQL dialects whose EXPLAIN can't run
+ * as a single inline statement — see the adapter overrides).
+ */
+export function buildExplainSqlQuery(
+  connection: DbConnection,
+  query: string,
+): string | null {
+  return getDbAdapter(connection.kind).buildExplainQuery?.(query) ?? null;
+}
+
 function buildSqlObjectQuery(
   connection: DbConnection,
   schemaName: string,

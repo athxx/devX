@@ -201,4 +201,11 @@ CREATE TABLE dbo.new_table (
   override buildConnectionSummaryQuery(): string {
     return "SELECT name, value_in_use, description FROM sys.configurations ORDER BY name;";
   }
+
+  // T-SQL has no inline EXPLAIN; the estimated plan comes from a session-level
+  // SET SHOWPLAN toggle that must be its own batch, which doesn't fit the
+  // single-statement Explain action. Disable the action for SQL Server.
+  override buildExplainQuery(): string | null {
+    return null;
+  }
 }

@@ -33,6 +33,7 @@ import {
   buildDbConnectionUrl,
   createDbConnection,
   createDbTab,
+  buildExplainSqlQuery,
   disconnectDbConnection,
   executeDbAdHocQuery,
   loadDbObjectDetail,
@@ -2146,6 +2147,66 @@ WHERE ${whereClause};`;
   }
 
 
+  /** Whether the active connection's kind offers an inline EXPLAIN. */
+  function canExplainActiveTab(): boolean {
+    const connection = activeConnection();
+    if (!connection) return false;
+    return Boolean(getDbAdapter(connection.kind).buildExplainQuery);
+  }
+
+  /**
+   * Run the active tab's query wrapped in the kind's EXPLAIN form. Mirrors
+   * runCurrentTab's execution bookkeeping but (a) executes the explain-wrapped
+   * statement (never the bare query — plan-only, no side effects) and (b) flips
+   * the result view to "explain" so DbExplainView renders the returned plan.
+   * The tab's persisted query is left untouched.
+   */
+  async function runExplain() {
+    const tab = activeTab();
+    const connection = activeConnection();
+    if (!tab || !connection) return;
+
+    const explainQuery = buildExplainSqlQuery(connection, getEffectiveQuery());
+    if (!explainQuery) return;
+
+    const explainTab = { ...tab, query: explainQuery };
+    const execution = startDbExecution(explainTab, connection);
+
+    setExecutionByTabId((current) => ({
+      ...current,
+      [tab.id]: {
+        status: "running",
+        requestId: execution.requestId,
+        startedAt: new Date().toISOString(),
+      },
+    }));
+
+    try {
+      const result = await execution.promise;
+      setResultByTabId((current) => ({ ...current, [tab.id]: result }));
+      setRawByTabId((current) => ({
+        ...current,
+        [tab.id]: JSON.stringify(result.data, null, 2),
+      }));
+      setResultViewByTabId((current) => ({ ...current, [tab.id]: "explain" }));
+      setExecutionByTabId((current) => ({
+        ...current,
+        [tab.id]: {
+          status: "success",
+          durationMs: (result.data as { durationMs?: number }).durationMs,
+        },
+      }));
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown database error";
+      setRawByTabId((current) => ({ ...current, [tab.id]: message }));
+      setExecutionByTabId((current) => ({
+        ...current,
+        [tab.id]: { status: "error", message },
+      }));
+    }
+  }
+
   function getActiveEditorView() {
     return activeEditorView;
   }
@@ -2371,6 +2432,8 @@ WHERE ${whereClause};`;
     disconnectConnection,
     removeSavedConnection,
     runCurrentTab,
+    runExplain,
+    canExplainActiveTab,
     nodeMatchesFilter,
     groupOrLeafMatchesFilter,
     getActiveEditorView,

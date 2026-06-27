@@ -610,6 +610,18 @@ ORDER BY ordinal_position;`;
     return `TRUNCATE TABLE ${qualifiedName};`;
   }
 
+  // --- Query analysis ----------------------------------------------------
+  /**
+   * Plain ANSI `EXPLAIN <stmt>` — safe (plan-only, never executes the wrapped
+   * statement). Dialects whose EXPLAIN differs (e.g. SQL Server) override this.
+   * Returns null for an empty statement so the Explain action is a no-op.
+   */
+  buildExplainQuery(query: string): string | null {
+    const trimmed = query.trim().replace(/;\s*$/, "");
+    if (!trimmed) return null;
+    return `EXPLAIN ${trimmed};`;
+  }
+
   // --- Database-level templates ------------------------------------------
   buildCreateDatabaseTemplate(): string {
     return "CREATE DATABASE new_database;";
