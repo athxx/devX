@@ -1736,6 +1736,33 @@ WHERE ${whereClause};`;
     });
   }
 
+  /**
+   * Open a fresh editable query tab pre-filled with generated SQL (e.g. the
+   * structure editor's ALTER preview). Always forceNew — the DDL is a draft the
+   * user reviews and runs by hand, never auto-executed.
+   */
+  async function openDdlTab(
+    connection: DbConnection,
+    title: string,
+    ddl: string,
+  ) {
+    await commitWorkspace((draft) => {
+      if (!draft.connectedConnectionIds.includes(connection.id)) {
+        draft.connectedConnectionIds = [
+          connection.id,
+          ...draft.connectedConnectionIds,
+        ];
+      }
+      draft.activeConnectionId = connection.id;
+      const tab = createDbTab(connection, "query");
+      tab.title = title;
+      tab.query = ddl;
+      draft.tabsById[tab.id] = tab;
+      draft.openTabIds.push(tab.id);
+      draft.activeTabId = tab.id;
+    });
+  }
+
   async function connectSavedConnection(connection: DbConnection) {
     setSavedConnectionsError(null);
     setPendingConnectionId(connection.id);
@@ -2326,6 +2353,7 @@ WHERE ${whereClause};`;
     getEffectiveQuery,
     applyTextResult,
     openConnectionTab,
+    openDdlTab,
     connectSavedConnection,
     expandConnection,
     focusConnectedConnection,

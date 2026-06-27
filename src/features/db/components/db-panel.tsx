@@ -817,6 +817,8 @@ function DbPanelInner() {
                         {
                           forceNew: true,
                           titleSuffix: "Structure",
+                          tabType: "structure",
+                          source: buildSourceFromNode(node),
                         },
                       )
                     }

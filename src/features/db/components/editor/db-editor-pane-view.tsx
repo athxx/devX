@@ -7,6 +7,7 @@ import { DbEditorPane } from "../db-editor-pane";
 import { DbResultsPane } from "../db-results-pane";
 import { ShortcutHintButton } from "../db-icons";
 import { DbResultsView } from "../grid/db-results-view";
+import { DbStructureView } from "../structure/db-structure-view";
 import { useDbPanel } from "../db-panel-context";
 
 export function DbEditorPaneView() {
@@ -50,7 +51,10 @@ export function DbEditorPaneView() {
       return <div class="min-h-0 flex-1" />;
     }
 
-    const readOnlyEditor = tab.type === "structure";
+    if (tab.type === "structure") {
+      return <DbStructureView />;
+    }
+
     const detail = getTabObjectDetail(tab) ?? getActiveObjectDetail();
     const databaseTargets = getSameKindDatabaseTargets(connection, {
       connectionId: tab.connectionId,
@@ -206,7 +210,6 @@ export function DbEditorPaneView() {
                 tab.databaseName || getDefaultSchemaName(connection)
               }
               value={liveQueryByTabId()[tab.id] ?? tab.query}
-              readOnly={readOnlyEditor}
               onChange={(value) => updateActiveQuery(value)}
               onRun={() => void runCurrentTab()}
               onCompact={() => {
