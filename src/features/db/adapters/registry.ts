@@ -15,13 +15,11 @@ import { ClickHouseAdapter } from "./clickhouse";
 import { OracleAdapter } from "./oracle";
 import { SqliteAdapter } from "./sqlite";
 import { SqlServerAdapter } from "./sqlserver";
-import { MariaDbAdapter } from "./mariadb";
 import { OceanBaseAdapter } from "./oceanbase";
 import { DorisAdapter } from "./doris";
 import { StarRocksAdapter } from "./starrocks";
 import { CockroachDbAdapter } from "./cockroachdb";
 import { KingBaseAdapter } from "./kingbase";
-import { OpenGaussAdapter } from "./opengauss";
 import { DamengAdapter } from "./dameng";
 import { ElasticsearchAdapter } from "./elasticsearch";
 import { BigtableAdapter } from "./bigtable";
@@ -37,13 +35,11 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   oracle: new OracleAdapter(),
   sqlite: new SqliteAdapter(),
   sqlserver: new SqlServerAdapter(),
-  mariadb: new MariaDbAdapter(),
   oceanbase: new OceanBaseAdapter(),
   doris: new DorisAdapter(),
   starrocks: new StarRocksAdapter(),
   cockroachdb: new CockroachDbAdapter(),
   kingbase: new KingBaseAdapter(),
-  opengauss: new OpenGaussAdapter(),
   dameng: new DamengAdapter(),
   elasticsearch: new ElasticsearchAdapter(),
   bigtable: new BigtableAdapter(),

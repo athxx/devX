@@ -1,5 +1,148 @@
-import type { JSX } from "solid-js";
+import type { Component, JSX } from "solid-js";
 import { Show, createSignal, onCleanup } from "solid-js";
+import {
+  ArrowDown,
+  ArrowDownUp as ArrowUpDown,
+  ArrowRightLeft,
+  ArrowUp,
+  Braces,
+  ChevronDown,
+  ChevronRight,
+  ChevronsDown,
+  CircleDot,
+  Code as Code2,
+  Columns3,
+  Copy,
+  CopyPlus,
+  Database,
+  Download,
+  Eraser,
+  FileCode,
+  FileDown,
+  FileText,
+  Filter,
+  Folder,
+  FolderPlus,
+  KeyRound,
+  ListTree,
+  Loader as Loader2,
+  Maximize2,
+  Network,
+  Pencil,
+  PencilRuler,
+  Pin,
+  Play,
+  Plug,
+  Plus,
+  RefreshCw,
+  Rows3,
+  Scissors,
+  Search,
+  Sigma,
+  SquareDashed,
+  SquareTerminal as TerminalSquare,
+  Table2,
+  TableProperties,
+  Trash2,
+  Undo2,
+  Unplug,
+  Upload,
+  Waypoints,
+  type LucideProps,
+} from "lucide-solid";
+import type { DbConnectionKind } from "../models";
+
+// ── Lucide mapping layer ────────────────────────────────────────────────────
+// dbx uses Lucide throughout its menus/tree/tabs. We map the exact icon names
+// dbx references to lucide-solid components so call sites can pass a stable
+// string name (see ContextMenuItem.icon) without importing icons individually.
+// A few dbx names are legacy aliases; we alias them to the current Lucide
+// component above (Code2→Code, Loader2→Loader, ArrowUpDown→ArrowDownUp,
+// TerminalSquare→SquareTerminal).
+const ICONS = {
+  Pin,
+  Plug,
+  Unplug,
+  TerminalSquare,
+  RefreshCw,
+  Pencil,
+  Trash2,
+  Copy,
+  Database,
+  TableProperties,
+  FileCode,
+  Code2,
+  Play,
+  Plus,
+  FolderPlus,
+  Network,
+  Search,
+  Upload,
+  Download,
+  ArrowRightLeft,
+  Scissors,
+  Eraser,
+  ChevronRight,
+  ChevronDown,
+  ChevronsDown,
+  Loader2,
+  Filter,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  Maximize2,
+  ListTree,
+  CopyPlus,
+  Undo2,
+  FileDown,
+  Rows3,
+  SquareDashed,
+  Table2,
+  PencilRuler,
+  FileText,
+  Folder,
+  Columns3,
+  KeyRound,
+  CircleDot,
+  Waypoints,
+  Sigma,
+  Braces,
+} satisfies Record<string, Component<LucideProps>>;
+
+export type DbIconName = keyof typeof ICONS;
+
+/** Render a Lucide icon by its dbx name. Falls back to nothing if unknown. */
+export function Icon(props: { name: DbIconName } & LucideProps) {
+  const Cmp = ICONS[props.name];
+  return <Cmp {...(props as LucideProps)} />;
+}
+
+// ── Per-kind vendor database icon ───────────────────────────────────────────
+// dbx ships per-vendor SVGs under /icons/database/{kind}.svg. We mirror that:
+// DatabaseIcon tries the vendor SVG, falling back to the generic Lucide
+// Database glyph (blue) when the asset is missing — matching DatabaseIcon.vue.
+export function DatabaseIcon(props: {
+  kind: DbConnectionKind;
+  class?: string;
+}) {
+  const [failed, setFailed] = createSignal(false);
+  return (
+    <Show
+      when={!failed()}
+      fallback={
+        <Database class={`h-4 w-4 shrink-0 text-blue-400 ${props.class ?? ""}`} />
+      }
+    >
+      <img
+        src={`/icons/database/${props.kind}.svg`}
+        alt=""
+        aria-hidden="true"
+        class={`h-4 w-4 shrink-0 object-contain ${props.class ?? ""}`}
+        onError={() => setFailed(true)}
+      />
+    </Show>
+  );
+}
 
 export function DatabaseFolderIcon(props: { active?: boolean }) {
   return (

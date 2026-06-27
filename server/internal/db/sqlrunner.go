@@ -206,7 +206,7 @@ func buildDialector(driver, dsn string) (gorm.Dialector, error) {
 		return mysql.Open(dsn), nil
 	case "tidb":
 		return mysql.Open(dsn), nil
-	case "mariadb", "oceanbase", "doris", "starrocks":
+	case "oceanbase", "doris", "starrocks":
 		// MySQL-wire compatible; reuse the MySQL dialector and tcp(...) DSN.
 		return mysql.Open(dsn), nil
 	case "sqlite":
@@ -216,9 +216,6 @@ func buildDialector(driver, dsn string) (gorm.Dialector, error) {
 	case "cockroachdb", "kingbase":
 		// PostgreSQL-wire compatible; reuse the PostgreSQL dialector.
 		return postgres.Open(dsn), nil
-	case "opengauss":
-		// openGauss shares GaussDB's protocol and keyword DSN.
-		return gaussdb.Open(dsn), nil
 	case "sqlserver", "mssql":
 		return sqlserver.Open(dsn), nil
 	case "oracle":

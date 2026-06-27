@@ -9,13 +9,11 @@ export type DbConnectionKind =
   | "sqlite"
   | "sqlserver"
   | "tidb"
-  | "mariadb"
   | "oceanbase"
   | "doris"
   | "starrocks"
   | "cockroachdb"
   | "kingbase"
-  | "opengauss"
   | "dameng"
   | "elasticsearch"
   | "bigtable";
@@ -116,26 +114,28 @@ export type DbExplorerLeafKind =
   | "collection"
   | "key";
 
-export type DbExplorerNode =
-  | {
-      id: string;
-      kind: "group";
-      groupKind: DbExplorerGroupKind;
-      label: string;
-      description?: string;
-      children: DbExplorerNode[];
-      lazy?: boolean;
-    }
-  | {
-      id: string;
-      kind: DbExplorerLeafKind;
-      label: string;
-      description?: string;
-      query: string;
-      countQuery?: string;
-      schemaName?: string;
-      qualifiedName?: string;
-    };
+export type DbExplorerGroupNode = {
+  id: string;
+  kind: "group";
+  groupKind: DbExplorerGroupKind;
+  label: string;
+  description?: string;
+  children: DbExplorerNode[];
+  lazy?: boolean;
+};
+
+export type DbExplorerLeafNode = {
+  id: string;
+  kind: DbExplorerLeafKind;
+  label: string;
+  description?: string;
+  query: string;
+  countQuery?: string;
+  schemaName?: string;
+  qualifiedName?: string;
+};
+
+export type DbExplorerNode = DbExplorerGroupNode | DbExplorerLeafNode;
 
 export type DbResultPayload =
   | {

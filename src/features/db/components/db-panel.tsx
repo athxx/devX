@@ -5,7 +5,12 @@ import { WorkspaceSidebarLayout } from "../../../components/workspace-sidebar-la
 import { shortcutLabel } from "../../../lib/shortcuts";
 import { DbConnectionsPane } from "./db-connections-pane";
 import { DbConnectionModal } from "./db-connection-modal";
-import { DbContextMenu } from "./db-context-menus";
+import { ContextMenu } from "./db-menu";
+import {
+  connectionMenuItems,
+  explorerNodeMenuItems,
+  tabMenuItems,
+} from "./db-menu-items";
 import { DbSavedConnectionsModal } from "./db-saved-connections-modal";
 import type { DbConnection, DbConnectionKind } from "../models";
 import { getDbAdapter } from "../adapters/registry";
@@ -36,6 +41,7 @@ export function DbPanel(props: DbPanelProps) {
 }
 
 function DbPanelInner() {
+  const db = useDbPanel();
   const {
     props,
     activeConnection,
@@ -127,7 +133,7 @@ function DbPanelInner() {
     reorderTabsToEnd,
     disconnectConnection,
     removeSavedConnection,
-  } = useDbPanel();
+  } = db;
 
   return (
     <>
@@ -534,76 +540,24 @@ function DbPanelInner() {
         )}
       </Show>
 
-      <Show when={connectionMenu()} keyed>
-        {(menu) => {
+      <ContextMenu
+        position={connectionMenu()}
+        items={(() => {
+          const menu = connectionMenu();
+          if (!menu) return [];
           const connection = connectionMap().get(menu.id);
-          if (!connection) return null;
+          if (!connection) return [];
+          return connectionMenuItems(connection, db);
+        })()}
+        onClose={() => setConnectionMenu(null)}
+        zIndex={300}
+      />
 
-          return (
-            <DbContextMenu open={true} menu={menu} zIndex={300}>
-              <button
-                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() => void openConnectionTab(connection, true)}
-              >
-                New Query
-              </button>
-              <button
-                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() => void refreshConnectionExplorer(connection)}
-              >
-                Refresh
-              </button>
-              <Show when={canCreateDatabase(connection)}>
-                <button
-                  class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                  onClick={() =>
-                    void openConnectionActionQuery(
-                      connection,
-                      "Create Database",
-                      buildCreateDatabaseTemplate(connection),
-                      { forceNew: true, resultView: "raw" },
-                    )
-                  }
-                >
-                  Create Database
-                </button>
-              </Show>
-              <Show when={canShowConnectionSummary(connection)}>
-                <button
-                  class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                  onClick={() =>
-                    void openConnectionActionQuery(
-                      connection,
-                      "Summary",
-                      buildConnectionSummaryQuery(connection),
-                      {
-                        forceNew: true,
-                        resultView:
-                          getDbAdapter(connection.kind).isDocumentStore() ||
-                          getDbAdapter(connection.kind).isSearchStore() ||
-                          getDbAdapter(connection.kind).isWideColumn()
-                            ? "raw"
-                            : "table",
-                      },
-                    )
-                  }
-                >
-                  Summary
-                </button>
-              </Show>
-              <button
-                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() => void disconnectConnection(connection.id)}
-              >
-                Disconnect
-              </button>
-            </DbContextMenu>
-          );
-        }}
-      </Show>
-
-      <Show when={explorerNodeMenu()} keyed>
-        {(menu) => {
+      <ContextMenu
+        position={explorerNodeMenu()}
+        items={(() => {
+          const menu = explorerNodeMenu();
+          if (!menu) return [];
           const connection = connectionMap().get(menu.connectionId);
           const node = connection
             ? findExplorerNode(
@@ -611,448 +565,24 @@ function DbPanelInner() {
                 menu.nodeId,
               )
             : null;
-          if (!connection || !node) return null;
-          if (node.kind === "group") {
-            const databaseName = node.label;
-            const showExtendedMenu =
-              !getDbAdapter(connection.kind).isKeyValueStore() &&
-              !getDbAdapter(connection.kind).isSearchStore() &&
-              !getDbAdapter(connection.kind).isWideColumn();
+          if (!connection || !node) return [];
+          return explorerNodeMenuItems(connection, node, db);
+        })()}
+        onClose={() => setExplorerNodeMenu(null)}
+        zIndex={305}
+      />
 
-            return (
-              <DbContextMenu open={true} menu={menu} zIndex={305}>
-                <button
-                  class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                  onClick={() =>
-                    void openConnectionTab(connection, true, databaseName)
-                  }
-                >
-                  New Query
-                </button>
-                <Show when={showExtendedMenu}>
-                  <>
-                    <button
-                      class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                      onClick={() =>
-                        void openConnectionActionQuery(
-                          connection,
-                          `${databaseName} · New Table`,
-                          buildCreateTableTemplate(connection, databaseName),
-                          { forceNew: true, resultView: "raw", databaseName },
-                        )
-                      }
-                    >
-                      New Table
-                    </button>
-                    <div
-                      class="my-1 h-px"
-                      style={{ background: "var(--app-border)" }}
-                    />
-                    <button
-                      class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                      onClick={() => void copyTextValue(databaseName)}
-                    >
-                      Copy Name
-                    </button>
-                    <div
-                      class="my-1 h-px"
-                      style={{ background: "var(--app-border)" }}
-                    />
-                    <div class="group relative">
-                      <button class="theme-sidebar-item flex w-full items-center justify-between gap-3 whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm">
-                        <span>Import</span>
-                        <span class="theme-text-soft text-[10px]">&gt;</span>
-                      </button>
-                      <div
-                        class="theme-panel-soft invisible absolute left-full top-0 z-[306] ml-1 grid min-w-[160px] auto-cols-max rounded-[18px] border p-1.5 opacity-0 shadow-[0_18px_45px_rgba(15,23,42,0.18)] transition group-hover:visible group-hover:opacity-100"
-                        style={{ "border-color": "var(--app-border)" }}
-                      >
-                        <button
-                          class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                          onClick={() =>
-                            void openConnectionActionQuery(
-                              connection,
-                              `${databaseName} · Import SQL`,
-                              buildImportTemplate(
-                                connection,
-                                databaseName,
-                                "sql",
-                              ),
-                              {
-                                forceNew: true,
-                                resultView: "raw",
-                                databaseName,
-                              },
-                            )
-                          }
-                        >
-                          From SQL
-                        </button>
-                        <button
-                          class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                          onClick={() =>
-                            void openConnectionActionQuery(
-                              connection,
-                              `${databaseName} · Import JSON`,
-                              buildImportTemplate(
-                                connection,
-                                databaseName,
-                                "json",
-                              ),
-                              {
-                                forceNew: true,
-                                resultView: "raw",
-                                databaseName,
-                              },
-                            )
-                          }
-                        >
-                          From JSON
-                        </button>
-                        <button
-                          class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                          onClick={() =>
-                            void openConnectionActionQuery(
-                              connection,
-                              `${databaseName} · Import CSV`,
-                              buildImportTemplate(
-                                connection,
-                                databaseName,
-                                "csv",
-                              ),
-                              {
-                                forceNew: true,
-                                resultView: "raw",
-                                databaseName,
-                              },
-                            )
-                          }
-                        >
-                          From CSV
-                        </button>
-                      </div>
-                    </div>
-                    <button
-                      class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                      onClick={() =>
-                        openDatabaseExportModal(connection.id, databaseName)
-                      }
-                    >
-                      Export
-                    </button>
-                    <div
-                      class="my-1 h-px"
-                      style={{ background: "var(--app-border)" }}
-                    />
-                    <button
-                      class="whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm text-[#b42318] transition hover:bg-[rgba(180,35,24,0.08)]"
-                      onClick={() => {
-                        if (
-                          !window.confirm(
-                            `Drop database \"${databaseName}\"? This only opens the command template.`,
-                          )
-                        ) {
-                          return;
-                        }
-                        void openConnectionActionQuery(
-                          connection,
-                          `${databaseName} · Drop Database`,
-                          buildDropDatabaseTemplate(connection, databaseName),
-                          { forceNew: true, resultView: "raw", databaseName },
-                        );
-                      }}
-                    >
-                      Drop Database
-                    </button>
-                  </>
-                </Show>
-              </DbContextMenu>
-            );
-          }
-
-          const qualifiedName = node.qualifiedName ?? node.label;
-          const isTableLike = node.kind === "table" || node.kind === "view";
-          const isSqlObject =
-            node.kind === "table" ||
-            node.kind === "view" ||
-            node.kind === "function";
-
-          return (
-            <DbContextMenu open={true} menu={menu} zIndex={305}>
-              <Show when={isTableLike}>
-                <>
-                  <button
-                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                    onClick={() => void inspectExplorerLeaf(connection, node)}
-                  >
-                    Inspect
-                  </button>
-                  <button
-                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                    onClick={() =>
-                      void openExplorerQuery(
-                        connection,
-                        node,
-                        getNodeOpenQuery(connection, node),
-                        {
-                          forceNew: true,
-                          source: buildSourceFromNode(node),
-                        },
-                      )
-                    }
-                  >
-                    Open data
-                  </button>
-                </>
-              </Show>
-              <Show when={isSqlObject}>
-                <>
-                  <button
-                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                    onClick={() =>
-                      void openExplorerQuery(
-                        connection,
-                        node,
-                        buildExplorerStructureQuery(connection, node),
-                        {
-                          forceNew: true,
-                          titleSuffix: "Structure",
-                          tabType: "structure",
-                          source: buildSourceFromNode(node),
-                        },
-                      )
-                    }
-                  >
-                    Open structure
-                  </button>
-                  <button
-                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                    onClick={() =>
-                      void openExplorerQuery(
-                        connection,
-                        node,
-                        buildExplorerShowSqlQuery(connection, node),
-                        {
-                          forceNew: true,
-                          titleSuffix: "SQL",
-                        },
-                      )
-                    }
-                  >
-                    Show SQL
-                  </button>
-                </>
-              </Show>
-              <Show when={isTableLike || isSqlObject}>
-                <div
-                  class="my-1 h-px"
-                  style={{ background: "var(--app-border)" }}
-                />
-              </Show>
-              <Show when={isTableLike}>
-                <>
-                  <button
-                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                    onClick={() =>
-                      void openExplorerQuery(
-                        connection,
-                        node,
-                        getNodeOpenQuery(connection, node),
-                        {
-                          forceNew: true,
-                          titleSuffix: "Select",
-                          source: buildSourceFromNode(node),
-                        },
-                      )
-                    }
-                  >
-                    Select template
-                  </button>
-                  <button
-                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                    onClick={() =>
-                      void openExplorerQuery(
-                        connection,
-                        node,
-                        `INSERT INTO ${qualifiedName} ()\nVALUES ();`,
-                        {
-                          forceNew: true,
-                          titleSuffix: "Insert",
-                        },
-                      )
-                    }
-                  >
-                    Insert template
-                  </button>
-                  <button
-                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                    onClick={() =>
-                      void openExplorerQuery(
-                        connection,
-                        node,
-                        `UPDATE ${qualifiedName}\nSET \nWHERE ;`,
-                        {
-                          forceNew: true,
-                          titleSuffix: "Update",
-                        },
-                      )
-                    }
-                  >
-                    Update template
-                  </button>
-                  <button
-                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                    onClick={() =>
-                      void openExplorerQuery(
-                        connection,
-                        node,
-                        `DELETE FROM ${qualifiedName}\nWHERE ;`,
-                        {
-                          forceNew: true,
-                          titleSuffix: "Delete",
-                        },
-                      )
-                    }
-                  >
-                    Delete template
-                  </button>
-                </>
-              </Show>
-              <Show when={node.countQuery}>
-                <button
-                  class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                  onClick={() =>
-                    void openExplorerQuery(connection, node, node.countQuery!, {
-                      forceNew: true,
-                      titleSuffix: "Count",
-                    })
-                  }
-                >
-                  COUNT(*)
-                </button>
-              </Show>
-              <Show when={node.kind === "table"}>
-                <>
-                  <div
-                    class="my-1 h-px"
-                    style={{ background: "var(--app-border)" }}
-                  />
-                  <button
-                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                    onClick={() =>
-                      void openExplorerQuery(
-                        connection,
-                        node,
-                        `DROP TABLE ${qualifiedName};`,
-                        {
-                          forceNew: true,
-                          titleSuffix: "Drop",
-                        },
-                      )
-                    }
-                  >
-                    Drop table
-                  </button>
-                  <button
-                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                    onClick={() =>
-                      void openExplorerQuery(
-                        connection,
-                        node,
-                        buildExplorerRenameQuery(connection, node),
-                        {
-                          forceNew: true,
-                          titleSuffix: "Rename",
-                        },
-                      )
-                    }
-                  >
-                    Rename table
-                  </button>
-                  <button
-                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                    onClick={() =>
-                      void openExplorerQuery(
-                        connection,
-                        node,
-                        buildExplorerTruncateQuery(connection, node),
-                        {
-                          forceNew: true,
-                          titleSuffix: "Truncate",
-                        },
-                      )
-                    }
-                  >
-                    Truncate table
-                  </button>
-                  <button
-                    class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                    onClick={() => void copyExplorerNodeName(node)}
-                  >
-                    Copy table name
-                  </button>
-                </>
-              </Show>
-              <button
-                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() =>
-                  void openExplorerQuery(
-                    connection,
-                    node,
-                    getNodeOpenQuery(connection, node),
-                    {
-                      forceNew: true,
-                      source: buildSourceFromNode(node),
-                    },
-                  )
-                }
-              >
-                Open In New Tab
-              </button>
-            </DbContextMenu>
-          );
-        }}
-      </Show>
-
-      <Show when={tabMenu()} keyed>
-        {(menu) => {
+      <ContextMenu
+        position={tabMenu()}
+        items={(() => {
+          const menu = tabMenu();
+          if (!menu) return [];
           const isPinned = workspace().pinnedTabIds.includes(menu.id);
-          return (
-            <DbContextMenu open={true} menu={menu} zIndex={310}>
-              <button
-                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() => void togglePinnedTab(menu.id)}
-              >
-                {isPinned ? "Unpin Tab" : "Pin Tab"}
-              </button>
-              <button
-                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() => void duplicateTab(menu.id)}
-              >
-                Duplicate Tab
-              </button>
-              <button
-                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() => void copyTabName(menu.id)}
-              >
-                Copy Name
-              </button>
-              <button
-                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() => void closeOtherTabs(menu.id)}
-              >
-                Close Others
-              </button>
-              <button
-                class="theme-sidebar-item whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm"
-                onClick={() => void closeAllTabs()}
-              >
-                Close All
-              </button>
-            </DbContextMenu>
-          );
-        }}
-      </Show>
+          return tabMenuItems(menu.id, isPinned, db);
+        })()}
+        onClose={() => setTabMenu(null)}
+        zIndex={310}
+      />
     </>
   );
 }

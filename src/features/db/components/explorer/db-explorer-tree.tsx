@@ -4,6 +4,7 @@ import { ControlDot } from "../../../../components/ui-primitives";
 import type { DbConnection, DbExplorerNode } from "../../models";
 import {
   DatabaseFolderIcon,
+  DatabaseIcon,
   DatabaseStackIcon,
   ExplorerLeafIcon,
   TreeChevronIcon,
@@ -60,6 +61,18 @@ export function DbExplorerTree(props: { connection: DbConnection }): JSX.Element
           <div
             class="theme-sidebar-item flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5"
             style={{ "padding-left": paddingLeft }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setExplorerNodeMenu({
+                connectionId: connection.id,
+                nodeId: node.id,
+                x: event.clientX,
+                y: event.clientY,
+              });
+              setConnectionMenu(null);
+              setTabMenu(null);
+            }}
           >
             <button
               class="-ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-md text-[11px]"
@@ -186,6 +199,7 @@ export function DbExplorerTree(props: { connection: DbConnection }): JSX.Element
           </button>
           <button class="min-w-0 flex-1 text-left">
             <div class="flex min-w-0 items-center gap-2">
+              <DatabaseIcon kind={connection.kind} />
               <span class={`${badge.class} shrink-0`}>{badge.label}</span>
               <p
                 class="truncate text-[13px] font-medium"
