@@ -94,6 +94,11 @@ export function createExecutionStore(deps: {
   const [clientSortByTabId, setClientSortByTabId] = createSignal<
     Record<string, DbSortOrder>
   >({});
+  // Per-tab set of HIDDEN result columns. Purely presentational (filters the
+  // columns handed to the grid); never touches the query or the row data.
+  const [hiddenColumnsByTabId, setHiddenColumnsByTabId] = createSignal<
+    Record<string, string[]>
+  >({});
 
   function loadAndCacheSchema(
     connection: DbConnection,
@@ -244,6 +249,40 @@ export function createExecutionStore(deps: {
     return clientSortByTabId()[tabId];
   }
 
+  function getHiddenColumns(tabId: string): string[] {
+    return hiddenColumnsByTabId()[tabId] ?? [];
+  }
+
+  /** Filter a column list down to the ones not hidden for this tab. */
+  function getVisibleColumns(tabId: string, columns: string[]): string[] {
+    const hidden = hiddenColumnsByTabId()[tabId];
+    if (!hidden?.length) return columns;
+    const hiddenSet = new Set(hidden);
+    return columns.filter((column) => !hiddenSet.has(column));
+  }
+
+  function toggleColumnVisibility(tabId: string, column: string) {
+    setHiddenColumnsByTabId((current) => {
+      const existing = current[tabId] ?? [];
+      const next = existing.includes(column)
+        ? existing.filter((entry) => entry !== column)
+        : [...existing, column];
+      if (next.length === 0) {
+        const { [tabId]: _omit, ...rest } = current;
+        return rest;
+      }
+      return { ...current, [tabId]: next };
+    });
+  }
+
+  function resetColumnVisibility(tabId: string) {
+    setHiddenColumnsByTabId((current) => {
+      if (!(tabId in current)) return current;
+      const { [tabId]: _omit, ...rest } = current;
+      return rest;
+    });
+  }
+
   /** Cycle an ad-hoc result column asc → desc → unsorted (mirrors server sort). */
   function toggleClientSort(tabId: string, column: string) {
     setClientSortByTabId((current) => {
@@ -324,6 +363,8 @@ export function createExecutionStore(deps: {
     setLiveQueryByTabId,
     clientSortByTabId,
     setClientSortByTabId,
+    hiddenColumnsByTabId,
+    setHiddenColumnsByTabId,
     // methods
     loadAndCacheSchema,
     cancelCurrentExecution,
@@ -340,5 +381,9 @@ export function createExecutionStore(deps: {
     getClientSort,
     toggleClientSort,
     sortRowsForClient,
+    getHiddenColumns,
+    getVisibleColumns,
+    toggleColumnVisibility,
+    resetColumnVisibility,
   };
 }

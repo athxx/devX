@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { DbResultGrid } from "../db-result-grid";
 import { canCancelDbExecution } from "../../service";
 import type { DbResultPayload } from "../../models";
@@ -38,8 +38,14 @@ export function DbResultsView() {
     getClientSort,
     toggleClientSort,
     sortRowsForClient,
+    getHiddenColumns,
+    getVisibleColumns,
+    toggleColumnVisibility,
+    resetColumnVisibility,
     saveEditedRow,
   } = useDbPanel();
+
+  const [columnMenuOpen, setColumnMenuOpen] = createSignal(false);
 
   function renderRedisResult(
     result: Extract<DbResultPayload, { kind: "redis" }>,
@@ -202,6 +208,9 @@ export function DbResultsView() {
       currentPage * pageSize,
     );
     const activeSort = tab.source?.sort ?? getClientSort(tab.id);
+    const allColumns = sqlResult?.data.columns ?? [];
+    const visibleColumns = getVisibleColumns(tab.id, allColumns);
+    const hiddenColumns = getHiddenColumns(tab.id);
     const activeDetail = getTabObjectDetail(tab) ?? getActiveObjectDetail();
     const dirtyRowKeys = Object.keys(getEditedRows(tab.id));
     const editableSql = Boolean(
@@ -277,6 +286,66 @@ export function DbResultsView() {
             </Show>
           </div>
           <div class="flex items-center gap-2">
+            <Show when={sqlResult && allColumns.length > 0}>
+              <div class="relative">
+                <button
+                  class="theme-control h-7 rounded-md px-2.5 text-[11px]"
+                  onClick={() => setColumnMenuOpen((open) => !open)}
+                >
+                  Columns
+                  <Show when={hiddenColumns.length > 0}>
+                    {" "}
+                    <span class="text-[var(--app-accent)]">
+                      ({visibleColumns.length}/{allColumns.length})
+                    </span>
+                  </Show>
+                </button>
+                <Show when={columnMenuOpen()}>
+                  <div
+                    class="theme-panel-soft absolute right-0 z-20 mt-1 max-h-72 w-52 overflow-auto rounded-lg border p-1 shadow-lg"
+                    style={{ "border-color": "var(--app-border)" }}
+                  >
+                    <div class="flex items-center justify-between px-2 py-1">
+                      <span class="theme-text-soft text-[10px] uppercase tracking-[0.14em]">
+                        Columns
+                      </span>
+                      <button
+                        class="theme-text-soft text-[10px] hover:text-[var(--app-text)]"
+                        disabled={hiddenColumns.length === 0}
+                        onClick={() => resetColumnVisibility(tab.id)}
+                      >
+                        Show all
+                      </button>
+                    </div>
+                    <For each={allColumns}>
+                      {(column) => {
+                        const hidden = hiddenColumns.includes(column);
+                        const lastVisible =
+                          !hidden && visibleColumns.length <= 1;
+                        return (
+                          <label
+                            class="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-[11px] hover:bg-[var(--app-hover)]"
+                            classList={{ "opacity-50": lastVisible }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={!hidden}
+                              disabled={lastVisible}
+                              onChange={() =>
+                                toggleColumnVisibility(tab.id, column)
+                              }
+                            />
+                            <span class="overflow-hidden text-ellipsis whitespace-nowrap">
+                              {column}
+                            </span>
+                          </label>
+                        );
+                      }}
+                    </For>
+                  </div>
+                </Show>
+              </div>
+            </Show>
             <button
               class="theme-control h-7 rounded-md px-2.5 text-[11px]"
               disabled={!result}
@@ -370,7 +439,7 @@ export function DbResultsView() {
                 >
                   <div class="min-h-0 flex-1">
                     <DbResultGrid
-                      columns={sqlResult?.data.columns ?? []}
+                      columns={visibleColumns}
                       rows={pagedRows}
                       editable={editableSql}
                       dirtyRowKeys={dirtyRowKeys}

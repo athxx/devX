@@ -318,6 +318,8 @@ export function createDbPanelState(props: DbPanelProps) {
     setLiveQueryByTabId,
     clientSortByTabId,
     setClientSortByTabId,
+    hiddenColumnsByTabId,
+    setHiddenColumnsByTabId,
     loadAndCacheSchema,
     cancelCurrentExecution,
     getActiveResultRows,
@@ -333,6 +335,10 @@ export function createDbPanelState(props: DbPanelProps) {
     getClientSort,
     toggleClientSort,
     sortRowsForClient,
+    getHiddenColumns,
+    getVisibleColumns,
+    toggleColumnVisibility,
+    resetColumnVisibility,
   } = executionStore;
   let queryPersistTimer: ReturnType<typeof setTimeout> | null = null;
   let activeEditorView: EditorView | null = null;
@@ -1564,6 +1570,11 @@ WHERE ${whereClause};`;
         Object.entries(current).filter(([tabId]) => !tabIds.includes(tabId)),
       ),
     );
+    setHiddenColumnsByTabId((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([tabId]) => !tabIds.includes(tabId)),
+      ),
+    );
   }
 
   async function saveConnectionDraft() {
@@ -2148,6 +2159,8 @@ WHERE ${whereClause};`;
     liveQueryByTabId,
     clientSortByTabId,
     setClientSortByTabId,
+    hiddenColumnsByTabId,
+    setHiddenColumnsByTabId,
     loadingExplorerNodeIds,
     normalizedFilter,
     normalizedSavedConnectionsFilter,
@@ -2303,6 +2316,10 @@ WHERE ${whereClause};`;
     getClientSort,
     toggleClientSort,
     sortRowsForClient,
+    getHiddenColumns,
+    getVisibleColumns,
+    toggleColumnVisibility,
+    resetColumnVisibility,
     flushLiveQuery,
     updateActiveQuery,
     getEditorSelection,
