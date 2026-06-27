@@ -1,0 +1,861 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
+package zorm
+
+import (
+	"context"
+	"crypto/rand"
+	"database/sql"
+	"errors"
+	"fmt"
+	"math/big"
+	"reflect"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// wrapPageSQL 包装分页的SQL语句
+// wrapPageSQL SQL statement for wrapping paging
+var wrapPageSQL = func(ctx context.Context, config *DataSourceConfig, finder *Finder, page *Page) (string, error) {
+	// 获取到没有page的sql的语句
+	// Get the SQL statement without page.
+	sqlstr, err := finder.GetSQL()
+	if err != nil {
+		return "", err
+	}
+
+	if page.PageNo < 1 { // 默认第一页
+		page.PageNo = 1
+	}
+	var sqlbuilder strings.Builder
+	sqlbuilder.Grow(stringBuilderGrowLen)
+	sqlbuilder.WriteString(sqlstr)
+	switch config.Dialect {
+	case "mysql", "sqlite", "dm", "gbase", "clickhouse", "tdengine", "db2": // MySQL,sqlite3,dm,南通,clickhouse,TDengine,db2 7.2+
+		sqlbuilder.WriteString(" LIMIT ")
+		sqlbuilder.WriteString(strconv.Itoa(page.PageSize * (page.PageNo - 1)))
+		sqlbuilder.WriteByte(',')
+		sqlbuilder.WriteString(strconv.Itoa(page.PageSize))
+
+	case "postgresql", "kingbase", "shentong": // postgresql,kingbase,神通数据库
+		sqlbuilder.WriteString(" LIMIT ")
+		sqlbuilder.WriteString(strconv.Itoa(page.PageSize))
+		sqlbuilder.WriteString(" OFFSET ")
+		sqlbuilder.WriteString(strconv.Itoa(page.PageSize * (page.PageNo - 1)))
+	case "mssql": // sqlserver 2012+
+		sqlPart := finder.sqlPartCache
+		if sqlPart.OrderBy.Start == sqlPart.OrderBy.End { // 如果没有 order by,增加默认的排序
+			sqlbuilder.WriteString(" ORDER BY (SELECT NULL) ")
+		}
+		sqlbuilder.WriteString(" OFFSET ")
+		sqlbuilder.WriteString(strconv.Itoa(page.PageSize * (page.PageNo - 1)))
+		sqlbuilder.WriteString(" ROWS FETCH NEXT ")
+		sqlbuilder.WriteString(strconv.Itoa(page.PageSize))
+		sqlbuilder.WriteString(" ROWS ONLY ")
+	case "oracle": // oracle 12c+
+		sqlPart := finder.sqlPartCache
+		if sqlPart.OrderBy.Start == sqlPart.OrderBy.End { // 如果没有 order by,增加默认的排序
+			sqlbuilder.WriteString(" ORDER BY NULL ")
+		}
+		sqlbuilder.WriteString(" OFFSET ")
+		sqlbuilder.WriteString(strconv.Itoa(page.PageSize * (page.PageNo - 1)))
+		sqlbuilder.WriteString(" ROWS FETCH NEXT ")
+		sqlbuilder.WriteString(strconv.Itoa(page.PageSize))
+		sqlbuilder.WriteString(" ROWS ONLY ")
+	default:
+		return "", errors.New("->wrapPageSQL-->不支持的数据库类型:" + config.Dialect)
+
+	}
+	sqlstr = sqlbuilder.String()
+	// return reBuildSQL(dialect, sqlstr)
+	return sqlstr, nil
+}
+
+// wrapInsertSQL  包装保存Struct语句.返回语句,是否自增,错误信息
+// 数组传递,如果外部方法有调用append的逻辑,append会破坏指针引用,所以传递指针
+// wrapInsertSQL Pack and save 'Struct' statement. Return  SQL statement, whether it is incremented, error message
+// Array transfer, if the external method has logic to call append, append will destroy the pointer reference, so the pointer is passed
+var wrapInsertSQL = func(ctx context.Context, entityCache *entityStructCache, config *DataSourceConfig) error {
+	// SQL语句的构造器
+	// SQL statement constructor
+	var insertSQLBuilder strings.Builder
+	insertSQLBuilder.Grow(stringBuilderGrowLen)
+	// sqlBuilder.WriteString(entity.GetTableName())
+	if !config.InsertSQLNoColumn {
+		insertSQLBuilder.WriteByte('(')
+	}
+
+	// SQL语句中,VALUES(?,?,...)语句的构造器
+	// In the SQL statement, the constructor of the VALUES(?,?,...) statement
+	var valueSQLBuilder strings.Builder
+	valueSQLBuilder.Grow(stringBuilderGrowLen)
+	valueSQLBuilder.WriteString("(")
+
+	for i := 0; i < len(entityCache.columns); i++ {
+		column := entityCache.columns[i]
+		if column.isPK && entityCache.autoIncrement == 1 { // 普通自增
+			// 删除主键列
+			entityCache.columns = append(entityCache.columns[:i], entityCache.columns[i+1:]...)
+			i = i - 1
+			continue
+		} else if column.isPK && entityCache.autoIncrement == 2 { // 序列自增
+			// 删除主键列
+			entityCache.columns = append(entityCache.columns[:i], entityCache.columns[i+1:]...)
+			// 构造SQL语句
+			if !config.InsertSQLNoColumn {
+				insertSQLBuilder.WriteString(column.columnTag)
+			}
+			valueSQLBuilder.WriteString(entityCache.pkSequence)
+			i = i - 1
+			// if i > 0 { // i+1<len(*columns)会有风险:id是最后的字段,而且还是自增,被忽略了,但是前面的已经处理,是 逗号, 结尾的,就会bug,实际概率极低
+			if i < len(entityCache.columns)-1 { // 不是最后一个
+				if !config.InsertSQLNoColumn {
+					insertSQLBuilder.WriteByte(',')
+				}
+				valueSQLBuilder.WriteByte(',')
+			}
+			continue
+		}
+		if i > 0 {
+			if !config.InsertSQLNoColumn {
+				insertSQLBuilder.WriteByte(',')
+			}
+			valueSQLBuilder.WriteByte(',')
+		}
+		// 构造SQL语句
+		if !config.InsertSQLNoColumn {
+			insertSQLBuilder.WriteString(column.columnTag)
+		}
+		valueSQLBuilder.WriteByte('?')
+	}
+	if !config.InsertSQLNoColumn {
+		insertSQLBuilder.WriteByte(')')
+	}
+	valueSQLBuilder.WriteByte(')')
+	entityCache.valuesSQL += valueSQLBuilder.String()
+
+	insertSQLBuilder.WriteString(" VALUES")
+	insertSQLBuilder.WriteString(entityCache.valuesSQL)
+	entityCache.insertSQL += insertSQLBuilder.String()
+	/*
+		if config.Dialect == "tdengine" && config.InsertSQLNoColumn { // 如果是tdengine,拼接类似 INSERT INTO table1 values('2','3')  table2 values('4','5'),目前要求字段和类型必须一致,如果不一致,改动略多
+			entityCache.insertSQL += " VALUES" + entityCache.valuesSQL
+		} else {
+			entityCache.insertSQL += insertSQLBuilder.String()
+		}
+	*/
+
+	return nil
+}
+
+// wrapInsertEntityMapSliceSQL 包装批量保存EntityMapSlice语句.返回语句,值,错误信息
+var wrapInsertEntityMapSliceSQL = func(ctx context.Context, config *DataSourceConfig, entityMapSlice []IEntityMap) (*string, *[]interface{}, error) {
+	sliceLen := len(entityMapSlice)
+	sqlstr := ""
+	if entityMapSlice == nil || sliceLen < 1 {
+		return &sqlstr, nil, errors.New("->wrapInsertSliceSQL对象数组不能为空")
+	}
+	// 第一个对象,获取第一个Struct对象,用于获取数据库字段,也获取了值
+	entity := entityMapSlice[0]
+	// 检查是否是指针对象
+	_, err := checkEntityKind(entity)
+	if err != nil {
+		return &sqlstr, nil, err
+	}
+	dbFieldMapKey := entity.GetDBFieldMapKey()
+	// SQL语句
+	inserColumnName, valuesql, values, _, err := wrapInsertValueEntityMapSQL(entity)
+	if err != nil {
+		return &sqlstr, values, err
+	}
+
+	// 用于处理 tdengine 的多条插入语法
+	tableName := entity.GetTableName()
+
+	var sqlBuilder strings.Builder
+	// sqlBuilder.Grow(len(entity.GetTableName()) + len(inserColumnName) + len(valuesql) + 19)
+	sqlBuilder.Grow(stringBuilderGrowLen)
+	sqlBuilder.WriteString("INSERT INTO ")
+	sqlBuilder.WriteString(tableName)
+	// sqlstr = sqlstr + insertsql + " VALUES" + valuesql
+	if !config.InsertSQLNoColumn {
+		sqlBuilder.WriteString(*inserColumnName)
+	}
+	sqlBuilder.WriteString(" VALUES")
+	sqlBuilder.WriteString(*valuesql)
+	for i := 1; i < sliceLen; i++ {
+		// 用于处理 tdengine 批量插入语法
+		newTaableName := entityMapSlice[i].GetTableName()
+		// 拼接字符串
+		// Splicing string
+		if config.Dialect == "tdengine" && tableName != newTaableName { // 如果是tdengine,拼接类似 INSERT INTO table1 values('1','2'),('3','4')  table2 values('5','6'),目前要求字段和类型必须一致,如果不一致,改动略多
+			tableName = newTaableName
+			sqlBuilder.WriteByte(' ')
+			sqlBuilder.WriteString(tableName)
+			sqlBuilder.WriteString(" VALUES")
+		} else { // 标准语法 类似 INSERT INTO table1(id,name) values('2','3'), values('4','5')
+			sqlBuilder.WriteByte(',')
+		}
+		sqlBuilder.WriteString(*valuesql)
+
+		entityMap := entityMapSlice[i]
+		for j := 0; j < len(dbFieldMapKey); j++ {
+			key := dbFieldMapKey[j]
+			value := entityMap.GetDBFieldMap()[key]
+			*values = append(*values, value)
+		}
+	}
+
+	sqlstr = sqlBuilder.String()
+	return &sqlstr, values, err
+}
+
+// wrapDeleteSQL 包装删除Struct语句
+// wrapDeleteSQL Package delete Struct statement
+var wrapDeleteSQL = func(ctx context.Context, entity IEntityStruct) (string, error) {
+	// SQL语句的构造器
+	// SQL statement constructor
+	var sqlBuilder strings.Builder
+	sqlBuilder.Grow(stringBuilderGrowLen)
+	sqlBuilder.WriteString("DELETE FROM ")
+	sqlBuilder.WriteString(entity.GetTableName())
+	sqlBuilder.WriteString(" WHERE ")
+	sqlBuilder.WriteString(entity.GetPKColumnName())
+	sqlBuilder.WriteString("=?")
+	sqlstr := sqlBuilder.String()
+
+	return sqlstr, nil
+}
+
+// wrapInsertEntityMapSQL 包装保存Map语句,Map因为没有字段属性,无法完成Id的类型判断和赋值,需要确保Map的值是完整的
+// wrapInsertEntityMapSQL Pack and save the Map statement. Because Map does not have field attributes,
+// it cannot complete the type judgment and assignment of Id. It is necessary to ensure that the value of Map is complete
+var wrapInsertEntityMapSQL = func(ctx context.Context, config *DataSourceConfig, entity IEntityMap) (string, *[]interface{}, bool, error) {
+	sqlstr := ""
+	inserColumnName, valuesql, values, autoIncrement, err := wrapInsertValueEntityMapSQL(entity)
+	if err != nil {
+		return sqlstr, nil, autoIncrement, err
+	}
+	// 拼接SQL语句,带上列名,因为Map取值是无序的
+	// sqlstr := "INSERT INTO " + insertsql + " VALUES" + valuesql
+
+	var sqlBuilder strings.Builder
+	// sqlBuilder.Grow(len(inserColumnName) + len(entity.GetTableName()) + len(valuesql) + 19)
+	sqlBuilder.Grow(stringBuilderGrowLen)
+	sqlBuilder.WriteString("INSERT INTO ")
+	sqlBuilder.WriteString(entity.GetTableName())
+	if !config.InsertSQLNoColumn {
+		sqlBuilder.WriteString(*inserColumnName)
+	}
+	sqlBuilder.WriteString(" VALUES")
+	sqlBuilder.WriteString(*valuesql)
+	sqlstr = sqlBuilder.String()
+
+	return sqlstr, values, autoIncrement, nil
+}
+
+// wrapInsertValueEntityMapSQL 包装保存Map语句,Map因为没有字段属性,无法完成Id的类型判断和赋值,需要确保Map的值是完整的
+// wrapInsertValueEntityMapSQL Pack and save the Map statement. Because Map does not have field attributes,
+// it cannot complete the type judgment and assignment of Id. It is necessary to ensure that the value of Map is complete
+func wrapInsertValueEntityMapSQL(entity IEntityMap) (*string, *string, *[]interface{}, bool, error) {
+	var inserColumnName, valuesql string
+	// 是否自增,默认false
+	autoIncrement := false
+	dbFieldMap := entity.GetDBFieldMap()
+	dbFieldLen := len(dbFieldMap)
+	if dbFieldLen < 1 {
+		return &inserColumnName, &inserColumnName, nil, autoIncrement, errors.New("->wrapInsertEntityMapSQL-->GetDBFieldMap返回值不能为空")
+	}
+	// 优化: 预分配容量,减少扩容开销
+	// SQL对应的参数
+	// SQL corresponding parameters
+	values := make([]interface{}, 0, dbFieldLen)
+
+	// SQL语句的构造器
+	// SQL statement constructor
+	var sqlBuilder strings.Builder
+	sqlBuilder.Grow(stringBuilderGrowLen)
+	// sqlBuilder.WriteString("INSERT INTO ")
+	// sqlBuilder.WriteString(entity.GetTableName())
+	sqlBuilder.WriteByte('(')
+
+	// SQL语句中,VALUES(?,?,...)语句的构造器
+	// In the SQL statement, the constructor of the VALUES(?,?,...) statement.
+	var valueSQLBuilder strings.Builder
+	valueSQLBuilder.Grow(stringBuilderGrowLen)
+	valueSQLBuilder.WriteString(" (")
+	// 是否Set了主键
+	// Whether the primary key is set.
+	_, hasPK := dbFieldMap[entity.GetPKColumnName()]
+	if entity.GetPKColumnName() != "" && !hasPK { // 如果有主键字段,却没值,认为是自增或者序列 | If the primary key is not set, it is considered to be auto-increment or sequence
+		autoIncrement = true
+		if entity.GetEntityMapPkSequence() != "" { // 如果是序列 | If it is a sequence.
+			sqlBuilder.WriteString(entity.GetPKColumnName())
+			valueSQLBuilder.WriteString(entity.GetEntityMapPkSequence())
+			if len(dbFieldMap) > 1 { // 如果不只有序列
+				sqlBuilder.WriteByte(',')
+				valueSQLBuilder.WriteByte(',')
+			}
+
+		}
+	}
+
+	dbFieldMapKey := entity.GetDBFieldMapKey()
+	for dbFieldMapIndex := 0; dbFieldMapIndex < len(dbFieldMapKey); dbFieldMapIndex++ {
+		if dbFieldMapIndex > 0 {
+			sqlBuilder.WriteByte(',')
+			valueSQLBuilder.WriteByte(',')
+		}
+		k := dbFieldMapKey[dbFieldMapIndex]
+		v := dbFieldMap[k]
+		// 拼接字符串
+		// Concatenated string
+		sqlBuilder.WriteString(k)
+		valueSQLBuilder.WriteByte('?')
+		values = append(values, v)
+	}
+
+	sqlBuilder.WriteByte(')')
+	valueSQLBuilder.WriteByte(')')
+	inserColumnName = sqlBuilder.String()
+	valuesql = valueSQLBuilder.String()
+
+	return &inserColumnName, &valuesql, &values, autoIncrement, nil
+}
+
+// wrapUpdateEntityMapSQL 包装Map更新语句,Map因为没有字段属性,无法完成Id的类型判断和赋值,需要确保Map的值是完整的
+// wrapUpdateEntityMapSQL Wrap the Map update statement. Because Map does not have field attributes,
+// it cannot complete the type judgment and assignment of Id. It is necessary to ensure that the value of Map is complete
+var wrapUpdateEntityMapSQL = func(ctx context.Context, entity IEntityMap) (*string, *[]interface{}, error) {
+	dbFieldMap := entity.GetDBFieldMap()
+	sqlstr := ""
+	dbFieldLen := len(dbFieldMap)
+	if dbFieldLen < 1 {
+		return &sqlstr, nil, errors.New("->wrapUpdateEntityMapSQL-->GetDBFieldMap返回值不能为空")
+	}
+	// SQL语句的构造器
+	// SQL statement constructor
+	var sqlBuilder strings.Builder
+	sqlBuilder.Grow(stringBuilderGrowLen)
+	sqlBuilder.WriteString("UPDATE ")
+	sqlBuilder.WriteString(entity.GetTableName())
+	sqlBuilder.WriteString(" SET ")
+
+	// 优化: 预分配容量,减少扩容开销
+	// SQL对应的参数
+	// SQL corresponding parameters
+	values := make([]interface{}, 0, dbFieldLen)
+	// 主键名称
+	// Primary key name
+	var pkValue interface{}
+	dbFieldMapIndex := 0
+	dbFieldMapKey := entity.GetDBFieldMapKey()
+	for _, k := range dbFieldMapKey {
+		v := dbFieldMap[k]
+		if k == entity.GetPKColumnName() { // 如果是主键  | If it is the primary key
+			pkValue = v
+			continue
+		}
+		if dbFieldMapIndex > 0 {
+			sqlBuilder.WriteByte(',')
+		}
+
+		// 拼接字符串 | Splicing string.
+		sqlBuilder.WriteString(k)
+		sqlBuilder.WriteString("=?")
+		values = append(values, v)
+		dbFieldMapIndex++
+	}
+	// 主键的值是最后一个
+	// The value of the primary key is the last
+	values = append(values, pkValue)
+
+	sqlBuilder.WriteString(" WHERE ")
+	sqlBuilder.WriteString(entity.GetPKColumnName())
+	sqlBuilder.WriteString("=?")
+	sqlstr = sqlBuilder.String()
+
+	return &sqlstr, &values, nil
+}
+
+// wrapQuerySQL 封装查询语句
+// wrapQuerySQL Encapsulated query statement
+func wrapQuerySQL(ctx context.Context, config *DataSourceConfig, finder *Finder, page *Page) (string, error) {
+	if page == nil {
+		// 获取到没有page的sql的语句
+		// Get the SQL statement without page.
+		sqlstr, err := finder.GetSQL()
+		return sqlstr, err
+	}
+	sqlstr, err := wrapPageSQL(ctx, config, finder, page)
+	return sqlstr, err
+}
+
+// FuncGenerateStringID 默认生成字符串ID的函数.方便自定义扩展
+// FuncGenerateStringID Function to generate string ID by default. Convenient for custom extension
+var FuncGenerateStringID = func(ctx context.Context) string {
+	// 使用 crypto/rand 真随机9位数
+	randNum, randErr := rand.Int(rand.Reader, big.NewInt(1000000000))
+	if randErr != nil {
+		return ""
+	}
+
+	// 使用32位数组一次性处理时间戳和随机数
+	var idBuf [32]byte
+
+	// 获取当前时间
+	now := time.Now()
+
+	// 获取纳秒 按照 年月日时分秒毫秒微秒纳秒 拼接为长度23位的字符串
+	//pk := time.Now().Format("2006.01.02.15.04.05.000000000")
+	//pk = strings.ReplaceAll(pk, ".", "")
+
+	// 时间戳部分 (前23位)
+	// 年 (4位)
+	year := now.Year()
+	idBuf[0] = byte('0' + year/1000)
+	idBuf[1] = byte('0' + (year/100)%10)
+	idBuf[2] = byte('0' + (year/10)%10)
+	idBuf[3] = byte('0' + year%10)
+
+	// 月 (2位)
+	month := int(now.Month())
+	idBuf[4] = byte('0' + month/10)
+	idBuf[5] = byte('0' + month%10)
+
+	// 日 (2位)
+	day := now.Day()
+	idBuf[6] = byte('0' + day/10)
+	idBuf[7] = byte('0' + day%10)
+
+	// 时 (2位)
+	hour := now.Hour()
+	idBuf[8] = byte('0' + hour/10)
+	idBuf[9] = byte('0' + hour%10)
+
+	// 分 (2位)
+	minute := now.Minute()
+	idBuf[10] = byte('0' + minute/10)
+	idBuf[11] = byte('0' + minute%10)
+
+	// 秒 (2位)
+	second := now.Second()
+	idBuf[12] = byte('0' + second/10)
+	idBuf[13] = byte('0' + second%10)
+
+	// 纳秒 (9位)
+	nano := now.Nanosecond()
+	// 从后往前填充纳秒
+	for i := 22; i >= 14; i-- {
+		idBuf[i] = byte('0' + nano%10)
+		nano /= 10
+	}
+
+	// 获取9位数,前置补0,确保9位数
+	//rand9 := fmt.Sprintf("%09d", randNum)
+
+	// 随机数部分 (后9位)
+	randStr := randNum.String()
+	randStrLen := len(randStr)
+	zeroCount := 9 - randStrLen
+
+	// 填充前导0
+	for i := 0; i < zeroCount; i++ {
+		idBuf[23+i] = '0'
+	}
+	// 复制随机数
+	for i := 0; i < randStrLen; i++ {
+		idBuf[23+zeroCount+i] = randStr[i]
+	}
+
+	return string(idBuf[:])
+}
+
+// FuncWrapFieldTagName 用于包裹字段名, e.g. `describe` "describe" 等等, 例如mysql的`describe`和postgres的"describe"
+//
+//	example:
+//	zorm.FuncWrapFieldTagName = func(ctx context.Context, field *reflect.StructField, colName string) string {
+//		config, err := zorm.GetContextDataSourceConfig(ctx)
+//		if err != nil {
+//			return ""
+//		}
+//
+//		if config != nil && config.Dialect != "" {
+//			switch config.Dialect {
+//			case "mysql":
+//				return fmt.Sprintf("`%s`", colName)
+//			case "postgres":
+//				return fmt.Sprintf(`"%s"`, colName)
+//			case "kingbase": // kingbase R3 驱动大小写敏感,通常是大写.数据库全的列名部换成双引号括住的大写字符,避免与数据库内置关键词冲突时报错
+//				colName = strings.ReplaceAll(colName, "\"", "")
+//				return fmt.Sprintf(`"%s"`, strings.ToUpper(colName))
+//			// case ...
+//			}
+//		}
+//
+//		return colName
+//	}
+var FuncWrapFieldTagName func(ctx context.Context, field *reflect.StructField, colName string) string = nil
+
+/*
+// Deprecated: 移除```getFieldTagName```函数,直接使用```FuncWrapFieldTagName```
+// getFieldTagName 获取模型中定义的数据库的 column tag
+func getFieldTagName(ctx context.Context, field *reflect.StructField, structFieldTagMap *map[string]string) string {
+	// colName := field.Tag.Get(tagColumnName)
+	colName := (*structFieldTagMap)[field.Name]
+	if FuncWrapFieldTagName != nil {
+		colName = FuncWrapFieldTagName(ctx, field, colName)
+	}
+	return colName
+}
+*/
+
+// wrapSQLHint 在sql语句中增加hint
+func wrapSQLHint(ctx context.Context, sqlstr *string) error {
+	// 获取hint
+	contextValue := ctx.Value(contextSQLHintValueKey)
+	if contextValue == nil { // 如果没有设置hint
+		return nil
+	}
+	hint, ok := contextValue.(string)
+	if !ok {
+		return errors.New("->wrapSQLHint-->contextValue转换string失败")
+	}
+	if hint == "" {
+		return nil
+	}
+	sqlByte := []byte(*sqlstr)
+	// 获取第一个单词
+	_, start, end, err := firstOneWord(0, sqlByte)
+	if err != nil {
+		return err
+	}
+	if start == -1 || end == -1 { // 未取到字符串
+		return nil
+	}
+	var sqlBuilder strings.Builder
+	sqlBuilder.Grow(stringBuilderGrowLen)
+	sqlBuilder.WriteString((*sqlstr)[:end])
+	sqlBuilder.WriteByte(' ')
+	sqlBuilder.WriteString(hint)
+	sqlBuilder.WriteString((*sqlstr)[end:])
+	*sqlstr = sqlBuilder.String()
+	return nil
+}
+
+// reBuildSQL 包装基础的SQL语句,根据数据库类型,调整SQL变量符号,例如?,? $1,$2这样的
+// reBuildSQL Pack basic SQL statements, adjust the SQL variable symbols according to the database type, such as?,? $1,$2
+var reBuildSQL = func(ctx context.Context, config *DataSourceConfig, sqlstr *string, args *[]interface{}) (*string, *[]interface{}, error) {
+	argsNum := len(*args)
+	if argsNum < 1 { // 没有参数,不需要处理,也不判断参数数量了,数据库会报错提示
+		return sqlstr, args, nil
+	}
+	// 优化: 预分配容量,减少扩容开销
+	// 重新记录参数值
+	// Re-record the parameter value
+	newValues := make([]interface{}, 0, argsNum)
+	// 记录sql参数值的下标,例如 $1 @p1 ,从1开始
+	sqlParamIndex := 1
+
+	// 新的sql
+	// new sql
+	var newSQLStr strings.Builder
+	// 优化: 预估SQL长度,减少扩容
+	newSQLStr.Grow(len(*sqlstr) + argsNum*3)
+	i := -1
+	sqlStrLen := len(*sqlstr)
+	for idx := 0; idx < sqlStrLen; idx++ {
+		vbyte := (*sqlstr)[idx]
+		if vbyte != '?' { // 如果不是?问号
+			newSQLStr.WriteByte(vbyte)
+			continue
+		}
+		i = i + 1
+		if i >= argsNum { // 占位符数量比参数值多,不使用 strings.Count函数,避免多次操作字符串
+			return nil, nil, fmt.Errorf("sql语句中参数和值数量不一致,-->zormErrorExecSQL:%s,-->zormErrorSQLValues:%s", *sqlstr, sqlErrorValues2String(*args))
+		}
+		v := (*args)[i]
+		var valueOf reflect.Value
+		var kind reflect.Kind
+		var typeOf reflect.Type
+
+		// isBaseType 是否是基础类型
+		isBaseType := false
+		switch v.(type) {
+		case nil, string, int, int8, int16, int32, int64,
+			uint, uint8, uint16, uint32, uint64,
+			float32, float64, bool, time.Time, []byte,
+			sql.NullString, sql.NullBool, sql.NullInt16, sql.NullInt32, sql.NullInt64,
+			sql.NullFloat64, sql.NullByte, sql.NullTime:
+			isBaseType = true
+		}
+
+		// 参数值长度,默认是1,其他取值数组长度
+		valueLen := 1
+		// 值是否有效,例如指针类型的值为nil
+		isValid := false
+		if !isBaseType && v != nil { // 如果不是基础类型,并且值不为nil,才进行反射获取类型和值
+			isValid = true
+			// 反射获取参数的值
+			valueOf = reflect.ValueOf(v)
+			// 获取类型
+			kind = valueOf.Kind()
+
+			// 如果参数是个指针类型
+			// If the parameter is a pointer type
+			if kind == reflect.Ptr { // 如果是指针 ｜ If it is a pointer
+				valueOf = valueOf.Elem()
+				kind = valueOf.Kind()
+				// (Type=*int,Value=nil)/(Type=nil,Value=nil)  https://golang.org/doc/faq#nil_error
+				isValid = valueOf.IsValid()
+			}
+		}
+		// 基础类型不会执行,因为isValid==false. 如果是有效值,获取类型
+		if isValid {
+			typeOf = valueOf.Type()
+		}
+		if isBaseType { //基础类型不处理,直接记录值 | Basic types are not processed, just record the value
+			newValues = append(newValues, v)
+		} else if !isValid { // 如果是无效值,设值为nil
+			newValues = append(newValues, nil)
+		} else if kind != reflect.Array && kind != reflect.Slice { // 如果不是数组或者slice
+			// 记录新值
+			// Record new value.
+			newValues = append(newValues, v)
+			// } else if _, ok := v.([]byte); ok { //字节数组
+			//	newValues = append(newValues, v)
+		} else if kind == reflect.Slice && typeOf.Elem().Kind() == reflect.Uint8 { // []byte字节数组或派生类型
+			// 记录新值
+			// Record new value
+			newValues = append(newValues, v)
+		} else {
+			// 获取数组类型参数值的长度
+			// Get the length of the array type parameter value
+			valueLen = valueOf.Len()
+			// 数组类型的参数长度小于1,认为是有异常的参数
+			// The parameter length of the array type is less than 1, which is considered to be an abnormal parameter
+			if valueLen < 1 {
+				// return nil, nil, errors.New("->reBuildSQL()语句:" + *sqlstr + ",第" + strconv.Itoa(i+1) + "个参数,类型是Array或者Slice,值的长度为0,请检查sql参数有效性")
+				valueLen = 1
+				newValues = append(newValues, nil)
+			} else if valueLen == 1 { // 如果数组里只有一个参数,认为是单个参数
+				v = valueOf.Index(0).Interface()
+				newValues = append(newValues, v)
+			}
+
+		}
+
+		switch config.Dialect {
+		case "mysql", "sqlite", "dm", "gbase", "clickhouse", "db2":
+			wrapParamSQL("?", valueLen, &sqlParamIndex, &newSQLStr, &valueOf, &newValues, false, false)
+		case "postgresql", "kingbase": // postgresql,kingbase
+			wrapParamSQL("$", valueLen, &sqlParamIndex, &newSQLStr, &valueOf, &newValues, true, false)
+		case "mssql": // mssql
+			wrapParamSQL("@p", valueLen, &sqlParamIndex, &newSQLStr, &valueOf, &newValues, true, false)
+		case "oracle", "shentong": // oracle,神通
+			wrapParamSQL(":", valueLen, &sqlParamIndex, &newSQLStr, &valueOf, &newValues, true, false)
+		case "tdengine": // tdengine,重新处理 字符类型的参数 '?'
+			wrapParamSQL("?", valueLen, &sqlParamIndex, &newSQLStr, &valueOf, &newValues, false, true)
+		default: // 其他情况,还是使用 ? | In other cases, or use  ?
+			newSQLStr.WriteByte('?')
+		}
+
+	}
+
+	// ?号占位符的数量和参数不一致,不使用 strings.Count函数,避免多次操作字符串
+	if (i + 1) != argsNum {
+		return nil, nil, fmt.Errorf("sql语句中参数和值数量不一致,-->zormErrorExecSQL:%s,-->zormErrorSQLValues:%s", *sqlstr, sqlErrorValues2String(*args))
+	}
+	sqlstring := newSQLStr.String()
+	return &sqlstring, &newValues, nil
+}
+
+// reUpdateFinderSQL 根据数据类型更新 手动编写的 UpdateFinder的语句,用于处理数据库兼容,例如 clickhouse的 UPDATE 和 DELETE
+var reBuildUpdateSQL = func(ctx context.Context, config *DataSourceConfig, sqlstr *string) error {
+	if config.Dialect != "clickhouse" { // 目前只处理clickhouse
+		return nil
+	}
+	// 处理clickhouse的特殊更新语法
+	sqlByte := []byte(*sqlstr)
+	// 获取第一个单词
+	firstWord, start, end, err := firstOneWord(0, sqlByte)
+	if err != nil {
+		return err
+	}
+	if start == -1 || end == -1 { // 未取到字符串
+		return nil
+	}
+	// SQL语句的构造器
+	// SQL statement constructor
+	var sqlBuilder strings.Builder
+	sqlBuilder.Grow(stringBuilderGrowLen)
+	sqlBuilder.WriteString((*sqlstr)[:start])
+	sqlBuilder.WriteString("ALTER TABLE ")
+	firstWord = strings.ToUpper(firstWord)
+	tableName := ""
+	switch firstWord {
+	case "UPDATE": // 更新  update tableName set
+		tableName, _, end, err = firstOneWord(end, sqlByte)
+		if err != nil {
+			return err
+		}
+		// 拿到 set
+		_, start, end, err = firstOneWord(end, sqlByte)
+
+	case "DELETE": // 删除 delete from tableName
+		// 拿到from
+		_, _, end, err = firstOneWord(end, sqlByte)
+		if err != nil {
+			return err
+		}
+		// 拿到 tableName
+		tableName, start, end, err = firstOneWord(end, sqlByte)
+	default: // 只处理UPDATE 和 DELETE 语法
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if start == -1 || end == -1 { // 获取的位置异常
+		return errors.New("->reBuildUpdateSQL中clickhouse语法异常,请检查sql语句是否标准,-->zormErrorExecSQL:" + *sqlstr)
+	}
+	sqlBuilder.WriteString(tableName)
+	sqlBuilder.WriteByte(' ')
+	sqlBuilder.WriteString(firstWord)
+	// sqlBuilder.WriteByte(' ')
+	sqlBuilder.WriteString((*sqlstr)[end:])
+	*sqlstr = sqlBuilder.String()
+	return nil
+}
+
+// wrapAutoIncrementInsertSQL 包装自增的自增主键的插入sql
+var wrapAutoIncrementInsertSQL = func(ctx context.Context, config *DataSourceConfig, pkColumnName string, sqlstr *string, values *[]interface{}) (*int64, *int64) {
+	// oracle 12c+ 支持IDENTITY属性的自增列,因为分页也要求12c+的语法,所以数据库就IDENTITY创建自增吧
+	// 处理序列产生的自增主键,例如oracle,postgresql等
+	var lastInsertID, zormSQLOutReturningID *int64
+	var sqlBuilder strings.Builder
+	// sqlBuilder.Grow(len(*sqlstr) + len(pkColumnName) + 40)
+	sqlBuilder.Grow(stringBuilderGrowLen)
+	sqlBuilder.WriteString(*sqlstr)
+	switch config.Dialect {
+	case "postgresql", "kingbase":
+		var p int64 = 0
+		lastInsertID = &p
+		// sqlstr = sqlstr + " RETURNING " + pkColumnName
+		sqlBuilder.WriteString(" RETURNING ")
+		sqlBuilder.WriteString(pkColumnName)
+	case "oracle", "shentong":
+		var p int64 = 0
+		zormSQLOutReturningID = &p
+		// 不要使用命名参数,统一使用占位符
+		// sqlstr = sqlstr + " RETURNING " + pkColumnName + " INTO :zormSQLOutReturningID "
+		sqlBuilder.WriteString(" RETURNING ")
+		sqlBuilder.WriteString(pkColumnName)
+		sqlBuilder.WriteString(" INTO ? ")
+		v := sql.Out{Dest: zormSQLOutReturningID}
+		*values = append(*values, v)
+	}
+
+	*sqlstr = sqlBuilder.String()
+	return lastInsertID, zormSQLOutReturningID
+}
+
+// getConfigFromConnection 从dbConnection中获取数据库config,如果没有,从FuncReadWriteStrategy获取dbDao,获取dbdao.config
+func getConfigFromConnection(ctx context.Context, dbConnection *dataBaseConnection, rwType int) (*DataSourceConfig, error) {
+	var config *DataSourceConfig
+	// dbConnection为nil,使用defaultDao
+	// dbConnection is nil, use default Dao
+	if dbConnection == nil {
+		dbdao, err := FuncReadWriteStrategy(ctx, rwType)
+		if err != nil {
+			return nil, err
+		}
+		config = dbdao.config
+	} else {
+		config = dbConnection.config
+	}
+	return config, nil
+}
+
+// wrapParamSQL 包装SQL语句
+// symbols(占位符) valueLen(参数长度) sqlParamIndexPtr(参数的下标指针,数组会改变值) newSQLStr(SQL字符串Builder) valueOf(参数值的反射对象) hasParamIndex(是否拼接参数下标 $1 $2) isTDengine(TDengine数据库需要单独处理字符串类型)
+func wrapParamSQL(symbols string, valueLen int, sqlParamIndexPtr *int, newSQLStr *strings.Builder, valueOf *reflect.Value, newValues *[]interface{}, hasParamIndex bool, isTDengine bool) {
+	sqlParamIndex := *sqlParamIndexPtr
+	if valueLen == 1 {
+		if isTDengine && valueOf.Kind() == reflect.String { // 处理tdengine的字符串类型
+			symbols = "'?'"
+		}
+		newSQLStr.WriteString(symbols)
+
+		if hasParamIndex {
+			newSQLStr.WriteString(strconv.Itoa(sqlParamIndex))
+		}
+
+	} else if valueLen > 1 { // 如果值是数组
+		for j := 0; j < valueLen; j++ {
+			valuej := (*valueOf).Index(j)
+			if isTDengine && valuej.Kind() == reflect.String { // 处理tdengine的字符串类型
+				symbols = "'?'"
+			}
+			if j == 0 { // 第一个
+				newSQLStr.WriteString(symbols)
+			} else {
+				newSQLStr.WriteByte(',')
+				newSQLStr.WriteString(symbols)
+			}
+			if hasParamIndex {
+				newSQLStr.WriteString(strconv.Itoa(sqlParamIndex + j))
+			}
+			sliceValue := valuej.Interface()
+			*newValues = append(*newValues, sliceValue)
+		}
+	}
+	*sqlParamIndexPtr = *sqlParamIndexPtr + valueLen
+}
+
+// firstOneWord 从指定下标, 获取第一个单词, 不包含前后空格, 并返回开始下标和结束下标, 如果找不到合法的字符串, 返回 -1
+// firstOneWord gets the first word from specified index, excluding spaces and parentheses, returns word, start index, end index
+// 跳过开头的空格和括号字符 (' ', '(', ')') / Skip leading spaces and parentheses
+func firstOneWord(index int, strByte []byte) (string, int, int, error) {
+	n := len(strByte)
+
+	if index < 0 || index >= n {
+		return "", -1, -1, errors.New("-->firstOneWord index out of range")
+	}
+
+	// 跳过开头的空格和括号 / Skip leading spaces and parentheses
+	for index < n && (strByte[index] == ' ' || strByte[index] == '(' || strByte[index] == ')') {
+		index++
+	}
+
+	// 如果没有有效字符, 返回 -1 / Return -1 if no valid character found
+	if index >= n {
+		return "", -1, -1, nil
+	}
+
+	start := index
+
+	// 读取单词, 直到遇到空格或括号 / Read word until space or parenthesis
+	for index < n && strByte[index] != ' ' && strByte[index] != '(' && strByte[index] != ')' {
+		index++
+	}
+	str := string(strByte[start:index])
+	return str, start, index, nil
+}

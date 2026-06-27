@@ -108,6 +108,13 @@ export const databaseKinds: DbConnectionKind[] = [
   "sqlite",
   "sqlserver",
   "tidb",
+  "mariadb",
+  "oceanbase",
+  "doris",
+  "starrocks",
+  "cockroachdb",
+  "kingbase",
+  "opengauss",
 ];
 
 function getInitialWorkspace(): DbWorkspaceState {

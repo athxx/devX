@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	oracle "github.com/oracle-samples/gorm-oracle/oracle"
+	"github.com/glebarez/sqlite"
+	oracle "github.com/dzwvip/gorm-oracle"
 	"gorm.io/driver/clickhouse"
 	"gorm.io/driver/gaussdb"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
 )
@@ -205,10 +205,19 @@ func buildDialector(driver, dsn string) (gorm.Dialector, error) {
 		return mysql.Open(dsn), nil
 	case "tidb":
 		return mysql.Open(dsn), nil
+	case "mariadb", "oceanbase", "doris", "starrocks":
+		// MySQL-wire compatible; reuse the MySQL dialector and tcp(...) DSN.
+		return mysql.Open(dsn), nil
 	case "sqlite":
 		return sqlite.Open(dsn), nil
 	case "postgres", "postgresql":
 		return postgres.Open(dsn), nil
+	case "cockroachdb", "kingbase":
+		// PostgreSQL-wire compatible; reuse the PostgreSQL dialector.
+		return postgres.Open(dsn), nil
+	case "opengauss":
+		// openGauss shares GaussDB's protocol and keyword DSN.
+		return gaussdb.Open(dsn), nil
 	case "sqlserver", "mssql":
 		return sqlserver.Open(dsn), nil
 	case "oracle":

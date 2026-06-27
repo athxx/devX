@@ -8,7 +8,14 @@ export type DbConnectionKind =
   | "oracle"
   | "sqlite"
   | "sqlserver"
-  | "tidb";
+  | "tidb"
+  | "mariadb"
+  | "oceanbase"
+  | "doris"
+  | "starrocks"
+  | "cockroachdb"
+  | "kingbase"
+  | "opengauss";
 
 export type DbConnectionConfig = {
   host: string;

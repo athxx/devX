@@ -15,6 +15,13 @@ import { ClickHouseAdapter } from "./clickhouse";
 import { OracleAdapter } from "./oracle";
 import { SqliteAdapter } from "./sqlite";
 import { SqlServerAdapter } from "./sqlserver";
+import { MariaDbAdapter } from "./mariadb";
+import { OceanBaseAdapter } from "./oceanbase";
+import { DorisAdapter } from "./doris";
+import { StarRocksAdapter } from "./starrocks";
+import { CockroachDbAdapter } from "./cockroachdb";
+import { KingBaseAdapter } from "./kingbase";
+import { OpenGaussAdapter } from "./opengauss";
 
 const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redis: new RedisAdapter(),
@@ -27,6 +34,13 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   oracle: new OracleAdapter(),
   sqlite: new SqliteAdapter(),
   sqlserver: new SqlServerAdapter(),
+  mariadb: new MariaDbAdapter(),
+  oceanbase: new OceanBaseAdapter(),
+  doris: new DorisAdapter(),
+  starrocks: new StarRocksAdapter(),
+  cockroachdb: new CockroachDbAdapter(),
+  kingbase: new KingBaseAdapter(),
+  opengauss: new OpenGaussAdapter(),
 };
 
 export function getDbAdapter(kind: DbConnectionKind): DbAdapter {
