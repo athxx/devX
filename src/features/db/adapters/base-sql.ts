@@ -534,6 +534,10 @@ export abstract class AbstractSqlAdapter implements DbAdapter {
     return this.dataModel() === "search";
   }
 
+  isWideColumn(): boolean {
+    return this.dataModel() === "wideColumn";
+  }
+
   databaseListingStrategy(): DbDatabaseListingStrategy {
     return "single";
   }

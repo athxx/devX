@@ -19,26 +19,34 @@ import type {
   DbExplorerLeafNode,
   DbFormatLanguage,
 } from "./types";
-import {
-  appendUrlOptions,
-  buildAuthPart,
-  formatSearchParams,
-  parseOptionEntries,
-} from "./base-sql";
 import { makeId } from "../../../lib/utils";
 
-// MongoDB is document-oriented. Like Redis, the SQL-shaped adapter slots are
-// no-ops; collection listing and shell execution are driven by service.ts over
-// the `mongoShell` / `mongoPing` wire protocol.
-export class MongoAdapter implements DbAdapter {
-  readonly kind = "mongodb" as const;
+// Cloud Bigtable is a wide-column (NoSQL) store reached over gRPC — the first
+// "wideColumn" data-model kind. It has no SQL surface and no GORM dialector;
+// it speaks the dedicated `bigtable` wire protocol (see
+// server/internal/db/bigtable.go). Most SQL-shaped adapter slots are inert; the
+// explorer (table listing) and query execution are orchestrated by service.ts
+// off `isWideColumn()`, mirroring Elasticsearch/Mongo/Redis.
+//
+// Auth differs from every other kind: instead of host/port/user/pass it takes a
+// GCP project + instance plus optional service-account JSON. To avoid bloating
+// the shared DbConnectionConfig, these reuse existing config slots:
+//   config.host        -> GCP project id
+//   config.database    -> Bigtable instance id
+//   config.serviceName -> service-account JSON key (empty = ADC)
+//   config.options     -> custom endpoint (e.g. emulator host; optional)
+// The connection form relabels these fields for Bigtable.
+export class BigtableAdapter implements DbAdapter {
+  readonly kind = "bigtable" as const;
 
   defaultQuery(): string {
-    return "db.collection.find({})";
+    // The "query" for Bigtable is a row scan spec. We encode it as a small JSON
+    // document the editor can edit; service.ts/buildCommandMessage reads it.
+    return '{\n  "action": "readRows",\n  "prefix": "",\n  "limit": 100\n}';
   }
 
   defaultPort(): string {
-    return "27017";
+    return "";
   }
 
   defaultDatabase(): string {
@@ -47,13 +55,13 @@ export class MongoAdapter implements DbAdapter {
 
   defaultConnectionConfig(): DbConnectionConfig {
     return {
-      host: "127.0.0.1",
-      port: this.defaultPort(),
+      host: "",
+      port: "",
       username: "",
       password: "",
-      database: this.defaultDatabase(),
+      database: "",
       filePath: "",
-      authSource: "admin",
+      authSource: "",
       serviceName: "",
       options: "",
     };
@@ -63,56 +71,29 @@ export class MongoAdapter implements DbAdapter {
     return "query";
   }
 
+  // Bigtable has no connection URL; the identity is project + instance. We pack
+  // them as "project\x00instance" so the disconnect path can route on it.
   buildConnectionUrl(
     connection: Pick<DbConnection, "kind" | "config" | "url">,
   ): string {
-    const config = connection.config;
-    const host = config.host.trim();
-    const port = config.port.trim();
-    const username = config.username.trim();
-    const password = config.password.trim();
-    const database = config.database.trim();
-
-    if (!host) {
-      return connection.url.trim();
-    }
-
-    const auth = buildAuthPart(username, password);
-    const shouldKeepSlash =
-      Boolean(database) ||
-      Boolean(config.authSource.trim()) ||
-      parseOptionEntries(config.options).length > 0;
-    const dbPath = database
-      ? `/${encodeURIComponent(database)}`
-      : shouldKeepSlash
-        ? "/"
-        : "";
-    const url = new URL(`mongodb://${auth}${host}${port ? `:${port}` : ""}${dbPath}`);
-    if (config.authSource.trim()) {
-      url.searchParams.set("authSource", config.authSource.trim());
-    }
-    appendUrlOptions(url, config.options);
-    return url.toString();
+    const project = connection.config.host.trim();
+    const instance = connection.config.database.trim();
+    return `${project}\x00${instance}`;
   }
 
   parseConnectionUrl(raw: string): DbConnectionConfig {
     const fallback = this.defaultConnectionConfig();
-    try {
-      const url = new URL(raw);
-      const pathname = url.pathname.replace(/^\/+/, "");
-      return {
-        ...fallback,
-        host: decodeURIComponent(url.hostname || fallback.host),
-        port: url.port || fallback.port,
-        username: decodeURIComponent(url.username),
-        password: decodeURIComponent(url.password),
-        database: decodeURIComponent(pathname),
-        authSource: url.searchParams.get("authSource") ?? fallback.authSource,
-        options: formatSearchParams(url, ["authSource"]),
-      };
-    } catch {
+    const normalized = raw.trim();
+    if (!normalized) {
       return fallback;
     }
+    // Accept "project/instance" or "project\x00instance".
+    const parts = normalized.split(/[\s/\x00]/);
+    return {
+      ...fallback,
+      host: parts[0]?.trim() ?? "",
+      database: parts[1]?.trim() ?? "",
+    };
   }
 
   switchDsnDatabase(baseDsn: string, _database: string): string {
@@ -127,37 +108,46 @@ export class MongoAdapter implements DbAdapter {
     return objectName;
   }
 
+  // The query body is a JSON scan spec ({action, prefix, rowKey, limit}); the
+  // active table comes from tab.databaseName. Malformed bodies fall back to a
+  // bounded full scan so the editor never sends garbage.
   buildCommandMessage(tab: DbTab, connection: DbConnection): DbSocketCommandMessage {
-    const effectiveUrl = this.effectiveUrl(tab, connection);
+    const table = tab.databaseName?.trim() || connection.config.database.trim();
+    let spec: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(tab.query || "{}");
+      if (parsed && typeof parsed === "object") {
+        spec = parsed as Record<string, unknown>;
+      }
+    } catch {
+      spec = {};
+    }
+    const action =
+      typeof spec.action === "string" && spec.action.trim()
+        ? spec.action.trim()
+        : "readRows";
     return {
       id: tab.id,
-      type: "mongoShell",
+      type: "bigtable",
       payload: {
-        url: effectiveUrl,
-        command: tab.query,
+        ...this.authPayload(connection),
+        action,
+        table,
+        prefix: typeof spec.prefix === "string" ? spec.prefix : "",
+        rowKey: typeof spec.rowKey === "string" ? spec.rowKey : "",
+        limit: typeof spec.limit === "number" ? spec.limit : 100,
       },
     };
-  }
-
-  private effectiveUrl(tab: DbTab, connection: DbConnection): string {
-    const effectiveDatabase =
-      tab.databaseName?.trim() || connection.config.database.trim();
-    if (!effectiveDatabase) {
-      return this.buildConnectionUrl(connection) || connection.url;
-    }
-    return this.buildConnectionUrl({
-      ...connection,
-      config: { ...connection.config, database: effectiveDatabase },
-    });
   }
 
   buildTestCommandMessage(connection: DbConnection): DbSocketCommandMessage {
     return {
       id: makeId("db-connect"),
-      type: "mongoPing",
+      type: "bigtable",
       payload: {
-        uri: connection.url,
-        database: connection.config.database.trim() || "admin",
+        ...this.authPayload(connection),
+        action: "listTables",
+        timeoutMs: 5000,
       },
     };
   }
@@ -168,11 +158,27 @@ export class MongoAdapter implements DbAdapter {
       type: "dbDisconnect",
       payload: {
         kind: connection.kind,
-        uri: this.buildConnectionUrl(connection) || connection.url.trim(),
+        // DisconnectConnection routes Bigtable on the `url` arg, which carries
+        // "project\x00instance" (matched as a prefix server-side).
+        url: this.buildConnectionUrl(connection),
       },
     };
   }
 
+  // authPayload assembles the project/instance/credentials/endpoint fields every
+  // Bigtable command shares, reading them from the relabelled config slots.
+  private authPayload(connection: DbConnection): Record<string, unknown> {
+    const config = connection.config;
+    return {
+      project: config.host.trim(),
+      instance: config.database.trim(),
+      credentials: config.serviceName,
+      endpoint: config.options.trim(),
+    };
+  }
+
+  // Table listing is driven by service.ts over the `bigtable` protocol (action
+  // "listTables"), not by SQL — these SQL slots are inert.
   buildExplorerQuery(): string | null {
     return null;
   }
@@ -246,6 +252,7 @@ export class MongoAdapter implements DbAdapter {
   }
 
   formatLanguage(): DbFormatLanguage {
+    // Scan specs are JSON — route through the JS/JSON prettier path.
     return "javascript";
   }
 
@@ -263,24 +270,22 @@ export class MongoAdapter implements DbAdapter {
 
   // --- UI metadata -------------------------------------------------------
   badge(): DbConnectionBadge {
-    return { label: "MGO", class: "theme-method-badge theme-method-trace" };
+    return { label: "BT", class: "theme-method-badge theme-method-post" };
   }
 
   displayName(): string {
-    return "MongoDB";
+    return "Bigtable";
   }
 
   describeConnection(connection: DbConnection): string {
-    const host = connection.config.host.trim() || "localhost";
-    const port = connection.config.port.trim();
-    const database = connection.config.database.trim();
-    const hostLabel = `${host}${port ? `:${port}` : ""}`;
-    return database ? `${hostLabel} / ${database}` : hostLabel;
+    const project = connection.config.host.trim() || "project";
+    const instance = connection.config.database.trim();
+    return instance ? `${project} / ${instance}` : project;
   }
 
   // --- Capabilities ------------------------------------------------------
   dataModel(): DbDataModel {
-    return "document";
+    return "wideColumn";
   }
 
   isRelational(): boolean {
@@ -288,7 +293,7 @@ export class MongoAdapter implements DbAdapter {
   }
 
   isDocumentStore(): boolean {
-    return true;
+    return false;
   }
 
   isKeyValueStore(): boolean {
@@ -300,10 +305,10 @@ export class MongoAdapter implements DbAdapter {
   }
 
   isWideColumn(): boolean {
-    return false;
+    return true;
   }
 
-  // Mongo uses its own document-store explorer loader keyed off `dataModel()`,
+  // Bigtable uses its own wide-column explorer loader keyed off `isWideColumn()`,
   // so this enum is not consulted; "single" is the inert default.
   databaseListingStrategy(): DbDatabaseListingStrategy {
     return "single";
@@ -314,11 +319,11 @@ export class MongoAdapter implements DbAdapter {
   }
 
   canCreateDatabase(): boolean {
-    return true;
+    return false;
   }
 
   canShowConnectionSummary(): boolean {
-    return true;
+    return false;
   }
 
   treatsSchemaAsDatabase(): boolean {
@@ -326,8 +331,7 @@ export class MongoAdapter implements DbAdapter {
   }
 
   // --- Explorer action SQL ----------------------------------------------
-  // MongoDB is document-oriented; these slots return shell-friendly fallbacks
-  // since the explorer's SQL-only actions never reach them.
+  // Bigtable has no SQL surface; the interface requires concrete bodies.
   buildStructureQuery(node: DbExplorerLeafNode): string {
     return node.query ?? node.label;
   }
@@ -337,49 +341,31 @@ export class MongoAdapter implements DbAdapter {
   }
 
   buildRenameQuery(node: DbExplorerLeafNode): string {
-    return `db.${node.label}.renameCollection("new_${node.label}")`;
+    return node.query ?? node.label;
   }
 
   buildTruncateQuery(node: DbExplorerLeafNode): string {
-    return `db.${node.label}.deleteMany({})`;
+    return node.query ?? node.label;
   }
 
   // --- Database-level templates ------------------------------------------
   buildCreateDatabaseTemplate(): string {
-    return 'use new_database\n\ndb.createCollection("sample_collection")';
+    return "";
   }
 
-  buildCreateTableTemplate(databaseName: string): string {
-    return `use ${databaseName}
-
-db.createCollection('new_collection')`;
+  buildCreateTableTemplate(): string {
+    return "";
   }
 
-  buildImportTemplate(
-    databaseName: string,
-    source: "sql" | "json" | "csv",
-  ): string {
-    if (source === "json") {
-      return `use ${databaseName}
-
-mongoimport --db ${databaseName} --collection new_collection --file ./data.json --jsonArray`;
-    }
-    if (source === "csv") {
-      return `use ${databaseName}
-
-mongoimport --db ${databaseName} --collection new_collection --type csv --headerline --file ./data.csv`;
-    }
-    return `use ${databaseName}
-
-// Paste or run your SQL migration equivalent here`;
+  buildImportTemplate(): string {
+    return "";
   }
 
-  buildDropDatabaseTemplate(databaseName: string): string {
-    return `use ${databaseName}
-db.dropDatabase()`;
+  buildDropDatabaseTemplate(): string {
+    return "";
   }
 
   buildConnectionSummaryQuery(): string {
-    return "db.adminCommand({ getCmdLineOpts: 1 })";
+    return "";
   }
 }

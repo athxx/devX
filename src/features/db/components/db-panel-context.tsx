@@ -117,6 +117,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "opengauss",
   "dameng",
   "elasticsearch",
+  "bigtable",
 ];
 
 function getInitialWorkspace(): DbWorkspaceState {

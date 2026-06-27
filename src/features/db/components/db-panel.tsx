@@ -577,7 +577,8 @@ function DbPanelInner() {
                         forceNew: true,
                         resultView:
                           getDbAdapter(connection.kind).isDocumentStore() ||
-                          getDbAdapter(connection.kind).isSearchStore()
+                          getDbAdapter(connection.kind).isSearchStore() ||
+                          getDbAdapter(connection.kind).isWideColumn()
                             ? "raw"
                             : "table",
                       },
@@ -612,7 +613,8 @@ function DbPanelInner() {
             const databaseName = node.label;
             const showExtendedMenu =
               !getDbAdapter(connection.kind).isKeyValueStore() &&
-              !getDbAdapter(connection.kind).isSearchStore();
+              !getDbAdapter(connection.kind).isSearchStore() &&
+              !getDbAdapter(connection.kind).isWideColumn();
 
             return (
               <DbContextMenu open={true} menu={menu} zIndex={305}>

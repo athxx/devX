@@ -152,6 +152,21 @@ export function DbResultsView() {
     );
   }
 
+  function renderWideColumnResult(
+    result: Extract<DbResultPayload, { kind: "wideColumn" }>,
+  ) {
+    return (
+      <div
+        class="theme-code rounded-[18px] border p-3"
+        style={{ "border-color": "var(--app-border)" }}
+      >
+        <pre class="m-0 whitespace-pre-wrap break-all font-mono text-xs">
+          {JSON.stringify(result.data.result, null, 2)}
+        </pre>
+      </div>
+    );
+  }
+
   function renderResultView() {
     const tab = activeTab();
     if (!tab) return null;
@@ -165,6 +180,7 @@ export function DbResultsView() {
     const redisResult = result?.kind === "redis" ? result : null;
     const mongoResult = result?.kind === "mongo" ? result : null;
     const searchResult = result?.kind === "search" ? result : null;
+    const wideColumnResult = result?.kind === "wideColumn" ? result : null;
     const pageSize = tab.source?.pageSize ?? getResultPageSize(tab.id);
     const currentPage = tab.source?.page ?? getResultPage(tab.id);
     const totalRows = sqlResult?.data.rows?.length ?? 0;
@@ -447,14 +463,23 @@ export function DbResultsView() {
                           <Show
                             when={searchResult}
                             fallback={
-                              <div
-                                class="theme-code h-full overflow-auto rounded-[18px] border p-3"
-                                style={{ "border-color": "var(--app-border)" }}
+                              <Show
+                                when={wideColumnResult}
+                                fallback={
+                                  <div
+                                    class="theme-code h-full overflow-auto rounded-[18px] border p-3"
+                                    style={{
+                                      "border-color": "var(--app-border)",
+                                    }}
+                                  >
+                                    <pre class="m-0 whitespace-pre-wrap break-words font-mono text-xs">
+                                      {raw}
+                                    </pre>
+                                  </div>
+                                }
                               >
-                                <pre class="m-0 whitespace-pre-wrap break-words font-mono text-xs">
-                                  {raw}
-                                </pre>
-                              </div>
+                                {renderWideColumnResult(wideColumnResult!)}
+                              </Show>
                             }
                           >
                             {renderSearchResult(searchResult!)}

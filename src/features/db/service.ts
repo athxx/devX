@@ -867,6 +867,63 @@ async function loadElasticsearchExplorer(connection: DbConnection) {
   ];
 }
 
+/** Build a `bigtable` wire command from a connection's relabelled config slots. */
+function buildBigtableCommand(
+  connection: DbConnection,
+  action: string,
+  extra: Record<string, unknown> = {},
+): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "bigtable",
+    payload: {
+      project: connection.config.host.trim(),
+      instance: connection.config.database.trim(),
+      credentials: connection.config.serviceName,
+      endpoint: connection.config.options.trim(),
+      action,
+      ...extra,
+    },
+  };
+}
+
+// Bigtable is flat — an instance exposes a list of tables, no database nesting.
+// We list them via the `listTables` action and surface each as a leaf (reusing
+// the "table" leaf kind) under a single "Tables" group, mirroring how ES
+// exposes indices.
+async function loadBigtableExplorer(connection: DbConnection) {
+  const result = await executeDbSocketCommand(
+    buildBigtableCommand(connection, "listTables"),
+    connection,
+  );
+
+  if (result.kind !== "wideColumn" || !result.data.result) {
+    return [] as DbExplorerNode[];
+  }
+  const payload = result.data.result as Record<string, unknown>;
+  const tables = Array.isArray(payload.tables) ? payload.tables : [];
+
+  const tableNodes = tables
+    .map((item) => {
+      const name = asString(item);
+      if (!name) return null;
+      return makeExplorerLeaf(
+        "table",
+        name,
+        connection.defaultQuery,
+        "Table",
+        undefined,
+        { schemaName: name },
+      );
+    })
+    .filter((node): node is DbExplorerNode => Boolean(node))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return [
+    makeExplorerGroup("Tables", "category", tableNodes, `${tableNodes.length}`),
+  ];
+}
+
 export async function loadDbExplorer(connection: DbConnection) {
   const normalizedConnection = {
     ...connection,
@@ -883,6 +940,9 @@ export async function loadDbExplorer(connection: DbConnection) {
   } else if (adapter.isSearchStore()) {
     // ES is flat (indices only) — return the leaf list directly, no DB filter.
     return loadElasticsearchExplorer(normalizedConnection);
+  } else if (adapter.isWideColumn()) {
+    // Bigtable is flat (tables only) — return the leaf list directly, no DB filter.
+    return loadBigtableExplorer(normalizedConnection);
   } else {
     nodes = await loadSqlExplorer(normalizedConnection);
   }
@@ -1115,6 +1175,12 @@ export async function loadDbObjectDetail(
             ["Kind", node.kind],
             ["Index", node.label],
           ])
+        : adapter.isWideColumn()
+        ? toSummaryEntries([
+            ["Kind", node.kind],
+            ["Instance", connection.config.database],
+            ["Table", node.label],
+          ])
         : adapter.isKeyValueStore()
           ? toSummaryEntries([
               ["Kind", node.kind],
@@ -1150,11 +1216,15 @@ export async function loadDbObjectDetail(
         connectionId: connection.id,
         title: node.label,
         query: node.query,
-        // ES targets the index via databaseName; the leaf label IS the index.
-        databaseName: adapter.isSearchStore() ? node.label : undefined,
+        // ES/Bigtable target the index/table via databaseName; the leaf label
+        // IS the index/table name.
+        databaseName:
+          adapter.isSearchStore() || adapter.isWideColumn()
+            ? node.label
+            : undefined,
         type: adapter.isDocumentStore()
           ? 'mongo'
-          : adapter.isSearchStore()
+          : adapter.isSearchStore() || adapter.isWideColumn()
             ? 'query'
             : 'redis',
       },

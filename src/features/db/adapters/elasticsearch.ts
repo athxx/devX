@@ -285,6 +285,10 @@ export class ElasticsearchAdapter implements DbAdapter {
     return true;
   }
 
+  isWideColumn(): boolean {
+    return false;
+  }
+
   // ES uses its own search-store explorer loader keyed off `isSearchStore()`,
   // so this enum is not consulted; "single" is the inert default.
   databaseListingStrategy(): DbDatabaseListingStrategy {

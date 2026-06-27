@@ -185,6 +185,45 @@ export function DbConnectionDraftForm(props: { connection: DbConnection }): JSX.
       );
     }
 
+    if (connection.kind === "bigtable") {
+      // Bigtable auth is project + instance + service-account JSON, reusing the
+      // host/database/serviceName/options config slots (see BigtableAdapter).
+      return (
+        <div class="grid gap-3 md:grid-cols-2">
+          {renderConfigField(
+            "Project ID",
+            () => cfg().host,
+            (value) => updateConnectionDraftConfig("host", value),
+            "text",
+            "my-gcp-project",
+          )}
+          {renderConfigField(
+            "Instance ID",
+            () => cfg().database,
+            (value) => updateConnectionDraftConfig("database", value),
+            "text",
+            "my-instance",
+          )}
+          {renderConfigField(
+            "Endpoint",
+            () => cfg().options,
+            (value) => updateConnectionDraftConfig("options", value),
+            "text",
+            "(optional, e.g. emulator host)",
+          )}
+          <div class="md:col-span-2">
+            {renderConfigField(
+              "Service Account JSON",
+              () => cfg().serviceName,
+              (value) => updateConnectionDraftConfig("serviceName", value),
+              "text",
+              "(optional — leave blank to use ADC)",
+            )}
+          </div>
+        </div>
+      );
+    }
+
     const portPlaceholder =
       connection.kind === "sqlserver"
         ? "1433"

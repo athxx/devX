@@ -360,6 +360,32 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 			"type": "search",
 			"data": result,
 		})
+	case "bigtable":
+		var request dbrunner.BigtableQueryRequest
+		if err := json.Unmarshal(command.Payload, &request); err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": "invalid bigtable payload",
+			})
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		registerDBRequest(command.ID, cancel)
+		defer finishDBRequest(command.ID)
+		result, err := dbrunner.RunBigtableQuery(ctx, request, deps.Config.DatabaseTimeout)
+		cancel()
+		if err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": err.Error(),
+			})
+		}
+		return conn.WriteJSON(fiber.Map{
+			"id":   command.ID,
+			"type": "wideColumn",
+			"data": result,
+		})
 	case "dbCancel":
 		var request struct {
 			RequestID string `json:"requestId"`

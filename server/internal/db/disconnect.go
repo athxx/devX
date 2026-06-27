@@ -13,6 +13,9 @@ func DisconnectConnection(kind, driver, dsn, url, uri string) error {
 		return DisconnectMongoClient(uri)
 	case "elasticsearch":
 		return DisconnectESClient(url)
+	case "bigtable":
+		// url carries "project\x00instance" (see BigtableAdapter.buildDisconnectMessage).
+		return DisconnectBigtableClient(url)
 	default:
 		if strings.TrimSpace(driver) == "" {
 			driver = kind

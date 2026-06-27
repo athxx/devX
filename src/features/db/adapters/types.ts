@@ -73,7 +73,12 @@ export type DbCompletionDialect =
  * Storage paradigm of a kind. Replaces the scattered
  * `connection.kind === "mongodb" / "redis"` data-model checks in service.ts.
  */
-export type DbDataModel = "relational" | "document" | "keyValue" | "search";
+export type DbDataModel =
+  | "relational"
+  | "document"
+  | "keyValue"
+  | "search"
+  | "wideColumn";
 
 /**
  * How a connection's databases are listed in the explorer root. Replaces the
@@ -186,6 +191,8 @@ export interface DbAdapter {
   isKeyValueStore(): boolean;
   /** Search/index store (Elasticsearch family) — its own explorer + wire path. */
   isSearchStore(): boolean;
+  /** Wide-column store (Bigtable family) — its own explorer + gRPC wire path. */
+  isWideColumn(): boolean;
   /** How the explorer enumerates databases for this kind. */
   databaseListingStrategy(): DbDatabaseListingStrategy;
   /**

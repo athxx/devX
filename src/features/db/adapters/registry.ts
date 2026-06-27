@@ -24,6 +24,7 @@ import { KingBaseAdapter } from "./kingbase";
 import { OpenGaussAdapter } from "./opengauss";
 import { DamengAdapter } from "./dameng";
 import { ElasticsearchAdapter } from "./elasticsearch";
+import { BigtableAdapter } from "./bigtable";
 
 const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redis: new RedisAdapter(),
@@ -45,6 +46,7 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   opengauss: new OpenGaussAdapter(),
   dameng: new DamengAdapter(),
   elasticsearch: new ElasticsearchAdapter(),
+  bigtable: new BigtableAdapter(),
 };
 
 export function getDbAdapter(kind: DbConnectionKind): DbAdapter {

@@ -142,7 +142,9 @@ async function getDbRelaySocket(relayUrl: string): Promise<WebSocket> {
               ? "mongo"
               : pending.kind === "elasticsearch"
                 ? "search"
-                : "sql",
+                : pending.kind === "bigtable"
+                  ? "wideColumn"
+                  : "sql",
         data: (response.data ?? {}) as Record<string, unknown>,
       } as DbResultPayload);
     };

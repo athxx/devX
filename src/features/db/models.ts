@@ -17,7 +17,8 @@ export type DbConnectionKind =
   | "kingbase"
   | "opengauss"
   | "dameng"
-  | "elasticsearch";
+  | "elasticsearch"
+  | "bigtable";
 
 export type DbConnectionConfig = {
   host: string;
@@ -155,6 +156,13 @@ export type DbResultPayload =
     }
   | {
       kind: "search";
+      data: {
+        result: unknown;
+        durationMs?: number;
+      };
+    }
+  | {
+      kind: "wideColumn";
       data: {
         result: unknown;
         durationMs?: number;

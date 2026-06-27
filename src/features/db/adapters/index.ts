@@ -42,3 +42,4 @@ export { KingBaseAdapter } from "./kingbase";
 export { OpenGaussAdapter } from "./opengauss";
 export { DamengAdapter } from "./dameng";
 export { ElasticsearchAdapter } from "./elasticsearch";
+export { BigtableAdapter } from "./bigtable";
