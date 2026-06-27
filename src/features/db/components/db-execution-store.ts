@@ -38,7 +38,7 @@ import {
   canCancelDbExecution,
   loadSchemaCompletionData,
 } from "../service";
-import { getRowKey, schemaCompletionKey } from "./db-state-helpers";
+import { getRowKey, schemaCompletionKey, sqlLiteral } from "./db-state-helpers";
 import type {
   DbConnection,
   DbExecutionState,
@@ -46,6 +46,52 @@ import type {
   DbSortOrder,
   DbTab,
 } from "../models";
+
+/** Render one CSV cell: stringify, then quote/double any field needing it. */
+function escapeCsvCell(value: unknown): string {
+  if (value == null) return "";
+  const raw = typeof value === "string" ? value : JSON.stringify(value);
+  if (/[",\n\r]/.test(raw)) return `"${raw.replace(/"/g, '""')}"`;
+  return raw;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Build a SpreadsheetML 2003 (.xls) workbook with one typed-cell sheet.
+ * Numbers export as Number cells; everything else as String. No dependency.
+ */
+function buildSpreadsheetXml(
+  columns: string[],
+  rows: Array<Record<string, unknown>>,
+): string {
+  const cell = (value: unknown): string => {
+    if (value == null) return "<Cell><Data ss:Type=\"String\"></Data></Cell>";
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return `<Cell><Data ss:Type="Number">${value}</Data></Cell>`;
+    }
+    const text =
+      typeof value === "string" ? value : JSON.stringify(value);
+    return `<Cell><Data ss:Type="String">${escapeXml(text)}</Data></Cell>`;
+  };
+  const headerRow = `<Row>${columns
+    .map((c) => `<Cell><Data ss:Type="String">${escapeXml(c)}</Data></Cell>`)
+    .join("")}</Row>`;
+  const bodyRows = rows
+    .map((row) => `<Row>${columns.map((c) => cell(row[c])).join("")}</Row>`)
+    .join("");
+  return `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Worksheet ss:Name="Result"><Table>${headerRow}${bodyRows}</Table></Worksheet>
+</Workbook>`;
+}
 
 export function createExecutionStore(deps: {
   activeTab: () => DbTab | null;
@@ -156,7 +202,7 @@ export function createExecutionStore(deps: {
     await navigator.clipboard.writeText(JSON.stringify(result.data, null, 2));
   }
 
-  function exportCurrentResult(format: "json" | "csv") {
+  function exportCurrentResult(format: "json" | "csv" | "sql" | "excel") {
     const tab = activeTab();
     if (!tab) return;
     const result = resultByTabId()[tab.id];
@@ -164,24 +210,43 @@ export function createExecutionStore(deps: {
 
     let content = "";
     let type = "application/json;charset=utf-8";
-    let extension = format;
+    let extension: string = format;
 
-    if (format === "csv" && result.kind === "sql") {
-      const columns = result.data.columns ?? [];
-      const rows = result.data.rows ?? [];
+    const isSql = result.kind === "sql";
+    const columns = isSql ? (result.data.columns ?? []) : [];
+    const rows = isSql ? (result.data.rows ?? []) : [];
+
+    if (format === "csv" && isSql) {
       content = [
-        columns.join(","),
+        columns.map(escapeCsvCell).join(","),
         ...rows.map((row) =>
-          columns
-            .map((column) =>
-              JSON.stringify(row[column] ?? "").replace(/^"|"$/g, ""),
-            )
-            .join(","),
+          columns.map((column) => escapeCsvCell(row[column])).join(","),
         ),
       ].join("\n");
       type = "text/csv;charset=utf-8";
+    } else if (format === "sql" && isSql) {
+      // INSERT statements. Target name from the bound source, else a hint.
+      const target =
+        tab.source?.qualifiedName ?? tab.source?.label ?? "exported_table";
+      const columnList = columns.map((c) => `"${c.replace(/"/g, '""')}"`).join(", ");
+      content = rows
+        .map(
+          (row) =>
+            `INSERT INTO ${target} (${columnList}) VALUES (${columns
+              .map((column) => sqlLiteral(row[column]))
+              .join(", ")});`,
+        )
+        .join("\n");
+      type = "text/plain;charset=utf-8";
+    } else if (format === "excel" && isSql) {
+      // SpreadsheetML 2003 — a real, typed spreadsheet Excel/LibreOffice open
+      // natively, with no third-party library or ZIP writer needed.
+      content = buildSpreadsheetXml(columns, rows);
+      type = "application/vnd.ms-excel;charset=utf-8";
+      extension = "xls";
     } else {
       content = JSON.stringify(result.data, null, 2);
+      extension = "json";
     }
 
     const blob = new Blob([content], { type });

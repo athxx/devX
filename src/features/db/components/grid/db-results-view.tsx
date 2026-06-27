@@ -367,6 +367,20 @@ export function DbResultsView() {
             >
               CSV
             </button>
+            <button
+              class="theme-control h-7 rounded-md px-2.5 text-[11px]"
+              disabled={!sqlResult}
+              onClick={() => exportCurrentResult("sql")}
+            >
+              SQL
+            </button>
+            <button
+              class="theme-control h-7 rounded-md px-2.5 text-[11px]"
+              disabled={!sqlResult}
+              onClick={() => exportCurrentResult("excel")}
+            >
+              Excel
+            </button>
             <Show when={canCancelDbExecution(executionByTabId()[tab.id])}>
               <button
                 class="rounded-md bg-[#ffebe9] px-2.5 py-1 text-[11px] font-semibold text-[#b42318]"
