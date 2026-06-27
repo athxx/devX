@@ -1,5 +1,4 @@
 import type { JSX } from "solid-js";
-import type { SQLNamespace } from "@codemirror/lang-sql";
 import type { EditorView } from "@codemirror/view";
 import {
   createContext,
@@ -10,7 +9,6 @@ import {
   onMount,
   useContext,
 } from "solid-js";
-import { createStore } from "solid-js/store";
 import { arrayMove, cloneValue } from "../../../lib/utils";
 import { matchShortcut, type ShortcutOverrides } from "../../../lib/shortcuts";
 import { loadSettings } from "../../../lib/storage";
@@ -19,10 +17,8 @@ import { compactQuery, formatQuery, supportsFormat } from "../format";
 import type {
   DbConnection,
   DbConnectionKind,
-  DbExecutionState,
   DbExplorerNode,
   DbObjectDetail,
-  DbResultPayload,
   DbTab,
   DbTabType,
   DbWorkspaceState,
@@ -30,8 +26,6 @@ import type {
 import {
   buildPagedSqlObjectQuery,
   buildDbConnectionUrl,
-  cancelDbExecution,
-  canCancelDbExecution,
   createDbConnection,
   createDbTab,
   disconnectDbConnection,
@@ -59,6 +53,7 @@ import {
   type ExplorerLoadState,
 } from "./db-explorer-store";
 import { createWorkspaceStore } from "./db-workspace-store";
+import { createExecutionStore } from "./db-execution-store";
 
 export type DbPanelProps = {
   sidebarOpen: boolean;
@@ -276,54 +271,59 @@ export function createDbPanelState(props: DbPanelProps) {
     activeConnectionId,
     tabItems,
   } = workspaceStore;
-  const [schemaCompletionCache, setSchemaCompletionCache] = createSignal<
-    Record<string, SQLNamespace>
-  >({});
-
-  function loadAndCacheSchema(
-    connection: DbConnection,
-    databaseName?: string | null,
-  ) {
-    const key = schemaCompletionKey(connection.id, databaseName);
-    if (schemaCompletionCache()[key]) return;
-    void loadSchemaCompletionData(connection, databaseName).then((schema) => {
-      setSchemaCompletionCache((current) => ({ ...current, [key]: schema }));
-    });
-  }
-  const [resultByTabId, setResultByTabId] = createSignal<
-    Record<string, DbResultPayload>
-  >({});
-  const [rawByTabId, setRawByTabId] = createSignal<Record<string, string>>({});
-  const [executionByTabId, setExecutionByTabId] = createSignal<
-    Record<string, DbExecutionState>
-  >({});
-  const [redisKeyNameDraftByTabId, setRedisKeyNameDraftByTabId] = createSignal<
-    Record<string, string>
-  >({});
-  const [redisKeyTtlDraftByTabId, setRedisKeyTtlDraftByTabId] = createSignal<
-    Record<string, string>
-  >({});
-  const [resultViewByTabId, setResultViewByTabId] = createSignal<
-    Record<string, "table" | "raw">
-  >({});
-  const [resultPageByTabId, setResultPageByTabId] = createSignal<
-    Record<string, number>
-  >({});
-  const [resultPageSizeByTabId, setResultPageSizeByTabId] = createSignal<
-    Record<string, number>
-  >({});
-  const [editedRowsByTabId, setEditedRowsByTabId] = createSignal<
-    Record<string, Record<string, Record<string, string>>>
-  >({});
-  const [rowSavePendingKeys, setRowSavePendingKeys] = createSignal<string[]>(
-    [],
-  );
-  const [executionWarning, setExecutionWarning] = createSignal<string | null>(
-    null,
-  );
-  const [liveQueryByTabId, setLiveQueryByTabId] = createSignal<
-    Record<string, string>
-  >({});
+  // EXECUTION (transient) store (Phase 1, PR #4 — final): owns the per-tab
+  // query-execution atoms (execution status, result/raw payloads, result
+  // view/paging, edited rows + pending keys, live query text, Redis name/TTL
+  // drafts, execution warning, schema-completion cache) and the accessors that
+  // touch only those atoms. Created here, after the workspace store (it injects
+  // workspace's activeTab) and BEFORE the explorer store (which injects this
+  // store's loadAndCacheSchema). Destructured into this scope so the rest of the
+  // factory and the flat return object are textually unchanged. The cross-domain
+  // orchestrators (commitWorkspace, runCurrentTab, rerunPagedSourceTab,
+  // saveEditedRow, clearTabArtifacts, flushLiveQuery), the debounced
+  // updateActiveQuery + its shared queryPersistTimer, and the activeEditorView
+  // ref + its editor accessors all stay in this coordinator.
+  const executionStore = createExecutionStore({ activeTab });
+  const {
+    schemaCompletionCache,
+    setSchemaCompletionCache,
+    resultByTabId,
+    setResultByTabId,
+    rawByTabId,
+    setRawByTabId,
+    executionByTabId,
+    setExecutionByTabId,
+    redisKeyNameDraftByTabId,
+    setRedisKeyNameDraftByTabId,
+    redisKeyTtlDraftByTabId,
+    setRedisKeyTtlDraftByTabId,
+    resultViewByTabId,
+    setResultViewByTabId,
+    resultPageByTabId,
+    setResultPageByTabId,
+    resultPageSizeByTabId,
+    setResultPageSizeByTabId,
+    editedRowsByTabId,
+    setEditedRowsByTabId,
+    rowSavePendingKeys,
+    setRowSavePendingKeys,
+    executionWarning,
+    setExecutionWarning,
+    liveQueryByTabId,
+    setLiveQueryByTabId,
+    loadAndCacheSchema,
+    cancelCurrentExecution,
+    getActiveResultRows,
+    getResultPageSize,
+    getResultPage,
+    copyCurrentResult,
+    exportCurrentResult,
+    getEditedRows,
+    getVisibleRowValue,
+    updateEditedCell,
+    resetEditedRow,
+    getTabQuery,
+  } = executionStore;
   let queryPersistTimer: ReturnType<typeof setTimeout> | null = null;
   let activeEditorView: EditorView | null = null;
 
@@ -1049,88 +1049,6 @@ export function createDbPanelState(props: DbPanelProps) {
     }
   }
 
-  async function cancelCurrentExecution() {
-    const tab = activeTab();
-    if (!tab) return;
-    const execution = executionByTabId()[tab.id];
-    if (!canCancelDbExecution(execution)) return;
-    const requestId =
-      execution.status === "running" ? execution.requestId : null;
-    if (!requestId) return;
-
-    try {
-      await cancelDbExecution(requestId);
-      setExecutionByTabId((current) => ({
-        ...current,
-        [tab.id]: { status: "error", message: "Query cancelled." },
-      }));
-    } catch (error) {
-      setExecutionWarning(
-        error instanceof Error ? error.message : "Failed to cancel query.",
-      );
-    }
-  }
-
-  function getActiveResultRows() {
-    const tab = activeTab();
-    if (!tab) return [] as Array<Record<string, unknown>>;
-    const result = resultByTabId()[tab.id];
-    return result?.kind === "sql" ? (result.data.rows ?? []) : [];
-  }
-
-  function getResultPageSize(tabId: string) {
-    return resultPageSizeByTabId()[tabId] ?? 50;
-  }
-
-  function getResultPage(tabId: string) {
-    return resultPageByTabId()[tabId] ?? 1;
-  }
-
-  async function copyCurrentResult() {
-    const tab = activeTab();
-    if (!tab || !navigator?.clipboard?.writeText) return;
-    const result = resultByTabId()[tab.id];
-    if (!result) return;
-    await navigator.clipboard.writeText(JSON.stringify(result.data, null, 2));
-  }
-
-  function exportCurrentResult(format: "json" | "csv") {
-    const tab = activeTab();
-    if (!tab) return;
-    const result = resultByTabId()[tab.id];
-    if (!result) return;
-
-    let content = "";
-    let type = "application/json;charset=utf-8";
-    let extension = format;
-
-    if (format === "csv" && result.kind === "sql") {
-      const columns = result.data.columns ?? [];
-      const rows = result.data.rows ?? [];
-      content = [
-        columns.join(","),
-        ...rows.map((row) =>
-          columns
-            .map((column) =>
-              JSON.stringify(row[column] ?? "").replace(/^"|"$/g, ""),
-            )
-            .join(","),
-        ),
-      ].join("\n");
-      type = "text/csv;charset=utf-8";
-    } else {
-      content = JSON.stringify(result.data, null, 2);
-    }
-
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${tab.title.replace(/[^a-z0-9-_]+/gi, "-").toLowerCase() || "result"}.${extension}`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-  }
-
   function getDetailSummaryValue(
     detail: DbObjectDetail | undefined,
     label: string,
@@ -1435,55 +1353,6 @@ export function createDbPanelState(props: DbPanelProps) {
     await closeTab(tab.id);
   }
 
-  function getEditedRows(tabId: string) {
-    return editedRowsByTabId()[tabId] ?? {};
-  }
-
-  function getVisibleRowValue(
-    tabId: string,
-    row: Record<string, unknown>,
-    index: number,
-    column: string,
-  ) {
-    const rowKey = getRowKey(row, index);
-    const edited = getEditedRows(tabId)[rowKey]?.[column];
-    if (edited != null) return edited;
-    const value = row[column];
-    if (value == null) return "NULL";
-    if (typeof value === "string") return value;
-    return JSON.stringify(value, null, 2);
-  }
-
-  function updateEditedCell(
-    tabId: string,
-    row: Record<string, unknown>,
-    index: number,
-    column: string,
-    value: string,
-  ) {
-    const rowKey = getRowKey(row, index);
-    setEditedRowsByTabId((current) => ({
-      ...current,
-      [tabId]: {
-        ...(current[tabId] ?? {}),
-        [rowKey]: {
-          ...((current[tabId] ?? {})[rowKey] ?? {}),
-          [column]: value,
-        },
-      },
-    }));
-  }
-
-  function resetEditedRow(tabId: string, rowKey: string) {
-    setEditedRowsByTabId((current) => ({
-      ...current,
-      [tabId]: Object.fromEntries(
-        Object.entries(current[tabId] ?? {}).filter(([key]) => key !== rowKey),
-      ),
-    }));
-  }
-
-
   async function rerunPagedSourceTab(tabId: string, page: number) {
     const tab = workspace().tabsById[tabId];
     const connection = tab ? connectionMap().get(tab.connectionId) : null;
@@ -1692,10 +1561,6 @@ WHERE ${whereClause};`;
     }
 
     closeConnectionModal();
-  }
-
-  function getTabQuery(tab: DbTab): string {
-    return liveQueryByTabId()[tab.id] ?? tab.query;
   }
 
   function flushLiveQuery(tabId: string) {
