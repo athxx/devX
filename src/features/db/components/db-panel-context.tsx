@@ -45,6 +45,9 @@ import {
 } from "../service";
 import { getDbAdapter } from "../adapters";
 import {
+  applySqlParams,
+  detectDangerousSql,
+  extractSqlParams,
   getRowKey,
   groupOrLeafMatchesFilter,
   nodeMatchesFilter,
@@ -2104,7 +2107,36 @@ WHERE ${whereClause};`;
     const connection = activeConnection();
     if (!tab || !connection) return;
 
-    const freshTab = { ...tab, query: getEffectiveQuery() };
+    let effectiveQuery = getEffectiveQuery();
+
+    // Parameterized query (:name): collect a value for each distinct placeholder
+    // before running. Cancelling any prompt aborts the run. Values are bound as
+    // SQL literals (escaped), never string-concatenated raw.
+    const params = extractSqlParams(effectiveQuery);
+    if (params.length > 0) {
+      const values: Record<string, string> = {};
+      for (const name of params) {
+        const input = window.prompt(`Value for :${name}`, "");
+        if (input === null) return;
+        values[name] = input;
+      }
+      effectiveQuery = applySqlParams(effectiveQuery, values);
+    }
+
+    // Destructive-statement guard: DELETE/UPDATE without WHERE, DROP, TRUNCATE,
+    // ALTER. Confirm before sending it to the server.
+    const danger = detectDangerousSql(effectiveQuery);
+    if (danger) {
+      if (
+        !window.confirm(
+          `This query contains a ${danger}. Run it anyway?`,
+        )
+      ) {
+        return;
+      }
+    }
+
+    const freshTab = { ...tab, query: effectiveQuery };
 
     const execution = startDbExecution(freshTab, connection);
 

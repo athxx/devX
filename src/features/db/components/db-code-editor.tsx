@@ -6,6 +6,11 @@ import {
   closeBracketsKeymap,
 } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import {
+  highlightSelectionMatches,
+  search,
+  searchKeymap,
+} from "@codemirror/search";
 import { javascript } from "@codemirror/lang-javascript";
 import {
   MSSQL,
@@ -242,11 +247,16 @@ export function DbCodeEditor(props: DbCodeEditorProps) {
           history(),
           closeBrackets(),
           autocompletion({ override: completionSources }),
+          // Find/replace panel (Mod-f) + match highlighting — CodeMirror's own
+          // search UI, no extra dependency.
+          search({ top: true }),
+          highlightSelectionMatches(),
           keymap.of([
             ...defaultKeymap,
             ...historyKeymap,
             ...completionKeymap,
             ...closeBracketsKeymap,
+            ...searchKeymap,
             {
               key: "Mod-Enter",
               run: () => {
