@@ -32,6 +32,8 @@ import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import type { DbConnectionKind } from "../models";
+import { ContextMenu } from "./db-menu";
+import type { ContextMenuItem } from "./db-menu";
 
 type DbCodeEditorProps = {
   value: string;
@@ -41,9 +43,14 @@ type DbCodeEditorProps = {
   defaultSchema?: string;
   onChange: (value: string) => void;
   onRun?: () => void;
+  /** Run only when there is an explicit selection (dbx "Execute selection"). */
+  onRunSelection?: (selection: string) => void;
   onCompact?: () => void;
   onFormat?: () => void;
   onCloseTab?: () => void;
+  /** dbx editor menu: open the data view / DDL for the focused identifier. */
+  onViewData?: (identifier: string) => void;
+  onViewDdl?: (identifier: string) => void;
   onEditorReady?: (editor: EditorView) => void;
 };
 
@@ -211,6 +218,89 @@ export function DbCodeEditor(props: DbCodeEditorProps) {
   let editor: EditorView | null = null;
 
   const [isDarkMode, setIsDarkMode] = createSignal(false);
+  const [menu, setMenu] = createSignal<{
+    x: number;
+    y: number;
+    items: ContextMenuItem[];
+  } | null>(null);
+
+  /** Selected text, or "" when nothing is selected. */
+  function selectionText(): string {
+    if (!editor) return "";
+    const { from, to } = editor.state.selection.main;
+    return from === to ? "" : editor.state.sliceDoc(from, to);
+  }
+
+  /**
+   * The identifier under the cursor/selection — the word a "View Data"/"View
+   * DDL" action targets. Selection wins; otherwise the word at the caret.
+   */
+  function focusedIdentifier(): string {
+    if (!editor) return "";
+    const selected = selectionText();
+    if (selected.trim()) return selected.trim();
+    const pos = editor.state.selection.main.head;
+    const word = editor.state.wordAt(pos);
+    return word ? editor.state.sliceDoc(word.from, word.to) : "";
+  }
+
+  function buildEditorMenu(): ContextMenuItem[] {
+    const selected = selectionText();
+    const identifier = focusedIdentifier();
+    const readOnly = Boolean(props.readOnly);
+    return [
+      {
+        label: "Execute SQL",
+        icon: "Play",
+        shortcut: "⌘↵",
+        disabled: readOnly || !props.onRun,
+        action: () => props.onRun?.(),
+      },
+      {
+        label: "Execute Selection",
+        icon: "Play",
+        disabled: readOnly || !selected.trim(),
+        action: () => props.onRunSelection?.(selected),
+      },
+      { separator: true },
+      {
+        label: "View Data",
+        icon: "Table2",
+        disabled: !props.onViewData || !identifier,
+        action: () => props.onViewData?.(identifier),
+      },
+      {
+        label: "View DDL",
+        icon: "FileCode",
+        disabled: !props.onViewDdl || !identifier,
+        action: () => props.onViewDdl?.(identifier),
+      },
+      { separator: true },
+      {
+        label: "Copy Selection",
+        icon: "Copy",
+        shortcut: "⌘C",
+        disabled: !selected,
+        action: () => {
+          if (selected && navigator?.clipboard?.writeText) {
+            void navigator.clipboard.writeText(selected);
+          }
+        },
+      },
+      {
+        label: "Select All",
+        icon: "ListTree",
+        shortcut: "⌘A",
+        action: () => {
+          if (!editor) return;
+          editor.dispatch({
+            selection: { anchor: 0, head: editor.state.doc.length },
+          });
+          editor.focus();
+        },
+      },
+    ];
+  }
   const languageCompartment = new Compartment();
   const readOnlyCompartment = new Compartment();
   const themeCompartment = new Compartment();
@@ -358,5 +448,25 @@ export function DbCodeEditor(props: DbCodeEditorProps) {
     editor?.destroy();
   });
 
-  return <div ref={containerRef} class="h-full w-full overflow-hidden" />;
+  return (
+    <>
+      <div
+        ref={containerRef}
+        class="h-full w-full overflow-hidden"
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setMenu({
+            x: event.clientX,
+            y: event.clientY,
+            items: buildEditorMenu(),
+          });
+        }}
+      />
+      <ContextMenu
+        position={menu()}
+        items={menu()?.items ?? []}
+        onClose={() => setMenu(null)}
+      />
+    </>
+  );
 }

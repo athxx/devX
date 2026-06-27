@@ -8,6 +8,7 @@ export default defineConfig({
     target: "es2022",
     outDir: "dist",
     emptyOutDir: true,
+    sourcemap: true,
     rollupOptions: {
       input: {
         index: new URL("index.html", import.meta.url).pathname,
@@ -21,27 +22,33 @@ export default defineConfig({
         entryFileNames: "assets/[name].js",
         chunkFileNames: "assets/chunks/[name].js",
         assetFileNames: "assets/[name][extname]",
-        manualChunks(id) {
-          if (id.includes("node_modules")) {
-            if (id.includes("@codemirror") || id.includes("@lezer")) {
-              return "vendor-codemirror";
-            }
-            if (id.includes("@xterm") || id.includes("xterm")) {
-              return "vendor-xterm";
-            }
-            if (id.includes("solid-js")) {
-              return "vendor-solid";
-            }
-          }
-          if (id.includes("features/db/")) {
-            return "feature-db";
-          }
-          if (id.includes("features/ssh/")) {
-            return "feature-ssh";
-          }
-          if (id.includes("features/rest/")) {
-            return "feature-rest";
-          }
+        // Rolldown's native chunking. `manualChunks` is a rollup-compat shim
+        // whose result is then collapsed by rolldown's small-chunk merge pass —
+        // that merge folded `lib/storage` into the `feature-db` chunk, so the
+        // background service worker (which has NO `window`/`document`) ended up
+        // importing feature-db, which evaluates DOM-touching libs (uPlot,
+        // CodeMirror) at module load and threw "window is not defined",
+        // failing SW registration (Status code 15).
+        //
+        // `advancedChunks` groups are NOT subject to that merge. We pin the
+        // worker-reachable libs (`storage` → `indexed-db`) to their own group
+        // with `minSize: 0` so they always stay a standalone, DOM-free chunk.
+        advancedChunks: {
+          groups: [
+            {
+              name: "worker-safe-lib",
+              test: /\/src\/(lib\/(storage|indexed-db|utils|shortcuts)|features\/proxy\/(service|local-db)|features\/rest\/(service|local-db|models))/,
+              minSize: 0,
+              priority: 100,
+            },
+            { name: "vendor-codemirror", test: /node_modules\/(@codemirror|@lezer)/ },
+            { name: "vendor-xterm", test: /node_modules\/(@xterm|xterm)/ },
+            { name: "vendor-solid", test: /node_modules\/solid-js/ },
+            { name: "shared-lib", test: /\/src\/lib\// },
+            { name: "feature-db", test: /\/src\/features\/db\// },
+            { name: "feature-ssh", test: /\/src\/features\/ssh\// },
+            { name: "feature-rest", test: /\/src\/features\/rest\// },
+          ],
         },
       },
     },

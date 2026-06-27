@@ -222,6 +222,7 @@ export function DbEditorPaneView() {
               value={liveQueryByTabId()[tab.id] ?? tab.query}
               onChange={(value) => updateActiveQuery(value)}
               onRun={() => void runCurrentTab()}
+              onRunSelection={() => void runCurrentTab()}
               onCompact={() => {
                 const text = getEffectiveQuery();
                 applyTextResult(compactQuery(connection.kind, text));
