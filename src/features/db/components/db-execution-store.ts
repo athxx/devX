@@ -247,7 +247,9 @@ export function createExecutionStore(deps: {
     await navigator.clipboard.writeText(JSON.stringify(result.data, null, 2));
   }
 
-  function exportCurrentResult(format: "json" | "csv" | "sql" | "excel") {
+  function exportCurrentResult(
+    format: "json" | "csv" | "sql" | "excel" | "markdown",
+  ) {
     const tab = activeTab();
     if (!tab) return;
     const result = resultByTabId()[tab.id];
@@ -283,6 +285,24 @@ export function createExecutionStore(deps: {
         )
         .join("\n");
       type = "text/plain;charset=utf-8";
+    } else if (format === "markdown" && isSql) {
+      // GitHub-flavoured Markdown table. Pipes in values are escaped so the
+      // table doesn't break; newlines collapse to <br> to stay single-row.
+      const cell = (value: unknown) => {
+        if (value == null) return "";
+        const text =
+          typeof value === "string" ? value : JSON.stringify(value);
+        return text.replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
+      };
+      content = [
+        `| ${columns.join(" | ")} |`,
+        `| ${columns.map(() => "---").join(" | ")} |`,
+        ...rows.map(
+          (row) => `| ${columns.map((column) => cell(row[column])).join(" | ")} |`,
+        ),
+      ].join("\n");
+      type = "text/markdown;charset=utf-8";
+      extension = "md";
     } else if (format === "excel" && isSql) {
       // SpreadsheetML 2003 — a real, typed spreadsheet Excel/LibreOffice open
       // natively, with no third-party library or ZIP writer needed.

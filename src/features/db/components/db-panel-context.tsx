@@ -698,6 +698,92 @@ export function createDbPanelState(props: DbPanelProps) {
     closeFloatingMenus();
   }
 
+  // ── Grid cell / row / column copy actions (dbx DataGrid "Copy" submenu) ──
+  // All resolve against the active SQL result + (when present) the bound source
+  // object detail for INSERT/UPDATE targeting. Non-SQL results no-op.
+  function activeSqlResultColumns(): string[] {
+    const tab = activeTab();
+    if (!tab) return [];
+    const result = resultByTabId()[tab.id];
+    return result?.kind === "sql" ? (result.data.columns ?? []) : [];
+  }
+
+  function copyTargetName(): string {
+    const tab = activeTab();
+    return (
+      tab?.source?.qualifiedName ?? tab?.source?.label ?? "exported_table"
+    );
+  }
+
+  function rawCellValue(row: Record<string, unknown>, column: string): string {
+    const value = row[column];
+    if (value == null) return "";
+    if (typeof value === "string") return value;
+    return JSON.stringify(value);
+  }
+
+  /** Copy a single cell's raw value. */
+  function copyCellValue(row: Record<string, unknown>, column: string) {
+    void copyTextValue(rawCellValue(row, column));
+  }
+
+  /** Copy a column header name. */
+  function copyColumnName(column: string) {
+    void copyTextValue(column);
+  }
+
+  /** Copy every value in a column (current page) as newline-separated text. */
+  function copyColumnValues(column: string, rows: Record<string, unknown>[]) {
+    void copyTextValue(rows.map((row) => rawCellValue(row, column)).join("\n"));
+  }
+
+  type RowCopyMode = "json" | "insert" | "insert-no-pk" | "update" | "tsv";
+
+  /** Copy a row in one of dbx's row formats. */
+  function copyRowAs(row: Record<string, unknown>, mode: RowCopyMode) {
+    const columns = activeSqlResultColumns();
+    if (columns.length === 0) return;
+    const primaryKeys = getActiveObjectDetail()?.primaryKeys ?? [];
+
+    if (mode === "json") {
+      const object: Record<string, unknown> = {};
+      for (const column of columns) object[column] = row[column];
+      void copyTextValue(JSON.stringify(object, null, 2));
+      return;
+    }
+    if (mode === "tsv") {
+      void copyTextValue(columns.map((c) => rawCellValue(row, c)).join("\t"));
+      return;
+    }
+
+    const target = copyTargetName();
+    if (mode === "update") {
+      const keys = primaryKeys.length ? primaryKeys : columns.slice(0, 1);
+      const setCols = columns.filter((c) => !keys.includes(c));
+      const setClause = setCols
+        .map((c) => `${c} = ${sqlLiteral(row[c])}`)
+        .join(", ");
+      const whereClause = keys
+        .map((c) => `${c} = ${sqlLiteral(row[c])}`)
+        .join(" AND ");
+      void copyTextValue(`UPDATE ${target}\nSET ${setClause}\nWHERE ${whereClause};`);
+      return;
+    }
+
+    // insert / insert-no-pk
+    const insertCols =
+      mode === "insert-no-pk"
+        ? columns.filter((c) => !primaryKeys.includes(c))
+        : columns;
+    const columnList = insertCols
+      .map((c) => `"${c.replace(/"/g, '""')}"`)
+      .join(", ");
+    const valueList = insertCols.map((c) => sqlLiteral(row[c])).join(", ");
+    void copyTextValue(
+      `INSERT INTO ${target} (${columnList}) VALUES (${valueList});`,
+    );
+  }
+
   function resolveConnectionActionTabType(
     connection: DbConnection,
     options?: {
@@ -1464,6 +1550,49 @@ export function createDbPanelState(props: DbPanelProps) {
     });
 
     await rerunPagedSourceTab(tabId, 1);
+  }
+
+  // Explicit-direction sort for the grid context menu (dbx "Sort asc/desc").
+  // Server-paged sources re-query; ad-hoc results sort in memory.
+  async function setGridSort(
+    tabId: string,
+    column: string,
+    dir: "asc" | "desc",
+  ) {
+    const tab = workspace().tabsById[tabId];
+    if (tab?.source) {
+      if (tab.source.nodeKind !== "table" && tab.source.nodeKind !== "view")
+        return;
+      await commitWorkspace((draft) => {
+        const target = draft.tabsById[tabId];
+        if (!target?.source) return;
+        target.source.sort = { column, dir };
+        target.source.page = 1;
+      });
+      await rerunPagedSourceTab(tabId, 1);
+      return;
+    }
+    setClientSortByTabId((current) => ({ ...current, [tabId]: { column, dir } }));
+  }
+
+  // Clear any active sort. Server-paged sources re-query unordered.
+  async function clearGridSort(tabId: string) {
+    const tab = workspace().tabsById[tabId];
+    if (tab?.source?.sort) {
+      await commitWorkspace((draft) => {
+        const target = draft.tabsById[tabId];
+        if (!target?.source) return;
+        delete target.source.sort;
+        target.source.page = 1;
+      });
+      await rerunPagedSourceTab(tabId, 1);
+      return;
+    }
+    setClientSortByTabId((current) => {
+      const next = { ...current };
+      delete next[tabId];
+      return next;
+    });
   }
 
   async function saveEditedRow(rowKey: string) {
@@ -2508,6 +2637,12 @@ WHERE ${whereClause};`;
     toggleViewOption,
     getNullColumns,
     refreshActiveTab,
+    setGridSort,
+    clearGridSort,
+    copyCellValue,
+    copyColumnName,
+    copyColumnValues,
+    copyRowAs,
     flushLiveQuery,
     updateActiveQuery,
     getEditorSelection,

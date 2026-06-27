@@ -17,6 +17,15 @@ type DbResultGridProps = {
   onCellInput?: (rowKey: string, column: string, value: string) => void;
   onSaveRow?: (rowKey: string) => void;
   onResetRow?: (rowKey: string) => void;
+  /** Right-click on a data cell — opens the dbx grid context menu. */
+  onCellContextMenu?: (
+    row: Record<string, unknown>,
+    rowIndex: number,
+    column: string,
+    event: MouseEvent,
+  ) => void;
+  /** Right-click on a column header — opens the header/sort context menu. */
+  onHeaderContextMenu?: (column: string, event: MouseEvent) => void;
 };
 
 const DefaultColumnWidth = 150;
@@ -102,6 +111,12 @@ export function DbResultGrid(props: DbResultGridProps) {
                 "border-bottom": `1px solid ${borderColor}`,
                 color: "var(--app-text)",
               }}
+              onContextMenu={(event) => {
+                if (!props.onCellContextMenu) return;
+                event.preventDefault();
+                event.stopPropagation();
+                props.onCellContextMenu(row, index, column, event);
+              }}
             >
               <Show
                 when={props.editable && props.onCellInput}
@@ -179,6 +194,12 @@ export function DbResultGrid(props: DbResultGridProps) {
                     "border-bottom": `1px solid ${borderColor}`,
                   }}
                   onClick={() => props.onSort?.(column)}
+                  onContextMenu={(event) => {
+                    if (!props.onHeaderContextMenu) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    props.onHeaderContextMenu(column, event);
+                  }}
                 >
                   <span class="flex items-center gap-1 overflow-hidden">
                     <span class="overflow-hidden text-ellipsis">{column}</span>

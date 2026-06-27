@@ -1,6 +1,8 @@
 import { createSignal, For, Show } from "solid-js";
 import { DbResultGrid } from "../db-result-grid";
 import { DbExplainView } from "../explain/db-explain-view";
+import { ContextMenu } from "../db-menu";
+import type { ContextMenuItem } from "../db-menu";
 import { canCancelDbExecution } from "../../service";
 import type { DbResultPayload } from "../../models";
 import {
@@ -36,6 +38,8 @@ export function DbResultsView() {
     resetEditedRow,
     rerunPagedSourceTab,
     setSourceSort,
+    setGridSort,
+    clearGridSort,
     getClientSort,
     toggleClientSort,
     sortRowsForClient,
@@ -47,11 +51,21 @@ export function DbResultsView() {
     toggleViewOption,
     getNullColumns,
     refreshActiveTab,
+    copyCellValue,
+    copyColumnName,
+    copyColumnValues,
+    copyRowAs,
+    copyTextValue,
     saveEditedRow,
   } = useDbPanel();
 
   const [columnMenuOpen, setColumnMenuOpen] = createSignal(false);
   const [viewOptionsOpen, setViewOptionsOpen] = createSignal(false);
+  const [gridMenu, setGridMenu] = createSignal<{
+    x: number;
+    y: number;
+    items: ContextMenuItem[];
+  } | null>(null);
 
   function renderRedisResult(
     result: Extract<DbResultPayload, { kind: "redis" }>,
@@ -234,6 +248,155 @@ export function DbResultsView() {
       sqlResult?.data.columns?.length,
     );
 
+    // ── Grid context menus (dbx DataGrid.vue gridContextMenuItems) ──────────
+    // Server-paged sources sort by re-querying with ORDER BY; ad-hoc results
+    // sort in memory. Both routed through setGridSort/clearGridSort so the menu
+    // can offer explicit asc/desc/clear rather than the header's cycle.
+    const menuTabId = tab.id;
+    function buildHeaderMenu(column: string): ContextMenuItem[] {
+      const sorted = activeSort?.column === column;
+      return [
+        {
+          label: "Sort Ascending",
+          icon: "ArrowUp",
+          disabled: sorted && activeSort?.dir === "asc",
+          action: () => void setGridSort(menuTabId, column, "asc"),
+        },
+        {
+          label: "Sort Descending",
+          icon: "ArrowDown",
+          disabled: sorted && activeSort?.dir === "desc",
+          action: () => void setGridSort(menuTabId, column, "desc"),
+        },
+        {
+          label: "Clear Sort",
+          icon: "ArrowUpDown",
+          disabled: !activeSort,
+          action: () => void clearGridSort(menuTabId),
+        },
+        { separator: true },
+        {
+          label: "Copy Column Name",
+          icon: "Copy",
+          action: () => copyColumnName(column),
+        },
+        {
+          label: "Copy Column Values",
+          icon: "Rows3",
+          action: () =>
+            copyColumnValues(column, pagedRows as Record<string, unknown>[]),
+        },
+        { separator: true },
+        {
+          label: "Hide Column",
+          icon: "SquareDashed",
+          disabled: visibleColumns.length <= 1,
+          action: () => toggleColumnVisibility(menuTabId, column),
+        },
+      ];
+    }
+
+    function buildCellMenu(
+      row: Record<string, unknown>,
+      column: string,
+    ): ContextMenuItem[] {
+      return [
+        {
+          label: "Copy Cell",
+          icon: "Copy",
+          shortcut: "⌘C",
+          action: () => copyCellValue(row, column),
+        },
+        {
+          label: "Copy",
+          icon: "CopyPlus",
+          children: [
+            {
+              label: "Copy Row as JSON",
+              icon: "Braces",
+              action: () => copyRowAs(row, "json"),
+            },
+            {
+              label: "Copy Row as INSERT",
+              icon: "FileCode",
+              action: () => copyRowAs(row, "insert"),
+            },
+            {
+              label: "Copy Row as INSERT (without PK)",
+              icon: "FileCode",
+              action: () => copyRowAs(row, "insert-no-pk"),
+            },
+            {
+              label: "Copy Row as UPDATE",
+              icon: "FileCode",
+              action: () => copyRowAs(row, "update"),
+            },
+            {
+              label: "Copy Row as TSV",
+              icon: "Rows3",
+              action: () => copyRowAs(row, "tsv"),
+            },
+            { separator: true },
+            {
+              label: "Copy Column Name",
+              icon: "Copy",
+              action: () => copyColumnName(column),
+            },
+          ],
+        },
+        { separator: true },
+        {
+          label: "Sort Ascending",
+          icon: "ArrowUp",
+          action: () => void setGridSort(menuTabId, column, "asc"),
+        },
+        {
+          label: "Sort Descending",
+          icon: "ArrowDown",
+          action: () => void setGridSort(menuTabId, column, "desc"),
+        },
+        { separator: true },
+        {
+          label: "Export",
+          icon: "FileDown",
+          disabled: !sqlResult,
+          children: [
+            {
+              label: "Export as CSV",
+              icon: "FileDown",
+              action: () => exportCurrentResult("csv"),
+            },
+            {
+              label: "Export as Excel (XLSX)",
+              icon: "FileDown",
+              action: () => exportCurrentResult("excel"),
+            },
+            {
+              label: "Export as JSON",
+              icon: "Braces",
+              action: () => exportCurrentResult("json"),
+            },
+            {
+              label: "Export as Markdown",
+              icon: "FileText",
+              action: () => exportCurrentResult("markdown"),
+            },
+            {
+              label: "Export as SQL (INSERT)",
+              icon: "FileCode",
+              action: () => exportCurrentResult("sql"),
+            },
+          ],
+        },
+        { separator: true },
+        {
+          label: "Refresh",
+          icon: "RefreshCw",
+          action: () => void refreshActiveTab(),
+        },
+      ];
+    }
+
     const resultMeta = result
       ? `${formatBytes(formatResultSize(result.data))}${
           "durationMs" in result.data && result.data.durationMs
@@ -243,6 +406,7 @@ export function DbResultsView() {
       : null;
 
     return (
+      <>
       <div class="flex min-h-0 flex-1 flex-col">
         <div
           class="flex shrink-0 items-center justify-between border-b px-3 py-2"
@@ -466,6 +630,13 @@ export function DbResultsView() {
             >
               Excel
             </button>
+            <button
+              class="theme-control h-7 rounded-md px-2.5 text-[11px]"
+              disabled={!sqlResult}
+              onClick={() => exportCurrentResult("markdown")}
+            >
+              Markdown
+            </button>
             <Show when={canCancelDbExecution(executionByTabId()[tab.id])}>
               <button
                 class="rounded-md bg-[#ffebe9] px-2.5 py-1 text-[11px] font-semibold text-[#b42318]"
@@ -580,6 +751,20 @@ export function DbResultsView() {
                       }}
                       onSaveRow={(rowKey) => void saveEditedRow(rowKey)}
                       onResetRow={(rowKey) => resetEditedRow(tab.id, rowKey)}
+                      onCellContextMenu={(row, _rowIndex, column, event) =>
+                        setGridMenu({
+                          x: event.clientX,
+                          y: event.clientY,
+                          items: buildCellMenu(row, column),
+                        })
+                      }
+                      onHeaderContextMenu={(column, event) =>
+                        setGridMenu({
+                          x: event.clientX,
+                          y: event.clientY,
+                          items: buildHeaderMenu(column),
+                        })
+                      }
                     />
                   </div>
                     }
@@ -743,6 +928,12 @@ export function DbResultsView() {
           </Show>
         </div>
       </div>
+      <ContextMenu
+        position={gridMenu()}
+        items={gridMenu()?.items ?? []}
+        onClose={() => setGridMenu(null)}
+      />
+      </>
     );
   }
 
