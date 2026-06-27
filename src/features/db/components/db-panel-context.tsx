@@ -38,8 +38,6 @@ import {
   executeDbAdHocQuery,
   loadDbObjectDetail,
   loadDbWorkspace,
-  loadDbExplorer,
-  loadDbExplorerDatabaseChildren,
   loadSchemaCompletionData,
   saveDbWorkspace,
   startDbExecution,
@@ -54,6 +52,12 @@ import {
   sqlLiteral,
 } from "./db-state-helpers";
 import { createUiStore } from "./db-ui-store";
+import {
+  createExplorerStore,
+  type ExplorerGroupNode,
+  type ExplorerLeafNode,
+  type ExplorerLoadState,
+} from "./db-explorer-store";
 
 export type DbPanelProps = {
   sidebarOpen: boolean;
@@ -68,15 +72,6 @@ type DbConnectionDatabaseTarget = {
   databaseName: string | null;
   label: string;
 };
-
-type ExplorerLoadState = {
-  status: "idle" | "loading" | "ready" | "error";
-  nodes: DbExplorerNode[];
-  error?: string;
-};
-
-type ExplorerGroupNode = Extract<DbExplorerNode, { kind: "group" }>;
-type ExplorerLeafNode = Exclude<DbExplorerNode, { kind: "group" }>;
 
 export const databaseKinds: DbConnectionKind[] = [
   "redis",
@@ -273,15 +268,6 @@ export function createDbPanelState(props: DbPanelProps) {
   const [workspace, setWorkspace] = createSignal<DbWorkspaceState>(
     getInitialWorkspace(),
   );
-  const [expandedConnectionIds, setExpandedConnectionIds] = createSignal<
-    string[]
-  >([]);
-  const [expandedExplorerNodeIds, setExpandedExplorerNodeIds] = createSignal<
-    string[]
-  >([]);
-  const [explorerByConnectionId, setExplorerByConnectionId] = createSignal<
-    Record<string, ExplorerLoadState>
-  >({});
   const [schemaCompletionCache, setSchemaCompletionCache] = createSignal<
     Record<string, SQLNamespace>
   >({});
@@ -317,23 +303,6 @@ export function createDbPanelState(props: DbPanelProps) {
   >({});
   const [resultPageSizeByTabId, setResultPageSizeByTabId] = createSignal<
     Record<string, number>
-  >({});
-  const [loadingExplorerNodeIds, setLoadingExplorerNodeIds] = createSignal<
-    string[]
-  >([]);
-  const [
-    selectedExplorerLeafByConnectionId,
-    setSelectedExplorerLeafByConnectionId,
-  ] = createSignal<Record<string, string>>({});
-  const [objectDetailByNodeId, setObjectDetailByNodeId] = createSignal<
-    Record<
-      string,
-      {
-        status: "loading" | "ready" | "error";
-        detail?: DbObjectDetail;
-        error?: string;
-      }
-    >
   >({});
   const [editedRowsByTabId, setEditedRowsByTabId] = createSignal<
     Record<string, Record<string, Record<string, string>>>
@@ -414,6 +383,53 @@ export function createDbPanelState(props: DbPanelProps) {
 
     return null;
   });
+
+  // EXPLORER TREE CORE store (Phase 1, PR #2): owns the explorer-tree atoms
+  // (expand state, cached node trees, loading nodes, selected leaf, object-detail
+  // cache) and the read/mutate helpers + tree loaders over them. Called here,
+  // after connectionMap / loadAndCacheSchema / activeConnection are declared,
+  // because those three cross-domain seams are injected as deps. Destructured into
+  // this scope so the rest of the factory and the flat return object are textually
+  // unchanged; coordinator-level orchestrators (openExplorerLeaf,
+  // refreshConnectionExplorer, resetConnectionExplorerCache, …) stay here and call
+  // these via the destructured bindings.
+  const explorer = createExplorerStore({
+    connectionMap,
+    loadAndCacheSchema,
+    activeConnection,
+  });
+  const {
+    expandedConnectionIds,
+    setExpandedConnectionIds,
+    expandedExplorerNodeIds,
+    setExpandedExplorerNodeIds,
+    explorerByConnectionId,
+    setExplorerByConnectionId,
+    loadingExplorerNodeIds,
+    setLoadingExplorerNodeIds,
+    selectedExplorerLeafByConnectionId,
+    setSelectedExplorerLeafByConnectionId,
+    objectDetailByNodeId,
+    setObjectDetailByNodeId,
+    isConnectionExpanded,
+    isExplorerNodeExpanded,
+    toggleExplorerNodeExpanded,
+    updateExplorerNodeChildren,
+    expandExplorerGroupNode,
+    loadLazyExplorerNode,
+    loadConnectionExplorer,
+    toggleConnectionExpanded,
+    findExplorerLeafNode,
+    findExplorerNode,
+    findMatchingExplorerLeaf,
+    getExplorerPreviewMenuLabel,
+    getFirstDatabaseNode,
+    getSelectedExplorerLeaf,
+    getActiveObjectDetail,
+    getTabObjectDetail,
+    resetConnectionExplorer,
+  } = explorer;
+
   const activeConnectionId = createMemo(
     () => activeConnection()?.id ?? workspace().activeConnectionId,
   );
@@ -606,283 +622,10 @@ export function createDbPanelState(props: DbPanelProps) {
     await saveDbWorkspace(next);
   }
 
-  function isConnectionExpanded(connectionId: string) {
-    return expandedConnectionIds().includes(connectionId);
-  }
-
-  function isExplorerNodeExpanded(nodeId: string) {
-    return expandedExplorerNodeIds().includes(nodeId);
-  }
-
-  function toggleExplorerNodeExpanded(nodeId: string) {
-    setExpandedExplorerNodeIds((current) =>
-      current.includes(nodeId)
-        ? current.filter((id) => id !== nodeId)
-        : [...current, nodeId],
-    );
-  }
-
-  function updateExplorerNodeChildren(
-    nodes: DbExplorerNode[],
-    targetId: string,
-    newChildren: DbExplorerNode[],
-  ): DbExplorerNode[] {
-    return nodes.map((node) => {
-      if (node.kind !== "group") return node;
-      if (node.id === targetId) {
-        return { ...node, children: newChildren, lazy: false };
-      }
-      return {
-        ...node,
-        children: updateExplorerNodeChildren(
-          node.children,
-          targetId,
-          newChildren,
-        ),
-      };
-    });
-  }
-
-  function expandExplorerGroupNode(
-    connectionId: string,
-    node: DbExplorerNode & { kind: "group" },
-  ) {
-    const wasExpanded = isExplorerNodeExpanded(node.id);
-    toggleExplorerNodeExpanded(node.id);
-
-    if (!wasExpanded && node.lazy && node.children.length === 0) {
-      void loadLazyExplorerNode(connectionId, node);
-    }
-  }
-
-  async function loadLazyExplorerNode(
-    connectionId: string,
-    node: DbExplorerNode & { kind: "group" },
-  ) {
-    const connection = connectionMap().get(connectionId);
-    if (!connection) return;
-
-    setLoadingExplorerNodeIds((prev) => [...prev, node.id]);
-
-    try {
-      const children = await loadDbExplorerDatabaseChildren(
-        connection,
-        node.label,
-      );
-
-      // Load schema completion for this specific database
-      loadAndCacheSchema(connection, node.label);
-
-      setExplorerByConnectionId((current) => {
-        const entry = current[connectionId];
-        if (!entry) return current;
-        return {
-          ...current,
-          [connectionId]: {
-            ...entry,
-            nodes: updateExplorerNodeChildren(entry.nodes, node.id, children),
-          },
-        };
-      });
-    } catch {
-      // Silently fail - user can retry by collapsing and re-expanding
-    } finally {
-      setLoadingExplorerNodeIds((prev) => prev.filter((id) => id !== node.id));
-    }
-  }
-
-  async function loadConnectionExplorer(
-    connection: DbConnection,
-    options?: {
-      preferredRoot?: {
-        label: string;
-        groupKind: ExplorerGroupNode["groupKind"];
-      } | null;
-      preferredLeaf?: {
-        kind: ExplorerLeafNode["kind"];
-        label: string;
-        qualifiedName?: string;
-      } | null;
-    },
-  ) {
-    setExplorerByConnectionId((current) => ({
-      ...current,
-      [connection.id]: {
-        status: "loading",
-        nodes: current[connection.id]?.nodes ?? [],
-      },
-    }));
-
-    try {
-      const nodes = await loadDbExplorer(connection);
-      setExplorerByConnectionId((current) => ({
-        ...current,
-        [connection.id]: {
-          status: "ready",
-          nodes,
-        },
-      }));
-
-      // Load schema completion data in background (non-blocking)
-      loadAndCacheSchema(connection);
-
-      if (options?.preferredLeaf) {
-        const matchingLeaf = findMatchingExplorerLeaf(
-          nodes,
-          options.preferredLeaf,
-        );
-        if (matchingLeaf) {
-          setSelectedExplorerLeafByConnectionId((current) => ({
-            ...current,
-            [connection.id]: matchingLeaf.id,
-          }));
-        }
-      }
-    } catch (error) {
-      setExplorerByConnectionId((current) => ({
-        ...current,
-        [connection.id]: {
-          status: "error",
-          nodes: current[connection.id]?.nodes ?? [],
-          error:
-            error instanceof Error
-              ? error.message
-              : "Failed to load database objects.",
-        },
-      }));
-    }
-  }
-
-  function toggleConnectionExpanded(connection: DbConnection) {
-    const willExpand = !isConnectionExpanded(connection.id);
-    setExpandedConnectionIds((current) =>
-      willExpand
-        ? [...current, connection.id]
-        : current.filter((id) => id !== connection.id),
-    );
-
-    if (!willExpand) {
-      return;
-    }
-
-    const explorer = explorerByConnectionId()[connection.id];
-    if (
-      !explorer ||
-      explorer.status === "idle" ||
-      explorer.status === "error"
-    ) {
-      void loadConnectionExplorer(connection);
-    }
-  }
-
   async function selectConnectedConnection(connection: DbConnection) {
     await commitWorkspace((draft) => {
       draft.activeConnectionId = connection.id;
     });
-  }
-
-  function findExplorerLeafNode(
-    nodes: DbExplorerNode[],
-    nodeId: string,
-  ): ExplorerLeafNode | null {
-    for (const node of nodes) {
-      if (node.kind === "group") {
-        const nested = findExplorerLeafNode(node.children, nodeId);
-        if (nested) {
-          return nested;
-        }
-        continue;
-      }
-
-      if (node.id === nodeId) {
-        return node;
-      }
-    }
-
-    return null;
-  }
-
-  function findExplorerNode(
-    nodes: DbExplorerNode[],
-    nodeId: string,
-  ): DbExplorerNode | null {
-    for (const node of nodes) {
-      if (node.id === nodeId) {
-        return node;
-      }
-
-      if (node.kind === "group") {
-        const nested = findExplorerNode(node.children, nodeId);
-        if (nested) {
-          return nested;
-        }
-      }
-    }
-
-    return null;
-  }
-
-  function findMatchingExplorerLeaf(
-    nodes: DbExplorerNode[],
-    preferredLeaf: {
-      kind: ExplorerLeafNode["kind"];
-      label: string;
-      qualifiedName?: string;
-    },
-  ): ExplorerLeafNode | null {
-    for (const node of nodes) {
-      if (node.kind === "group") {
-        const nested = findMatchingExplorerLeaf(node.children, preferredLeaf);
-        if (nested) {
-          return nested;
-        }
-        continue;
-      }
-
-      if (
-        node.kind === preferredLeaf.kind &&
-        node.label === preferredLeaf.label &&
-        (preferredLeaf.qualifiedName
-          ? node.qualifiedName === preferredLeaf.qualifiedName
-          : true)
-      ) {
-        return node;
-      }
-    }
-
-    return null;
-  }
-
-  function getExplorerPreviewMenuLabel(node: ExplorerLeafNode) {
-    switch (node.kind) {
-      case "function":
-        return "Open Function Snippet";
-      case "collection":
-        return "Find Documents";
-      case "key":
-        return "Inspect Key";
-      case "table":
-      case "view":
-      default:
-        return "SELECT TOP/LIMIT";
-    }
-  }
-
-  function getFirstDatabaseNode(connection: DbConnection | null): ExplorerGroupNode | null {
-    if (!connection) return null;
-    const explorer = explorerByConnectionId()[connection.id];
-    const nodes = explorer?.nodes ?? [];
-    return (nodes.find((node) => node.kind === "group") as ExplorerGroupNode | undefined) ?? null;
-  }
-
-  function getSelectedExplorerLeaf(connection: DbConnection | null) {
-    if (!connection) return null;
-    const selectedId = selectedExplorerLeafByConnectionId()[connection.id];
-    if (!selectedId) return null;
-    return findExplorerLeafNode(
-      explorerByConnectionId()[connection.id]?.nodes ?? [],
-      selectedId,
-    );
   }
 
   function buildSourceFromNode(
@@ -1435,17 +1178,6 @@ export function createDbPanelState(props: DbPanelProps) {
     URL.revokeObjectURL(url);
   }
 
-  function getActiveObjectDetail() {
-    const connection = activeConnection();
-    const leaf = getSelectedExplorerLeaf(connection);
-    return leaf ? objectDetailByNodeId()[leaf.id]?.detail : undefined;
-  }
-
-  function getTabObjectDetail(tab: DbTab | null) {
-    if (!tab?.source?.nodeId) return undefined;
-    return objectDetailByNodeId()[tab.source.nodeId]?.detail;
-  }
-
   function getDetailSummaryValue(
     detail: DbObjectDetail | undefined,
     label: string,
@@ -1869,22 +1601,6 @@ WHERE ${whereClause};`;
         current.filter((key) => key !== rowKey),
       );
     }
-  }
-
-  function resetConnectionExplorer(connectionId: string) {
-    setExpandedConnectionIds((current) =>
-      current.filter((id) => id !== connectionId),
-    );
-    setSelectedExplorerLeafByConnectionId((current) => {
-      const next = { ...current };
-      delete next[connectionId];
-      return next;
-    });
-    setExplorerByConnectionId((current) => {
-      const next = { ...current };
-      delete next[connectionId];
-      return next;
-    });
   }
 
   async function refreshConnectionExplorer(connection: DbConnection) {
