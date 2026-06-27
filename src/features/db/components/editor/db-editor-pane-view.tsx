@@ -1,0 +1,238 @@
+import { For, Show } from "solid-js";
+import { ControlDot, RefreshIcon } from "../../../../components/ui-primitives";
+import { shortcutLabel } from "../../../../lib/shortcuts";
+import { compactQuery, formatQuery, supportsFormat } from "../../format";
+import { DbCodeEditor } from "../db-code-editor";
+import { DbEditorPane } from "../db-editor-pane";
+import { DbResultsPane } from "../db-results-pane";
+import { ShortcutHintButton } from "../db-icons";
+import { DbResultsView } from "../grid/db-results-view";
+import { useDbPanel } from "../db-panel-context";
+
+export function DbEditorPaneView() {
+  const {
+    activeConnection,
+    activeTab,
+    editorPaneSplit,
+    liveQueryByTabId,
+    redisKeyNameDraftByTabId,
+    redisKeyTtlDraftByTabId,
+    schemaCompletionCache,
+    setEditorPaneSplit,
+    setHistoryModalOpen,
+    setRedisKeyNameDraftByTabId,
+    setRedisKeyTtlDraftByTabId,
+    shortcutOverrides,
+    schemaCompletionKey,
+    getDefaultSchemaName,
+    getActiveObjectDetail,
+    getTabObjectDetail,
+    getDetailSummaryValue,
+    buildDatabaseTargetKey,
+    getSameKindDatabaseTargets,
+    switchActiveTabConnectionTarget,
+    getRedisKeyTypeClass,
+    refreshRedisKeyTab,
+    saveRedisKey,
+    deleteRedisKey,
+    updateActiveQuery,
+    getEffectiveQuery,
+    applyTextResult,
+    closeTab,
+    runCurrentTab,
+    setActiveEditorView,
+  } = useDbPanel();
+
+  function renderActiveTabPane() {
+    const tab = activeTab();
+    const connection = activeConnection();
+    if (!tab || !connection) {
+      return <div class="min-h-0 flex-1" />;
+    }
+
+    const readOnlyEditor = tab.type === "structure";
+    const detail = getTabObjectDetail(tab) ?? getActiveObjectDetail();
+    const databaseTargets = getSameKindDatabaseTargets(connection, {
+      connectionId: tab.connectionId,
+      databaseName: tab.databaseName ?? null,
+    });
+    const isRedisKeyTab =
+      tab.type === "redis" && tab.source?.nodeKind === "key";
+    const redisKeyType = getDetailSummaryValue(detail, "Type") || "key";
+    const redisTtl =
+      redisKeyTtlDraftByTabId()[tab.id] ??
+      (getDetailSummaryValue(detail, "TTL") || "-1");
+    const redisKeyName =
+      redisKeyNameDraftByTabId()[tab.id] ?? tab.source?.label ?? "";
+    const header = (
+      <div
+        class="border-b px-3 py-2"
+        style={{ "border-color": "var(--app-border)" }}
+      >
+        <div class="flex flex-wrap items-center gap-2">
+          <Show
+            when={isRedisKeyTab}
+            fallback={
+              <>
+                <select
+                  class="theme-input h-8 min-w-[220px] rounded-md px-3 text-sm"
+                  value={buildDatabaseTargetKey(
+                    connection.id,
+                    tab.databaseName ?? null,
+                  )}
+                  onInput={(event) =>
+                    void switchActiveTabConnectionTarget(
+                      event.currentTarget.value,
+                    )
+                  }
+                >
+                  <For each={databaseTargets}>
+                    {(item) => <option value={item.key}>{item.label}</option>}
+                  </For>
+                </select>
+                <button
+                  class="theme-control h-8 rounded-md px-3 text-sm font-medium"
+                  onClick={() => setHistoryModalOpen(true)}
+                >
+                  History
+                </button>
+                <Show when={supportsFormat(connection.kind)}>
+                  <ShortcutHintButton
+                    class="theme-control h-8 rounded-md px-3 text-sm font-medium"
+                    shortcut={shortcutLabel("compactQuery", shortcutOverrides())}
+                    onClick={() => {
+                      const text = getEffectiveQuery();
+                      applyTextResult(compactQuery(connection.kind, text));
+                    }}
+                  >
+                    Compact
+                  </ShortcutHintButton>
+                  <ShortcutHintButton
+                    class="theme-control h-8 rounded-md px-3 text-sm font-medium"
+                    shortcut={shortcutLabel("formatQuery", shortcutOverrides())}
+                    onClick={() => {
+                      const text = getEffectiveQuery();
+                      void formatQuery(connection.kind, text).then((formatted) => {
+                        applyTextResult(formatted);
+                      });
+                    }}
+                  >
+                    Pretty
+                  </ShortcutHintButton>
+                </Show>
+                <ShortcutHintButton
+                  class="theme-success h-8 rounded-md px-3 text-sm font-semibold"
+                  shortcut={shortcutLabel("runQuery", shortcutOverrides())}
+                  onClick={() => void runCurrentTab()}
+                >
+                  Run
+                </ShortcutHintButton>
+              </>
+            }
+          >
+            <span
+              class={`inline-flex h-8 items-center rounded-md px-3 text-sm font-semibold ${getRedisKeyTypeClass(redisKeyType)}`}
+            >
+              {redisKeyType}
+            </span>
+            <input
+              class="theme-input h-8 min-w-[220px] rounded-md px-3 text-sm"
+              value={redisKeyName}
+              onInput={(event) =>
+                setRedisKeyNameDraftByTabId((current) => ({
+                  ...current,
+                  [tab.id]: event.currentTarget.value,
+                }))
+              }
+            />
+            <span class="theme-text-soft text-sm font-medium">TTL</span>
+            <input
+              class="theme-input h-8 w-20 rounded-md px-3 text-sm"
+              type="number"
+              min="-1"
+              value={redisTtl}
+              onInput={(event) => {
+                const value = event.currentTarget.value;
+                if (value === "" || Number(value) >= -1) {
+                  setRedisKeyTtlDraftByTabId((current) => ({
+                    ...current,
+                    [tab.id]: value,
+                  }));
+                }
+              }}
+            />
+            <button
+              class="inline-flex h-8 w-8 items-center justify-center rounded-md p-0 transition hover:opacity-80"
+              title="Refresh"
+              onClick={() => void refreshRedisKeyTab()}
+            >
+              <RefreshIcon />
+            </button>
+            <button
+              class="theme-success h-8 rounded-md px-3 text-sm font-semibold"
+              onClick={() => void saveRedisKey()}
+            >
+              Save
+            </button>
+            <div class="ml-auto" />
+            <button
+              class="traffic-dot-button inline-flex h-6 w-6 items-center justify-center rounded-full p-0"
+              title="Delete key"
+              onClick={() => void deleteRedisKey()}
+            >
+              <ControlDot size="mid" variant="delete" />
+            </button>
+          </Show>
+        </div>
+      </div>
+    );
+
+    return (
+      <DbEditorPane
+        header={header}
+        editorMeta={<></>}
+        splitRatio={editorPaneSplit()}
+        onSplitChange={setEditorPaneSplit}
+        editor={
+          <div class="h-full">
+            <DbCodeEditor
+              kind={connection.kind}
+              schema={
+                schemaCompletionCache()[
+                  schemaCompletionKey(connection.id, tab.databaseName)
+                ] ?? schemaCompletionCache()[connection.id]
+              }
+              defaultSchema={
+                tab.databaseName || getDefaultSchemaName(connection)
+              }
+              value={liveQueryByTabId()[tab.id] ?? tab.query}
+              readOnly={readOnlyEditor}
+              onChange={(value) => updateActiveQuery(value)}
+              onRun={() => void runCurrentTab()}
+              onCompact={() => {
+                const text = getEffectiveQuery();
+                applyTextResult(compactQuery(connection.kind, text));
+              }}
+              onFormat={() => {
+                const text = getEffectiveQuery();
+                void formatQuery(connection.kind, text).then((formatted) => {
+                  applyTextResult(formatted);
+                });
+              }}
+              onEditorReady={(view) => {
+                setActiveEditorView(view);
+              }}
+              onCloseTab={() => {
+                const tab = activeTab();
+                if (tab) void closeTab(tab.id);
+              }}
+            />
+          </div>
+        }
+        results={<DbResultsPane><DbResultsView /></DbResultsPane>}
+      />
+    );
+  }
+
+  return renderActiveTabPane();
+}
