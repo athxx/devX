@@ -18,7 +18,6 @@ import { loadDbUiStateFromDb, saveDbUiStateToDb } from "../local-db";
 import { compactQuery, formatQuery, supportsFormat } from "../format";
 import type {
   DbConnection,
-  DbConnectionConfig,
   DbConnectionKind,
   DbExecutionState,
   DbExplorerNode,
@@ -54,6 +53,7 @@ import {
   schemaCompletionKey,
   sqlLiteral,
 } from "./db-state-helpers";
+import { createUiStore } from "./db-ui-store";
 
 export type DbPanelProps = {
   sidebarOpen: boolean;
@@ -68,32 +68,6 @@ type DbConnectionDatabaseTarget = {
   databaseName: string | null;
   label: string;
 };
-
-type ConnectionMenuState = {
-  id: string;
-  x: number;
-  y: number;
-};
-
-type DbTabMenuState = {
-  id: string;
-  x: number;
-  y: number;
-};
-
-type ExplorerNodeMenuState = {
-  connectionId: string;
-  nodeId: string;
-  x: number;
-  y: number;
-};
-
-type DatabaseExportModalState = {
-  connectionId: string;
-  databaseName: string;
-};
-
-type DbConnectionModalMode = "create" | "edit";
 
 type ExplorerLoadState = {
   status: "idle" | "loading" | "ready" | "error";
@@ -230,11 +204,75 @@ function getConnectionSearchText(connection: DbConnection) {
 
 
 export function createDbPanelState(props: DbPanelProps) {
+  // UI / CHROME store (Phase 1, PR #1): owns the transient chrome atoms —
+  // explorer filter, editor-pane split, shortcut overrides, floating menus,
+  // tab drag state, connection draft, and the saved-connections / export /
+  // history modals — plus their self-contained open/close methods. Destructured
+  // into this scope so the rest of the factory and the flat return object are
+  // textually unchanged. Cross-domain seams (saveConnectionDraft,
+  // connectSavedConnection, downloadDatabaseExport) stay in this coordinator and
+  // call the ui.* atoms below.
+  const ui = createUiStore();
+  const {
+    filter,
+    setFilter,
+    editorPaneSplit,
+    setEditorPaneSplit,
+    shortcutOverrides,
+    setShortcutOverrides,
+    savedConnectionsModalOpen,
+    setSavedConnectionsModalOpen,
+    savedConnectionsFilter,
+    setSavedConnectionsFilter,
+    savedConnectionsError,
+    setSavedConnectionsError,
+    pendingConnectionId,
+    setPendingConnectionId,
+    returnToSavedConnectionsModal,
+    setReturnToSavedConnectionsModal,
+    connectionMenu,
+    setConnectionMenu,
+    explorerNodeMenu,
+    setExplorerNodeMenu,
+    tabMenu,
+    setTabMenu,
+    draggedTabId,
+    setDraggedTabId,
+    tabDropTargetId,
+    setTabDropTargetId,
+    connectionModalMode,
+    setConnectionModalMode,
+    connectionDraftState,
+    setConnectionDraftState,
+    historyModalOpen,
+    setHistoryModalOpen,
+    databaseExportModal,
+    setDatabaseExportModal,
+    databaseExportIncludeDrop,
+    setDatabaseExportIncludeDrop,
+    databaseExportIncludeCreate,
+    setDatabaseExportIncludeCreate,
+    databaseExportBulkInsert,
+    setDatabaseExportBulkInsert,
+    databaseExportFormat,
+    setDatabaseExportFormat,
+    databaseExportZip,
+    setDatabaseExportZip,
+    closeFloatingMenus,
+    openSavedConnectionsModal,
+    closeSavedConnectionsModal,
+    openCreateConnectionModal,
+    openEditConnectionModal,
+    closeConnectionModal,
+    changeConnectionDraftKind,
+    updateConnectionDraftConfig,
+    openDatabaseExportModal,
+    closeDatabaseExportModal,
+  } = ui;
+
   const [workspace, setWorkspace] = createSignal<DbWorkspaceState>(
     getInitialWorkspace(),
   );
-  const [filter, setFilter] = createSignal("");
-  const [editorPaneSplit, setEditorPaneSplit] = createSignal(48);
   const [expandedConnectionIds, setExpandedConnectionIds] = createSignal<
     string[]
   >([]);
@@ -247,7 +285,6 @@ export function createDbPanelState(props: DbPanelProps) {
   const [schemaCompletionCache, setSchemaCompletionCache] = createSignal<
     Record<string, SQLNamespace>
   >({});
-  const [shortcutOverrides, setShortcutOverrides] = createSignal<ShortcutOverrides>({});
 
   function loadAndCacheSchema(
     connection: DbConnection,
@@ -259,26 +296,6 @@ export function createDbPanelState(props: DbPanelProps) {
       setSchemaCompletionCache((current) => ({ ...current, [key]: schema }));
     });
   }
-  const [savedConnectionsModalOpen, setSavedConnectionsModalOpen] =
-    createSignal(false);
-  const [savedConnectionsFilter, setSavedConnectionsFilter] = createSignal("");
-  const [savedConnectionsError, setSavedConnectionsError] = createSignal<
-    string | null
-  >(null);
-  const [pendingConnectionId, setPendingConnectionId] = createSignal<
-    string | null
-  >(null);
-  const [returnToSavedConnectionsModal, setReturnToSavedConnectionsModal] =
-    createSignal(false);
-  const [connectionMenu, setConnectionMenu] =
-    createSignal<ConnectionMenuState | null>(null);
-  const [explorerNodeMenu, setExplorerNodeMenu] =
-    createSignal<ExplorerNodeMenuState | null>(null);
-  const [tabMenu, setTabMenu] = createSignal<DbTabMenuState | null>(null);
-  const [draggedTabId, setDraggedTabId] = createSignal<string | null>(null);
-  const [tabDropTargetId, setTabDropTargetId] = createSignal<string | null>(
-    null,
-  );
   const [resultByTabId, setResultByTabId] = createSignal<
     Record<string, DbResultPayload>
   >({});
@@ -301,21 +318,6 @@ export function createDbPanelState(props: DbPanelProps) {
   const [resultPageSizeByTabId, setResultPageSizeByTabId] = createSignal<
     Record<string, number>
   >({});
-  const [connectionModalMode, setConnectionModalMode] =
-    createSignal<DbConnectionModalMode | null>(null);
-  const [historyModalOpen, setHistoryModalOpen] = createSignal(false);
-  const [databaseExportModal, setDatabaseExportModal] =
-    createSignal<DatabaseExportModalState | null>(null);
-  const [databaseExportIncludeDrop, setDatabaseExportIncludeDrop] =
-    createSignal(true);
-  const [databaseExportIncludeCreate, setDatabaseExportIncludeCreate] =
-    createSignal(true);
-  const [databaseExportBulkInsert, setDatabaseExportBulkInsert] =
-    createSignal(true);
-  const [databaseExportFormat, setDatabaseExportFormat] = createSignal<
-    "sql" | "csv" | "json"
-  >("sql");
-  const [databaseExportZip, setDatabaseExportZip] = createSignal(false);
   const [loadingExplorerNodeIds, setLoadingExplorerNodeIds] = createSignal<
     string[]
   >([]);
@@ -342,11 +344,6 @@ export function createDbPanelState(props: DbPanelProps) {
   const [executionWarning, setExecutionWarning] = createSignal<string | null>(
     null,
   );
-  const [connectionDraftState, setConnectionDraftState] = createStore<{
-    value: DbConnection | null;
-  }>({
-    value: null,
-  });
   const [liveQueryByTabId, setLiveQueryByTabId] = createSignal<
     Record<string, string>
   >({});
@@ -1154,20 +1151,6 @@ export function createDbPanelState(props: DbPanelProps) {
     databaseName: string,
   ) {
     return getDbAdapter(connection.kind).buildDropDatabaseTemplate(databaseName);
-  }
-
-  function openDatabaseExportModal(connectionId: string, databaseName: string) {
-    setDatabaseExportIncludeDrop(true);
-    setDatabaseExportIncludeCreate(true);
-    setDatabaseExportBulkInsert(true);
-    setDatabaseExportFormat("sql");
-    setDatabaseExportZip(false);
-    setDatabaseExportModal({ connectionId, databaseName });
-    closeFloatingMenus();
-  }
-
-  function closeDatabaseExportModal() {
-    setDatabaseExportModal(null);
   }
 
   function downloadDatabaseExport() {
@@ -1978,100 +1961,6 @@ WHERE ${whereClause};`;
         Object.entries(current).filter(([tabId]) => !tabIds.includes(tabId)),
       ),
     );
-  }
-
-  function closeFloatingMenus() {
-    setConnectionMenu(null);
-    setExplorerNodeMenu(null);
-    setTabMenu(null);
-  }
-
-  function openSavedConnectionsModal() {
-    setSavedConnectionsError(null);
-    setPendingConnectionId(null);
-    setSavedConnectionsModalOpen(true);
-    closeFloatingMenus();
-  }
-
-  function closeSavedConnectionsModal() {
-    setSavedConnectionsModalOpen(false);
-    setSavedConnectionsError(null);
-    setPendingConnectionId(null);
-  }
-
-  function openCreateConnectionModal(
-    kind: DbConnectionKind = "postgresql",
-    reopenSavedConnections = false,
-  ) {
-    setConnectionDraftState("value", createDbConnection(kind));
-    setConnectionModalMode("create");
-    setReturnToSavedConnectionsModal(reopenSavedConnections);
-    if (reopenSavedConnections) {
-      closeSavedConnectionsModal();
-    }
-    closeFloatingMenus();
-  }
-
-  function openEditConnectionModal(
-    connection: DbConnection,
-    reopenSavedConnections = false,
-  ) {
-    setConnectionDraftState("value", cloneValue(connection));
-    setConnectionModalMode("edit");
-    setReturnToSavedConnectionsModal(reopenSavedConnections);
-    if (reopenSavedConnections) {
-      closeSavedConnectionsModal();
-    }
-    closeFloatingMenus();
-  }
-
-  function closeConnectionModal() {
-    const shouldReopenSavedConnections = returnToSavedConnectionsModal();
-    setConnectionModalMode(null);
-    setConnectionDraftState("value", null);
-    setReturnToSavedConnectionsModal(false);
-
-    if (shouldReopenSavedConnections) {
-      setSavedConnectionsModalOpen(true);
-    }
-  }
-
-  function changeConnectionDraftKind(kind: DbConnectionKind) {
-    const current = connectionDraftState.value;
-    if (!current) return;
-
-    const template = createDbConnection(kind);
-    const next: DbConnection = {
-      ...current,
-      kind,
-      config: template.config,
-      defaultQuery: template.defaultQuery,
-      url: buildDbConnectionUrl({
-        kind,
-        config: template.config,
-        url: current.url,
-      }),
-    };
-
-    setConnectionDraftState("value", next);
-  }
-
-  function updateConnectionDraftConfig<K extends keyof DbConnectionConfig>(
-    key: K,
-    value: DbConnectionConfig[K],
-  ) {
-    const current = connectionDraftState.value;
-    if (!current) return;
-
-    setConnectionDraftState("value", "config", key, value);
-    const next = cloneValue({
-      ...current,
-      config: {
-        ...current.config,
-        [key]: value,
-      },
-    });
-    setConnectionDraftState("value", "url", buildDbConnectionUrl(next));
   }
 
   async function saveConnectionDraft() {
