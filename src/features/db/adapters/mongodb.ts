@@ -14,6 +14,8 @@ import type {
   DbCompletionDialect,
   DbCompletionKeywords,
   DbConnectionBadge,
+  DbDatabaseListingStrategy,
+  DbDataModel,
   DbExplorerLeafNode,
   DbFormatLanguage,
 } from "./types";
@@ -277,6 +279,32 @@ export class MongoAdapter implements DbAdapter {
   }
 
   // --- Capabilities ------------------------------------------------------
+  dataModel(): DbDataModel {
+    return "document";
+  }
+
+  isRelational(): boolean {
+    return false;
+  }
+
+  isDocumentStore(): boolean {
+    return true;
+  }
+
+  isKeyValueStore(): boolean {
+    return false;
+  }
+
+  // Mongo uses its own document-store explorer loader keyed off `dataModel()`,
+  // so this enum is not consulted; "single" is the inert default.
+  databaseListingStrategy(): DbDatabaseListingStrategy {
+    return "single";
+  }
+
+  usesDsnDatabaseSwitching(): boolean {
+    return false;
+  }
+
   canCreateDatabase(): boolean {
     return true;
   }

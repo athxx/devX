@@ -7,6 +7,7 @@ import type {
 import type {
   DbCompletionDialect,
   DbConnectionBadge,
+  DbDatabaseListingStrategy,
   DbExplorerLeafNode,
   DbFormatLanguage,
 } from "./types";
@@ -26,6 +27,16 @@ export class PostgresAdapter extends AbstractSqlAdapter {
 
   override completionDialect(): DbCompletionDialect {
     return "postgresql";
+  }
+
+  // Pg family lists databases via a query and expands children lazily, and
+  // switches the active database by re-pointing the DSN's `dbname`.
+  override databaseListingStrategy(): DbDatabaseListingStrategy {
+    return "lazy-list";
+  }
+
+  override usesDsnDatabaseSwitching(): boolean {
+    return true;
   }
 
   override defaultPort(): string {

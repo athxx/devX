@@ -69,6 +69,29 @@ export type DbCompletionDialect =
   | "standard"
   | null;
 
+/**
+ * Storage paradigm of a kind. Replaces the scattered
+ * `connection.kind === "mongodb" / "redis"` data-model checks in service.ts.
+ */
+export type DbDataModel = "relational" | "document" | "keyValue";
+
+/**
+ * How a connection's databases are listed in the explorer root. Replaces the
+ * `kind === "postgresql" || "gaussdb"` / `kind === "mysql" || "tidb"` branches.
+ * - "lazy-list": query the server for databases, expand children lazily (Pg family).
+ * - "explicit-list": list databases up front, filter system schemas (MySQL/TiDB).
+ * - "fixed-set": a fixed set of databases the server always has (Redis db0–db15).
+ * - "single": no database enumeration — list objects under the current DSN.
+ *
+ * Document stores (Mongo) have their own loader, keyed off `dataModel`, and do
+ * not consult this value.
+ */
+export type DbDatabaseListingStrategy =
+  | "lazy-list"
+  | "explicit-list"
+  | "fixed-set"
+  | "single";
+
 export interface DbAdapter {
   readonly kind: DbConnectionKind;
 
@@ -155,6 +178,20 @@ export interface DbAdapter {
   describeConnection(connection: DbConnection): string;
 
   // --- Capabilities ------------------------------------------------------
+  /** Storage paradigm — single source for the data-model predicates below. */
+  dataModel(): DbDataModel;
+  /** Convenience predicates derived from `dataModel()` (default in base). */
+  isRelational(): boolean;
+  isDocumentStore(): boolean;
+  isKeyValueStore(): boolean;
+  /** How the explorer enumerates databases for this kind. */
+  databaseListingStrategy(): DbDatabaseListingStrategy;
+  /**
+   * Whether switching the active database requires re-pointing the DSN
+   * (Pg-family `dbname`/path) via `switchDsnDatabase()`. False kinds reconnect
+   * with a freshly built connection URL instead.
+   */
+  usesDsnDatabaseSwitching(): boolean;
   /** Whether a "create database" action is offered for this kind. */
   canCreateDatabase(): boolean;
   /** Whether a "connection summary" query is offered for this kind. */

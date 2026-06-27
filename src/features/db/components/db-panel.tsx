@@ -8,6 +8,7 @@ import { DbConnectionModal } from "./db-connection-modal";
 import { DbContextMenu } from "./db-context-menus";
 import { DbSavedConnectionsModal } from "./db-saved-connections-modal";
 import type { DbConnection, DbConnectionKind } from "../models";
+import { getDbAdapter } from "../adapters/registry";
 import {
   DbPanelProvider,
   useDbPanel,
@@ -574,8 +575,9 @@ function DbPanelInner() {
                       buildConnectionSummaryQuery(connection),
                       {
                         forceNew: true,
-                        resultView:
-                          connection.kind === "mongodb" ? "raw" : "table",
+                        resultView: getDbAdapter(connection.kind).isDocumentStore()
+                          ? "raw"
+                          : "table",
                       },
                     )
                   }
@@ -606,7 +608,7 @@ function DbPanelInner() {
           if (!connection || !node) return null;
           if (node.kind === "group") {
             const databaseName = node.label;
-            const showExtendedMenu = connection.kind !== "redis";
+            const showExtendedMenu = !getDbAdapter(connection.kind).isKeyValueStore();
 
             return (
               <DbContextMenu open={true} menu={menu} zIndex={305}>

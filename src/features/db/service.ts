@@ -599,8 +599,9 @@ export async function disconnectDbConnection(connection: DbConnection) {
 }
 
 async function loadSqlExplorer(connection: DbConnection) {
-  // For PostgreSQL/GaussDB: list databases first, return lazy groups
-  if (connection.kind === "postgresql" || connection.kind === "gaussdb") {
+  const listingStrategy = getDbAdapter(connection.kind).databaseListingStrategy();
+  // Pg family ("lazy-list"): list databases first, return lazy groups
+  if (listingStrategy === "lazy-list") {
     const listDbResult = await executeDbSocketCommand(
       {
         id: makeId("db-tree"),
@@ -628,7 +629,8 @@ async function loadSqlExplorer(connection: DbConnection) {
     }
   }
 
-  if (connection.kind === "mysql" || connection.kind === "tidb") {
+  // MySQL/TiDB ("explicit-list"): list all databases, filter system schemas
+  if (listingStrategy === "explicit-list") {
     const listDbResult = await executeDbSocketCommand(
       {
         id: makeId("db-tree"),
@@ -808,22 +810,23 @@ export async function loadDbExplorer(connection: DbConnection) {
 
   let nodes: DbExplorerNode[];
 
-  if (normalizedConnection.kind === "mongodb") {
+  const adapter = getDbAdapter(normalizedConnection.kind);
+  if (adapter.isDocumentStore()) {
     nodes = await loadMongoExplorer(normalizedConnection);
-  } else if (normalizedConnection.kind === "redis") {
+  } else if (adapter.isKeyValueStore()) {
     nodes = await loadRedisExplorer(normalizedConnection);
   } else {
     nodes = await loadSqlExplorer(normalizedConnection);
   }
 
   // If a specific database is configured, filter to show only that database
-  const configuredDb = normalizedConnection.kind === "mongodb"
+  const configuredDb = adapter.isDocumentStore()
     ? (normalizedConnection.config.database?.trim() || mongoDatabaseFromUrl(normalizedConnection.url))
     : normalizedConnection.config.database?.trim();
 
   if (configuredDb && nodes.some((n) => n.kind === "group" && n.groupKind === "database")) {
     // Redis config stores a number (e.g. "0") but node labels are "db0"
-    const matchLabel = normalizedConnection.kind === "redis"
+    const matchLabel = adapter.isKeyValueStore()
       ? `db${configuredDb.replace(/^db/i, "")}`
       : configuredDb;
     const filtered = nodes.filter((n) => n.label === matchLabel);
@@ -840,7 +843,7 @@ function switchDsnDatabase(
   baseDsn: string,
   database: string,
 ): string {
-  if (kind === "postgresql" || kind === "gaussdb") {
+  if (getDbAdapter(kind).usesDsnDatabaseSwitching()) {
     if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(baseDsn)) {
       try {
         const url = new URL(baseDsn)
@@ -865,11 +868,12 @@ export async function loadDbExplorerDatabaseChildren(
   connection: DbConnection,
   databaseName: string,
 ): Promise<DbExplorerNode[]> {
-  if (connection.kind === "mongodb") {
+  const adapter = getDbAdapter(connection.kind);
+  if (adapter.isDocumentStore()) {
     return loadMongoCollectionsForDatabase(connection, databaseName);
   }
 
-  if (connection.kind === "redis") {
+  if (adapter.isKeyValueStore()) {
     return loadRedisDatabaseChildren(connection, databaseName);
   }
 
@@ -878,7 +882,7 @@ export async function loadDbExplorerDatabaseChildren(
     config: { ...connection.config, database: databaseName },
   };
   const dsn =
-    modifiedConnection.kind === "postgresql" || modifiedConnection.kind === "gaussdb"
+    adapter.usesDsnDatabaseSwitching()
       ? switchDsnDatabase(
           modifiedConnection.kind,
           buildDbConnectionUrl(connection) || connection.url.trim(),
@@ -891,7 +895,7 @@ export async function loadDbExplorerDatabaseChildren(
     dsn,
   );
 
-  if (modifiedConnection.kind === "mysql" || modifiedConnection.kind === "tidb") {
+  if (adapter.databaseListingStrategy() === "explicit-list") {
     const matchingRoot = nodes.find(
       (node) =>
         node.kind === "group" &&
@@ -1030,14 +1034,15 @@ export async function loadDbObjectDetail(
   connection: DbConnection,
   node: Exclude<DbExplorerNode, { kind: "group" }>,
 ): Promise<DbObjectDetail> {
+  const adapter = getDbAdapter(connection.kind);
   let summary =
-    connection.kind === "mongodb"
+    adapter.isDocumentStore()
       ? toSummaryEntries([
           ["Kind", node.kind],
           ["Database", node.schemaName || connection.config.database],
           ["Collection", node.label],
         ])
-      : connection.kind === "redis"
+      : adapter.isKeyValueStore()
         ? toSummaryEntries([
             ["Kind", node.kind],
             ["Database", connection.config.database || "0"],
@@ -1050,8 +1055,8 @@ export async function loadDbObjectDetail(
             ["Qualified", node.qualifiedName ?? node.label],
           ]);
 
-  if (connection.kind === "mongodb" || connection.kind === "redis") {
-    if (connection.kind === 'redis') {
+  if (!adapter.isRelational()) {
+    if (adapter.isKeyValueStore()) {
       const [typeResult, ttlResult] = await Promise.all([
         executeDbAdHocQuery(connection, `TYPE ${JSON.stringify(node.label)}`, 'redis'),
         executeDbAdHocQuery(connection, `TTL ${JSON.stringify(node.label)}`, 'redis'),
@@ -1072,7 +1077,7 @@ export async function loadDbObjectDetail(
         connectionId: connection.id,
         title: node.label,
         query: node.query,
-        type: connection.kind === 'mongodb' ? 'mongo' : 'redis',
+        type: adapter.isDocumentStore() ? 'mongo' : 'redis',
       },
       connection,
     ), connection);
@@ -1258,6 +1263,8 @@ export async function loadSchemaCompletionData(
 ): Promise<Record<string, Record<string, string[]> | string[]>> {
   const query = buildAllColumnsQuery(connection.kind);
   if (!query) {
+    // SQLite uses a flat schema shape (not a boolean capability) — kept as an
+    // explicit kind check per Phase C1's scope decision.
     if (connection.kind === "sqlite") {
       return loadSqliteSchemaCompletion(connection);
     }
@@ -1283,7 +1290,8 @@ export async function loadSchemaCompletionData(
       return {};
     }
 
-    // SQLite: flat { table: [col1, col2] }
+    // SQLite: flat { table: [col1, col2] } — flat-schema shape, kept as an
+    // explicit kind check per Phase C1's scope decision.
     if (connection.kind === "sqlite") {
       const tables: Record<string, string[]> = {};
       for (const row of result.data.rows) {

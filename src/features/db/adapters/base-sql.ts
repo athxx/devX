@@ -29,6 +29,8 @@ import type {
   DbCompletionDialect,
   DbCompletionKeywords,
   DbConnectionBadge,
+  DbDatabaseListingStrategy,
+  DbDataModel,
   DbExplorerLeafNode,
   DbFormatLanguage,
 } from "./types";
@@ -512,6 +514,30 @@ export abstract class AbstractSqlAdapter implements DbAdapter {
   }
 
   // --- Capabilities ------------------------------------------------------
+  dataModel(): DbDataModel {
+    return "relational";
+  }
+
+  isRelational(): boolean {
+    return this.dataModel() === "relational";
+  }
+
+  isDocumentStore(): boolean {
+    return this.dataModel() === "document";
+  }
+
+  isKeyValueStore(): boolean {
+    return this.dataModel() === "keyValue";
+  }
+
+  databaseListingStrategy(): DbDatabaseListingStrategy {
+    return "single";
+  }
+
+  usesDsnDatabaseSwitching(): boolean {
+    return false;
+  }
+
   canCreateDatabase(): boolean {
     return true;
   }

@@ -14,6 +14,8 @@ import type {
   DbCompletionDialect,
   DbCompletionKeywords,
   DbConnectionBadge,
+  DbDatabaseListingStrategy,
+  DbDataModel,
   DbExplorerLeafNode,
   DbFormatLanguage,
 } from "./types";
@@ -268,6 +270,31 @@ export class RedisAdapter implements DbAdapter {
   }
 
   // --- Capabilities ------------------------------------------------------
+  dataModel(): DbDataModel {
+    return "keyValue";
+  }
+
+  isRelational(): boolean {
+    return false;
+  }
+
+  isDocumentStore(): boolean {
+    return false;
+  }
+
+  isKeyValueStore(): boolean {
+    return true;
+  }
+
+  // Redis always exposes a fixed set of numbered databases (db0–db15).
+  databaseListingStrategy(): DbDatabaseListingStrategy {
+    return "fixed-set";
+  }
+
+  usesDsnDatabaseSwitching(): boolean {
+    return false;
+  }
+
   canCreateDatabase(): boolean {
     return false;
   }

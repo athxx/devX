@@ -6,6 +6,7 @@ import type {
 import type {
   DbCompletionDialect,
   DbConnectionBadge,
+  DbDatabaseListingStrategy,
   DbExplorerLeafNode,
   DbFormatLanguage,
 } from "./types";
@@ -197,6 +198,12 @@ ORDER BY table_schema, table_name, ordinal_position;`;
 
   override treatsSchemaAsDatabase(): boolean {
     return true;
+  }
+
+  // MySQL/TiDB list all databases up front (SHOW DATABASES) then filter
+  // system schemas.
+  override databaseListingStrategy(): DbDatabaseListingStrategy {
+    return "explicit-list";
   }
 
   // --- Explorer action SQL ----------------------------------------------
