@@ -2280,6 +2280,92 @@ export async function exportDatabaseDump(
   return [...header, ...body].join("\n\n");
 }
 
+/** Options for turning a parsed CSV into INSERT statements. */
+export type CsvImportOptions = {
+  /** Target table name (unqualified); used verbatim through buildQualifiedName. */
+  tableName: string;
+  /** Schema/database to qualify the table with, if any. */
+  schemaName?: string;
+  /** Emit a single multi-row VALUES list instead of one INSERT per row. */
+  bulkInsert: boolean;
+  /**
+   * Treat empty CSV fields as SQL NULL rather than an empty string. CSV cannot
+   * distinguish the two, so this is the user's call; defaults on at the caller.
+   */
+  emptyAsNull: boolean;
+};
+
+/** Render one CSV cell as a SQL literal, inferring number/boolean/NULL. */
+function csvCellLiteral(value: string, emptyAsNull: boolean): string {
+  if (value === "") return emptyAsNull ? "NULL" : "''";
+  // Bare integers / decimals (no leading zeros that would lose meaning, no
+  // surrounding whitespace) pass through unquoted so numeric columns import
+  // cleanly; everything else is a quoted, escaped string literal.
+  if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) {
+    return value;
+  }
+  const lower = value.toLowerCase();
+  if (lower === "true" || lower === "false") return lower.toUpperCase();
+  if (lower === "null") return "NULL";
+  return `'${escapeSqlStringLiteral(value)}'`;
+}
+
+/**
+ * Build INSERT statements from a parsed CSV (header row + data rows) for the
+ * given target table. Pure string assembly — no I/O — so the result can be
+ * loaded into a query tab for the user to review before running. Column names
+ * come from the CSV header; values are inferred via {@link csvCellLiteral}.
+ */
+export function buildInsertStatementsFromCsv(
+  connection: DbConnection,
+  headers: string[],
+  rows: string[][],
+  options: CsvImportOptions,
+): string {
+  const adapter = getDbAdapter(connection.kind);
+  const target = adapter.buildQualifiedName(
+    options.schemaName ?? "",
+    options.tableName,
+  );
+  const trimmedHeaders = headers.map((header) => header.trim());
+  if (trimmedHeaders.length === 0) {
+    return "-- No columns found in CSV header row.";
+  }
+  const columnList = trimmedHeaders
+    .map((column) => adapter.escapeIdentifier(column))
+    .join(", ");
+
+  const lines: string[] = [
+    `-- Import ${rows.length} row(s) into ${target}`,
+    `-- Columns: ${trimmedHeaders.join(", ")}`,
+    `-- Review and adjust types before running.`,
+    "",
+  ];
+
+  if (rows.length === 0) {
+    lines.push(`-- (no data rows)`);
+    return lines.join("\n");
+  }
+
+  const tuples = rows.map((row) => {
+    const cells = trimmedHeaders.map((_, index) =>
+      csvCellLiteral(row[index] ?? "", options.emptyAsNull),
+    );
+    return `(${cells.join(", ")})`;
+  });
+
+  if (options.bulkInsert) {
+    lines.push(
+      `INSERT INTO ${target} (${columnList}) VALUES\n${tuples.join(",\n")};`,
+    );
+  } else {
+    for (const tuple of tuples) {
+      lines.push(`INSERT INTO ${target} (${columnList}) VALUES ${tuple};`);
+    }
+  }
+  return lines.join("\n");
+}
+
 export async function testDbConnection(connection: DbConnection) {
   const normalizedConnection = {
     ...connection,

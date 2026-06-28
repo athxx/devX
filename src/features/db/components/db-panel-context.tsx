@@ -11,6 +11,7 @@ import {
 } from "solid-js";
 import { arrayMove, cloneValue } from "../../../lib/utils";
 import { createZip } from "../../../lib/zip";
+import { parseCsv } from "../../../lib/csv";
 import {
   isModifierHeld,
   matchShortcut,
@@ -33,6 +34,7 @@ import type {
 import {
   buildPagedSqlObjectQuery,
   buildDbConnectionUrl,
+  buildInsertStatementsFromCsv,
   createDbConnection,
   createDbFavorite,
   createDbTab,
@@ -236,6 +238,38 @@ function getConnectionSearchText(connection: DbConnection) {
   ]
     .join(" ")
     .toLowerCase();
+}
+
+/**
+ * Open the browser file picker and resolve with the chosen File, or null if the
+ * dialog is dismissed. Used by the CSV import flow to read a file client-side.
+ */
+function pickFile(accept: string): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.style.position = "fixed";
+    input.style.left = "-9999px";
+    let settled = false;
+    const finish = (file: File | null) => {
+      if (settled) return;
+      settled = true;
+      input.remove();
+      resolve(file);
+    };
+    input.addEventListener("change", () => {
+      finish(input.files && input.files.length > 0 ? input.files[0] : null);
+    });
+    // If the user cancels, "change" never fires; resolve null on the next focus.
+    window.addEventListener(
+      "focus",
+      () => window.setTimeout(() => finish(null), 300),
+      { once: true },
+    );
+    document.body.appendChild(input);
+    input.click();
+  });
 }
 
 
@@ -1011,6 +1045,40 @@ export function createDbPanelState(props: DbPanelProps) {
     }
 
     closeFloatingMenus();
+  }
+
+  /**
+   * Prompt for a CSV file, parse it client-side, and open a query tab containing
+   * generated INSERT statements for the user to review before running. The table
+   * name defaults to the file's base name (sans extension); the header row supplies
+   * the column names. No backend round-trip until the user runs the generated SQL.
+   */
+  async function importCsvFile(
+    connection: DbConnection,
+    databaseName: string,
+  ) {
+    closeFloatingMenus();
+    const file = await pickFile(".csv,text/csv");
+    if (!file) return;
+    const text = await file.text();
+    const { headers, rows } = parseCsv(text);
+    if (headers.length === 0) {
+      window.alert("The selected CSV file has no header row.");
+      return;
+    }
+    const tableName =
+      file.name.replace(/\.[^.]+$/, "").trim() || "imported_table";
+    const sql = buildInsertStatementsFromCsv(connection, headers, rows, {
+      tableName,
+      bulkInsert: rows.length > 1,
+      emptyAsNull: true,
+    });
+    await openConnectionActionQuery(
+      connection,
+      `${databaseName} · Import CSV (${tableName})`,
+      sql,
+      { forceNew: true, resultView: "raw", databaseName },
+    );
   }
 
   function canCreateDatabase(connection: DbConnection) {
@@ -2934,6 +3002,7 @@ WHERE ${whereClause};`;
     resolveExplorerTabType,
     resolveExplorerDatabaseName,
     openConnectionActionQuery,
+    importCsvFile,
     canCreateDatabase,
     canShowConnectionSummary,
     buildCreateDatabaseTemplate,

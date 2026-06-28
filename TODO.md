@@ -96,7 +96,17 @@
       「Zip output」选项由零依赖 STORE-only ZIP 写入器实现：`src/lib/zip.ts`:`createZip`（含 CRC-32）。
       `db-ui-store.ts`:`databaseExporting` / `databaseExportError` 信号（导出中禁用按钮 + 错误提示）；
       `db-panel-context.tsx`:`downloadDatabaseExport` 改为 async（`collectTableLeaves` 枚举表 → 调用服务 → 下载）。
-- [ ] 表导入（CSV / Excel）
+- [x] 表导入（CSV / Excel）— 先落地 CSV：纯前端解析 + 生成 INSERT 供用户审阅后运行
+      零依赖解析器 `src/lib/csv.ts`:`parseCsv`（RFC 4180：引号 / 转义引号 / 内嵌逗号换行 / CRLF）；
+      `service.ts`:`buildInsertStatementsFromCsv(connection, headers, rows, options)` —
+      复用 `escapeIdentifier` / `buildQualifiedName`，`csvCellLiteral` 做轻量类型推断
+      （整数/小数原样、true/false→布尔、空→NULL（可选）、null→NULL、其余引号转义字符串），
+      支持批量 VALUES；表名默认取文件名（去扩展名）。
+      `db-panel-context.tsx`:`pickFile`（隐藏 file input + focus 兜底取消）+ `importCsvFile`
+      （选文件→读文本→parseCsv→生成 SQL→`openConnectionActionQuery` 打开新标签，raw 视图）。
+      入口：数据库分组右键「Import」子菜单新增「From CSV file…」（`FileSpreadsheet` 图标，
+      原 SQL/JSON/CSV 占位模板降级为「… template」项）；新图标注册于 `db-icons.tsx`。
+      注：Excel（xlsx）为二进制格式，需引入解析器，留待后续；当前覆盖 CSV 实路径。
 - [ ] 数据对比（compare）+ 同步输出
 - [ ] 数据迁移 / 传输（连接间复制行）
 - [ ] 字段/列级血缘分析（lineage）

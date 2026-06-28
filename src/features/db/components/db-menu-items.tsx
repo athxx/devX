@@ -134,17 +134,24 @@ function databaseGroupMenuItems(
       {
         label: "Import",
         icon: "Upload",
-        children: (["sql", "json", "csv"] as const).map((format) => ({
-          label: `From ${format.toUpperCase()}`,
-          icon: "FileCode",
-          action: () =>
-            void api.openConnectionActionQuery(
-              connection,
-              `${databaseName} · Import ${format.toUpperCase()}`,
-              api.buildImportTemplate(connection, databaseName, format),
-              { forceNew: true, resultView: "raw", databaseName },
-            ),
-        })),
+        children: [
+          {
+            label: "From CSV file…",
+            icon: "FileSpreadsheet",
+            action: () => void api.importCsvFile(connection, databaseName),
+          },
+          ...(["sql", "json", "csv"] as const).map((format) => ({
+            label: `${format.toUpperCase()} template`,
+            icon: "FileCode" as const,
+            action: () =>
+              void api.openConnectionActionQuery(
+                connection,
+                `${databaseName} · Import ${format.toUpperCase()}`,
+                api.buildImportTemplate(connection, databaseName, format),
+                { forceNew: true, resultView: "raw", databaseName },
+              ),
+          })),
+        ],
       },
       {
         label: "Export",
