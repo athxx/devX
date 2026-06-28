@@ -53,8 +53,10 @@ import {
   startDbExecution,
   testDbConnection,
   compareTableData,
+  transferTableData,
   type ErModel,
   type DataCompareResult,
+  type DataTransferOptions,
 } from "../service";
 import {
   diffSchemas,
@@ -123,6 +125,14 @@ export type DataCompareState = {
   sourceId?: string;
   targetId?: string;
   includeDeletes?: boolean;
+};
+
+/** Per-tab data-transfer resource (copy rows source→destination as SQL). */
+export type DataTransferState = {
+  status: "loading" | "ready" | "error";
+  rowCount?: number;
+  error?: string;
+  targetId?: string;
 };
 
 export const databaseKinds: DbConnectionKind[] = [
@@ -548,6 +558,9 @@ export function createDbPanelState(props: DbPanelProps) {
   >({});
   const [dataCompareByTabId, setDataCompareByTabId] = createSignal<
     Record<string, DataCompareState>
+  >({});
+  const [dataTransferByTabId, setDataTransferByTabId] = createSignal<
+    Record<string, DataTransferState>
   >({});
 
   onMount(() => {
@@ -2486,6 +2499,98 @@ WHERE ${whereClause};`;
     });
   }
 
+  /** Open (or focus) a data-transfer tab anchored to a source table leaf node. */
+  async function openDataTransferTab(
+    connection: DbConnection,
+    node: ExplorerLeafNode,
+  ) {
+    const tabType: DbTabType = "data-transfer";
+    const source = buildSourceFromNode(node);
+    const existingId =
+      workspace().openTabIds.find(
+        (tabId) =>
+          workspace().tabsById[tabId]?.connectionId === connection.id &&
+          workspace().tabsById[tabId]?.type === tabType &&
+          workspace().tabsById[tabId]?.source?.nodeId === node.id,
+      ) ?? null;
+
+    await commitWorkspace((draft) => {
+      if (!draft.connectedConnectionIds.includes(connection.id)) {
+        draft.connectedConnectionIds = [
+          connection.id,
+          ...draft.connectedConnectionIds,
+        ];
+      }
+      draft.activeConnectionId = connection.id;
+      if (existingId && draft.tabsById[existingId]) {
+        draft.activeTabId = existingId;
+        return;
+      }
+      const tab = createDbTab(connection, tabType);
+      tab.title = `${connection.name} · Transfer ${node.label}`;
+      tab.source = source;
+      draft.tabsById[tab.id] = tab;
+      draft.openTabIds.push(tab.id);
+      draft.activeTabId = tab.id;
+    });
+
+    closeFloatingMenus();
+  }
+
+  /**
+   * Read the source table in full and open the generated INSERT SQL (targeting
+   * the chosen destination connection/table) in a fresh editable query tab. The
+   * SQL is reviewed and run by hand against the destination — never auto-executed.
+   */
+  async function runDataTransferForTab(
+    tabId: string,
+    targetId: string,
+    options: DataTransferOptions,
+  ) {
+    const tab = workspace().tabsById[tabId];
+    const source = tab ? connectionMap().get(tab.connectionId) : undefined;
+    const target = connectionMap().get(targetId);
+    if (!tab?.source || !source || !target) {
+      setDataTransferByTabId((current) => ({
+        ...current,
+        [tabId]: { status: "error", error: "Pick a destination connection.", targetId },
+      }));
+      return;
+    }
+
+    setDataTransferByTabId((current) => ({
+      ...current,
+      [tabId]: { status: "loading", targetId },
+    }));
+
+    try {
+      const node = leafNodeFromSource(tab.source);
+      const result = await transferTableData(source, node, target, options);
+      setDataTransferByTabId((current) => ({
+        ...current,
+        [tabId]: { status: "ready", rowCount: result.rowCount, targetId },
+      }));
+      await openConnectionActionQuery(
+        target,
+        `Transfer ${tab.source.label} → ${target.name}`,
+        result.sql,
+        { forceNew: true, resultView: "raw" },
+      );
+    } catch (error) {
+      setDataTransferByTabId((current) => ({
+        ...current,
+        [tabId]: {
+          status: "error",
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to transfer table data.",
+          targetId,
+        },
+      }));
+    }
+  }
+
   /**
    * Open a fresh editable query tab pre-filled with generated SQL (e.g. the
    * structure editor's ALTER preview). Always forceNew — the DDL is a draft the
@@ -3241,12 +3346,15 @@ WHERE ${whereClause};`;
     erModelByTabId,
     schemaDiffByTabId,
     dataCompareByTabId,
+    dataTransferByTabId,
     loadErModelForTab,
     runSchemaDiffForTab,
     runDataCompareForTab,
+    runDataTransferForTab,
     openErTab,
     openSchemaDiffTab,
     openDataCompareTab,
+    openDataTransferTab,
     canCompareData,
     openSyncSqlTab,
     connectSavedConnection,

@@ -3,6 +3,7 @@ import { Show, createSignal, onCleanup } from "solid-js";
 import {
   ArrowDown,
   ArrowDownUp as ArrowUpDown,
+  ArrowRight,
   ArrowRightLeft,
   ArrowUp,
   Braces,
@@ -81,6 +82,7 @@ const ICONS = {
   Search,
   Upload,
   Download,
+  ArrowRight,
   ArrowRightLeft,
   Scissors,
   Eraser,

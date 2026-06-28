@@ -16,6 +16,7 @@ import { DbStructureView } from "../structure/db-structure-view";
 import { DbErView } from "../er/db-er-view";
 import { DbSchemaDiffView } from "../diff/db-schema-diff-view";
 import { DbDataCompareView } from "../diff/db-data-compare-view";
+import { DbDataTransferView } from "../diff/db-data-transfer-view";
 import { useDbPanel } from "../db-panel-context";
 
 export function DbEditorPaneView() {
@@ -80,6 +81,10 @@ export function DbEditorPaneView() {
 
     if (tab.type === "data-compare") {
       return <DbDataCompareView />;
+    }
+
+    if (tab.type === "data-transfer") {
+      return <DbDataTransferView />;
     }
 
     const detail = getTabObjectDetail(tab) ?? getActiveObjectDetail();

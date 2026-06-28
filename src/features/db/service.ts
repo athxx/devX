@@ -2511,6 +2511,83 @@ export async function compareTableData(
   return { diff, syncSql };
 }
 
+// ── Data migration / transfer (Phase 6) ──────────────────────────────────────
+// Copy a table's rows from one connection to another by reading the source in
+// full and rendering INSERT statements against the destination table (which may
+// carry a different name). Output is reviewable SQL rather than a direct write,
+// matching the compare/import slices: the user runs it on the destination after
+// inspecting it. Reuses fetchAllRows + sqlLiteral + escapeIdentifier so the
+// value/identifier escaping stays identical to export and sync.
+
+export type DataTransferOptions = {
+  /** Destination table name (defaults to the source table name). */
+  targetTable?: string;
+  /** Destination schema (defaults to the source schema). */
+  targetSchema?: string;
+  /** Emit a TRUNCATE before the inserts to replace existing rows. */
+  truncateFirst: boolean;
+  /** One multi-row VALUES statement instead of one INSERT per row. */
+  bulkInsert: boolean;
+};
+
+export type DataTransferResult = {
+  /** INSERT (and optional TRUNCATE) SQL to run on the destination. */
+  sql: string;
+  /** Number of rows read from the source. */
+  rowCount: number;
+  /** Columns carried across. */
+  columns: string[];
+};
+
+/** Read all rows from the source table and render INSERTs for the destination. */
+export async function transferTableData(
+  source: DbConnection,
+  sourceNode: Exclude<DbExplorerNode, { kind: "group" }>,
+  target: DbConnection,
+  options: DataTransferOptions,
+): Promise<DataTransferResult> {
+  const sourceDsn = buildDbConnectionUrl(source) || source.url.trim();
+  const { columns, rows } = await fetchAllRows(source, sourceDsn, sourceNode);
+
+  const adapter = getDbAdapter(target.kind);
+  const targetTable = options.targetTable?.trim() || sourceNode.label;
+  const targetSchema =
+    options.targetSchema?.trim() || sourceNode.schemaName || "";
+  const qualified = adapter.buildQualifiedName(targetSchema, targetTable);
+
+  const lines: string[] = [
+    `-- Transfer ${rows.length} row(s) from ${source.name} into ${qualified} on ${target.name}`,
+    `-- Review carefully before running against the destination.`,
+    "",
+  ];
+
+  if (options.truncateFirst) {
+    lines.push(`TRUNCATE TABLE ${qualified};`, "");
+  }
+
+  if (rows.length === 0 || columns.length === 0) {
+    lines.push(`-- (no data rows)`);
+    return { sql: lines.join("\n"), rowCount: rows.length, columns };
+  }
+
+  const columnList = columns
+    .map((column) => adapter.escapeIdentifier(column))
+    .join(", ");
+  const tuples = rows.map(
+    (row) => `(${columns.map((column) => sqlLiteral(row[column])).join(", ")})`,
+  );
+
+  if (options.bulkInsert) {
+    lines.push(`INSERT INTO ${qualified} (${columnList}) VALUES\n${tuples.join(",\n")};`);
+  } else {
+    for (const tuple of tuples) {
+      lines.push(`INSERT INTO ${qualified} (${columnList}) VALUES ${tuple};`);
+    }
+  }
+
+  return { sql: lines.join("\n"), rowCount: rows.length, columns };
+}
+
 export async function testDbConnection(connection: DbConnection) {
   const normalizedConnection = {
     ...connection,

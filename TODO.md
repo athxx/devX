@@ -119,7 +119,16 @@
       视图 `src/features/db/components/diff/db-data-compare-view.tsx`:`DbDataCompareView`（源/目标连接下拉 + 「Emit DELETEs」+ Compare +
       增/改/删分组摘要 + 「Open sync SQL」新建可编辑 raw 标签）；派发分支于 `db-editor-pane-view.tsx`（`tab.type === "data-compare"`）。
       入口：表叶节点右键「Compare data…」（`ArrowRightLeft` 图标，`canCompareData` 门控）。
-- [ ] 数据迁移 / 传输（连接间复制行）
+- [x] 数据迁移 / 传输（连接间复制行）
+      `service.ts`:`transferTableData(source, sourceNode, target, options)` —— `fetchAllRows` 全量读源表，
+      按目标连接的 `escapeIdentifier` / `buildQualifiedName` 生成 INSERT（可选 `truncateFirst` 先 TRUNCATE、
+      `bulkInsert` 单条多行 VALUES），目标表名可改（默认同源表名/schema）；产出 `{sql, rowCount, columns}`。
+      `db-panel-context.tsx`:`DataTransferState` + `dataTransferByTabId` 信号；`openDataTransferTab`（锚定源表叶节点）/
+      `runDataTransferForTab`（读源 → 生成 SQL → 在目标连接上 `openConnectionActionQuery` 打开 raw 标签供审阅运行）。
+      视图 `src/features/db/components/diff/db-data-transfer-view.tsx`:`DbDataTransferView`（目标连接下拉 + 目标表名输入 +
+      「Truncate first」/「Bulk insert」+ Generate SQL；候选为同类型且非自身的连接，无候选时提示）。
+      派发于 `db-editor-pane-view.tsx`（`tab.type === "data-transfer"`）；入口：表叶节点右键「Transfer data…」
+      （`ArrowRight` 图标，与 Compare 同 `canCompareData` 门控；新图标注册于 `db-icons.tsx`）。
 - [ ] 字段/列级血缘分析（lineage）
 - [ ] 文件预览：拖拽 Parquet/CSV/JSON（依赖 Phase 3 的 DuckDB）
 - [ ] 连接导入：从 DBeaver / Navicat 配置导入
