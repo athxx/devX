@@ -1090,6 +1090,68 @@ async function loadInfluxExplorer(connection: DbConnection) {
   ];
 }
 
+/** Build a `weaviate` wire command from a connection's relabelled config slots. */
+function buildWeaviateCommand(
+  connection: DbConnection,
+  action: string,
+  extra: Record<string, unknown> = {},
+): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "weaviate",
+    payload: {
+      address: buildDbConnectionUrl(connection) || connection.url.trim(),
+      apiKey: connection.config.password,
+      action,
+      ...extra,
+    },
+  };
+}
+
+// Weaviate is flat — a node exposes a list of classes, no database nesting. We
+// list them via the `listClasses` action and surface each as a leaf (reusing the
+// "collection" leaf kind) under a single "Classes" group, mirroring how ES
+// exposes indices. The runner returns SQL-shaped data (kind "sql"); the class
+// list rides the `result` field as Weaviate's raw {classes:[{class:"…"},…]}.
+async function loadWeaviateExplorer(connection: DbConnection) {
+  const result = await executeDbSocketCommand(
+    buildWeaviateCommand(connection, "listClasses"),
+    connection,
+  );
+
+  if (result.kind !== "sql") {
+    return [] as DbExplorerNode[];
+  }
+  const raw = (result.data as Record<string, unknown>).result;
+  const classes =
+    raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).classes)
+      ? ((raw as Record<string, unknown>).classes as unknown[])
+      : [];
+
+  const classNodes = classes
+    .map((item) => {
+      const name =
+        item && typeof item === "object"
+          ? asString((item as Record<string, unknown>).class)
+          : asString(item);
+      if (!name) return null;
+      return makeExplorerLeaf(
+        "collection",
+        name,
+        connection.defaultQuery,
+        "Class",
+        undefined,
+        { schemaName: name },
+      );
+    })
+    .filter((node): node is DbExplorerNode => Boolean(node))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return [
+    makeExplorerGroup("Classes", "category", classNodes, `${classNodes.length}`),
+  ];
+}
+
 export async function loadDbExplorer(connection: DbConnection) {
   const normalizedConnection = {
     ...connection,
@@ -1110,6 +1172,10 @@ export async function loadDbExplorer(connection: DbConnection) {
   } else if (normalizedConnection.kind === "influxdb") {
     // InfluxDB is a time-series store over its own HTTP protocol; flat (buckets).
     return loadInfluxExplorer(normalizedConnection);
+  } else if (normalizedConnection.kind === "weaviate") {
+    // Weaviate is also a search-store but speaks its own REST protocol; it is
+    // flat (classes only). Dispatch before the ES-hardcoded isSearchStore branch.
+    return loadWeaviateExplorer(normalizedConnection);
   } else if (adapter.isSearchStore()) {
     // ES is flat (indices only) — return the leaf list directly, no DB filter.
     return loadElasticsearchExplorer(normalizedConnection);
@@ -1352,6 +1418,11 @@ export async function loadDbObjectDetail(
         ? toSummaryEntries([
             ["Kind", node.kind],
             ["Bucket", node.label],
+          ])
+      : connection.kind === "weaviate"
+        ? toSummaryEntries([
+            ["Kind", node.kind],
+            ["Class", node.label],
           ])
       : adapter.isSearchStore()
         ? toSummaryEntries([

@@ -32,7 +32,8 @@ export type DbConnectionKind =
   | "elasticsearch"
   | "bigtable"
   | "qdrant"
-  | "influxdb";
+  | "influxdb"
+  | "weaviate";
 
 export type DbConnectionConfig = {
   host: string;

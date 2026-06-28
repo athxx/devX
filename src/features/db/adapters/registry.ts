@@ -39,6 +39,7 @@ import { ElasticsearchAdapter } from "./elasticsearch";
 import { BigtableAdapter } from "./bigtable";
 import { QdrantAdapter } from "./qdrant";
 import { InfluxDbAdapter } from "./influxdb";
+import { WeaviateAdapter } from "./weaviate";
 
 const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redis: new RedisAdapter(),
@@ -75,6 +76,7 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   bigtable: new BigtableAdapter(),
   qdrant: new QdrantAdapter(),
   influxdb: new InfluxDbAdapter(),
+  weaviate: new WeaviateAdapter(),
 };
 
 export function getDbAdapter(kind: DbConnectionKind): DbAdapter {

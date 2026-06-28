@@ -20,6 +20,8 @@ func DisconnectConnection(kind, driver, dsn, url, uri string) error {
 		return DisconnectQdrantClient(url)
 	case "influxdb", "influx":
 		return DisconnectInfluxClient(url)
+	case "weaviate":
+		return DisconnectWeaviateClient(url)
 	default:
 		if strings.TrimSpace(driver) == "" {
 			driver = kind

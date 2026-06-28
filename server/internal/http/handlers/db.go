@@ -438,6 +438,32 @@ func processDBCommand(conn *ws.Conn, deps Dependencies, payload []byte) error {
 			"type": "sql",
 			"data": result,
 		})
+	case "weaviate":
+		var request dbrunner.WeaviateQueryRequest
+		if err := json.Unmarshal(command.Payload, &request); err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": "invalid weaviate payload",
+			})
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		registerDBRequest(command.ID, cancel)
+		defer finishDBRequest(command.ID)
+		result, err := dbrunner.RunWeaviateQuery(ctx, request, deps.Config.DatabaseTimeout)
+		cancel()
+		if err != nil {
+			return conn.WriteJSON(fiber.Map{
+				"id":    command.ID,
+				"type":  "error",
+				"error": err.Error(),
+			})
+		}
+		return conn.WriteJSON(fiber.Map{
+			"id":   command.ID,
+			"type": "search",
+			"data": result,
+		})
 	case "dbCancel":
 		var request struct {
 			RequestID string `json:"requestId"`

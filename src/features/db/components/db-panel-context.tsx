@@ -141,6 +141,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "bigtable",
   "qdrant",
   "influxdb",
+  "weaviate",
 ];
 
 export function getConnectionBadge(connection: DbConnection) {

@@ -69,7 +69,9 @@
 - [x] Qdrant — REST API（`/collections`、`/points/scroll`），纯 net/http
       runner: `server/internal/db/qdrant.go` + `httpstore.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
       前端: `adapters/qdrant.ts`、registry、`databaseKinds`、`service.ts:loadQdrantExplorer`（points 展平为表格网格）
-- [ ] Weaviate — `github.com/weaviate/weaviate-go-client`（纯 Go HTTP）
+- [x] Weaviate — REST API（`/v1/schema`、`/v1/objects`、`/v1/graphql`），纯 net/http
+      runner: `server/internal/db/weaviate.go` + `httpstore.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
+      前端: `adapters/weaviate.ts`、registry、`databaseKinds`、`service.ts:loadWeaviateExplorer`（objects→表格网格）
 - [ ] Milvus — `github.com/milvus-io/milvus-sdk-go`（gRPC；若拉 cgo 则置于标签后）
 - [ ] Cassandra — `github.com/gocql/gocql`，新 runner（CQL，type `cql`）
 - [ ] Neo4j — `github.com/neo4j/neo4j-go-driver`，新 runner（Cypher，文档型结果）
