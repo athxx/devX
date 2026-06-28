@@ -18,6 +18,10 @@ import { createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
 import { cloneValue } from "../../../lib/utils";
 import type { ShortcutOverrides } from "../../../lib/shortcuts";
+import {
+  DEFAULT_EDITOR_THEME_ID,
+  type EditorThemeId,
+} from "./db-code-editor";
 import { buildDbConnectionUrl, createDbConnection } from "../service";
 import type {
   DbConnection,
@@ -55,6 +59,8 @@ export function createUiStore() {
   // --- explorer filter + editor chrome -----------------------------------
   const [filter, setFilter] = createSignal("");
   const [editorPaneSplit, setEditorPaneSplit] = createSignal(48);
+  const [editorThemeId, setEditorThemeId] =
+    createSignal<EditorThemeId>(DEFAULT_EDITOR_THEME_ID);
   const [shortcutOverrides, setShortcutOverrides] =
     createSignal<ShortcutOverrides>({});
 
@@ -228,6 +234,8 @@ export function createUiStore() {
     setFilter,
     editorPaneSplit,
     setEditorPaneSplit,
+    editorThemeId,
+    setEditorThemeId,
     shortcutOverrides,
     setShortcutOverrides,
     // saved-connections modal

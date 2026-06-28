@@ -3,6 +3,7 @@ import { readDevxSection, writeDevxSection } from '../../lib/indexed-db'
 export type DbUiState = {
   sidebarConnectionsHeight?: number
   editorPaneSplit?: number
+  editorThemeId?: string
 }
 
 export async function loadDbPersistentStateFromDb(): Promise<unknown | null> {

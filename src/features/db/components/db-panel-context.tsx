@@ -17,6 +17,7 @@ import {
 } from "../../../lib/shortcuts";
 import { loadSettings } from "../../../lib/storage";
 import { loadDbUiStateFromDb, saveDbUiStateToDb } from "../local-db";
+import { isEditorThemeId } from "./db-code-editor";
 import { compactQuery, formatQuery, supportsFormat } from "../format";
 import type {
   DbConnection,
@@ -251,6 +252,8 @@ export function createDbPanelState(props: DbPanelProps) {
     setFilter,
     editorPaneSplit,
     setEditorPaneSplit,
+    editorThemeId,
+    setEditorThemeId,
     shortcutOverrides,
     setShortcutOverrides,
     savedConnectionsModalOpen,
@@ -542,6 +545,10 @@ export function createDbPanelState(props: DbPanelProps) {
       ) {
         setEditorPaneSplit(editorSplitParsed);
       }
+
+      if (isEditorThemeId(uiState?.editorThemeId)) {
+        setEditorThemeId(uiState.editorThemeId);
+      }
     });
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -617,6 +624,7 @@ export function createDbPanelState(props: DbPanelProps) {
   createEffect(() => {
     void saveDbUiStateToDb({
       editorPaneSplit: editorPaneSplit(),
+      editorThemeId: editorThemeId(),
     });
   });
 
@@ -2800,6 +2808,7 @@ WHERE ${whereClause};`;
     draggedTabId,
     editedRowsByTabId,
     editorPaneSplit,
+    editorThemeId,
     executionByTabId,
     executionWarning,
     expandedConnectionIds,
@@ -2845,6 +2854,7 @@ WHERE ${whereClause};`;
     setDraggedTabId,
     setEditedRowsByTabId,
     setEditorPaneSplit,
+    setEditorThemeId,
     setExecutionByTabId,
     setExecutionWarning,
     setExpandedConnectionIds,

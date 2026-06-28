@@ -38,6 +38,8 @@ import type { ContextMenuItem } from "./db-menu";
 type DbCodeEditorProps = {
   value: string;
   kind: DbConnectionKind;
+  /** Named editor theme; "auto" (default) follows the app's light/dark mode. */
+  themeId?: EditorThemeId;
   readOnly?: boolean;
   schema?: SQLNamespace;
   defaultSchema?: string;
@@ -203,14 +205,217 @@ const atomDarkHighlightStyle = HighlightStyle.define([
   { tag: [tags.invalid], color: "#ffffff", backgroundColor: "#e05252" },
 ]);
 
-function getEditorThemeExtension(isDarkMode: boolean) {
-  return isDarkMode ? atomDarkTheme : lightEditorTheme;
+// --- additional named themes -------------------------------------------
+// Each named dark theme ships its own EditorView.theme + HighlightStyle so the
+// editor can offer a DBX-style theme picker rather than a single light/dark
+// toggle. The light theme stays bound to the app's CSS tokens; dark themes are
+// self-contained palettes.
+
+function buildDarkTheme(palette: {
+  background: string;
+  text: string;
+  gutter: string;
+  activeLine: string;
+  selection: string;
+  cursor: string;
+}) {
+  return EditorView.theme(
+    {
+      "&": {
+        height: "100%",
+        "min-height": "100%",
+        "font-size": "14px",
+        background: palette.background,
+        color: palette.text,
+      },
+      ".cm-scroller": {
+        overflow: "auto",
+        "font-family":
+          "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+        "line-height": "1.7",
+      },
+      ".cm-content": { padding: "0", "min-height": "100%" },
+      ".cm-line": { padding: "0" },
+      ".cm-gutters": {
+        background: palette.background,
+        color: palette.gutter,
+        border: "none",
+        "padding-right": "8px",
+      },
+      ".cm-lineNumbers .cm-gutterElement": { "padding-left": "8px" },
+      ".cm-activeLine": { background: palette.activeLine },
+      ".cm-focused": { outline: "none" },
+      ".cm-selectionBackground, ::selection": { background: palette.selection },
+      ".cm-cursor": { "border-left-color": palette.cursor },
+    },
+    { dark: true },
+  );
 }
 
-function getSyntaxThemeExtension(isDarkMode: boolean) {
-  return isDarkMode
-    ? syntaxHighlighting(atomDarkHighlightStyle, { fallback: true })
-    : syntaxHighlighting(defaultHighlightStyle, { fallback: true });
+const draculaTheme = buildDarkTheme({
+  background: "#282a36",
+  text: "#f8f8f2",
+  gutter: "#6272a4",
+  activeLine: "#343746",
+  selection: "#44475a",
+  cursor: "#f8f8f0",
+});
+
+const draculaHighlightStyle = HighlightStyle.define([
+  { tag: tags.keyword, color: "#ff79c6" },
+  { tag: [tags.name, tags.propertyName, tags.deleted], color: "#f8f8f2" },
+  {
+    tag: [tags.function(tags.variableName), tags.labelName],
+    color: "#50fa7b",
+  },
+  { tag: [tags.constant(tags.name), tags.standard(tags.name)], color: "#bd93f9" },
+  { tag: [tags.typeName, tags.className], color: "#8be9fd" },
+  { tag: [tags.number], color: "#bd93f9" },
+  { tag: [tags.operator, tags.operatorKeyword], color: "#ff79c6" },
+  { tag: [tags.string, tags.inserted], color: "#f1fa8c" },
+  { tag: [tags.meta, tags.comment], color: "#6272a4", fontStyle: "italic" },
+  { tag: [tags.invalid], color: "#ffffff", backgroundColor: "#ff5555" },
+]);
+
+const githubDarkTheme = buildDarkTheme({
+  background: "#0d1117",
+  text: "#c9d1d9",
+  gutter: "#484f58",
+  activeLine: "#161b22",
+  selection: "rgba(56,139,253,0.25)",
+  cursor: "#58a6ff",
+});
+
+const githubDarkHighlightStyle = HighlightStyle.define([
+  { tag: tags.keyword, color: "#ff7b72" },
+  { tag: [tags.name, tags.propertyName], color: "#c9d1d9" },
+  {
+    tag: [tags.function(tags.variableName), tags.labelName],
+    color: "#d2a8ff",
+  },
+  { tag: [tags.constant(tags.name), tags.standard(tags.name)], color: "#79c0ff" },
+  { tag: [tags.typeName, tags.className], color: "#ffa657" },
+  { tag: [tags.number], color: "#79c0ff" },
+  { tag: [tags.operator, tags.operatorKeyword], color: "#ff7b72" },
+  { tag: [tags.string, tags.inserted], color: "#a5d6ff" },
+  { tag: [tags.meta, tags.comment], color: "#8b949e", fontStyle: "italic" },
+  { tag: [tags.invalid], color: "#ffffff", backgroundColor: "#f85149" },
+]);
+
+const solarizedDarkTheme = buildDarkTheme({
+  background: "#002b36",
+  text: "#93a1a1",
+  gutter: "#586e75",
+  activeLine: "#073642",
+  selection: "rgba(88,110,117,0.4)",
+  cursor: "#839496",
+});
+
+const solarizedDarkHighlightStyle = HighlightStyle.define([
+  { tag: tags.keyword, color: "#859900" },
+  { tag: [tags.name, tags.propertyName], color: "#93a1a1" },
+  {
+    tag: [tags.function(tags.variableName), tags.labelName],
+    color: "#268bd2",
+  },
+  { tag: [tags.constant(tags.name), tags.standard(tags.name)], color: "#cb4b16" },
+  { tag: [tags.typeName, tags.className], color: "#b58900" },
+  { tag: [tags.number], color: "#d33682" },
+  { tag: [tags.operator, tags.operatorKeyword], color: "#859900" },
+  { tag: [tags.string, tags.inserted], color: "#2aa198" },
+  { tag: [tags.meta, tags.comment], color: "#586e75", fontStyle: "italic" },
+  { tag: [tags.invalid], color: "#ffffff", backgroundColor: "#dc322f" },
+]);
+
+export type EditorThemeId =
+  | "auto"
+  | "light"
+  | "atom-dark"
+  | "github-dark"
+  | "dracula"
+  | "solarized-dark";
+
+type NamedEditorTheme = {
+  id: Exclude<EditorThemeId, "auto">;
+  label: string;
+  appearance: "light" | "dark";
+  view: ReturnType<typeof EditorView.theme>;
+  highlight: HighlightStyle;
+};
+
+/** Concrete (non-"auto") editor themes, in the order shown in the picker. */
+export const EDITOR_THEMES: NamedEditorTheme[] = [
+  {
+    id: "light",
+    label: "Light",
+    appearance: "light",
+    view: lightEditorTheme,
+    highlight: defaultHighlightStyle,
+  },
+  {
+    id: "atom-dark",
+    label: "Atom One Dark",
+    appearance: "dark",
+    view: atomDarkTheme,
+    highlight: atomDarkHighlightStyle,
+  },
+  {
+    id: "github-dark",
+    label: "GitHub Dark",
+    appearance: "dark",
+    view: githubDarkTheme,
+    highlight: githubDarkHighlightStyle,
+  },
+  {
+    id: "dracula",
+    label: "Dracula",
+    appearance: "dark",
+    view: draculaTheme,
+    highlight: draculaHighlightStyle,
+  },
+  {
+    id: "solarized-dark",
+    label: "Solarized Dark",
+    appearance: "dark",
+    view: solarizedDarkTheme,
+    highlight: solarizedDarkHighlightStyle,
+  },
+];
+
+/** The picker also surfaces "Auto" (follow the app's light/dark mode). */
+export const EDITOR_THEME_OPTIONS: Array<{ id: EditorThemeId; label: string }> =
+  [{ id: "auto", label: "Auto (App)" }, ...EDITOR_THEMES];
+
+export const DEFAULT_EDITOR_THEME_ID: EditorThemeId = "auto";
+
+export function isEditorThemeId(value: unknown): value is EditorThemeId {
+  return (
+    value === "auto" || EDITOR_THEMES.some((theme) => theme.id === value)
+  );
+}
+
+/**
+ * Resolve a theme id to a concrete theme. "auto" follows the app's dark-mode
+ * flag (light ⇄ Atom One Dark), preserving the original toggle behavior.
+ */
+function resolveEditorTheme(
+  themeId: EditorThemeId,
+  isDarkMode: boolean,
+): NamedEditorTheme {
+  if (themeId === "auto") {
+    return isDarkMode ? EDITOR_THEMES[1] : EDITOR_THEMES[0];
+  }
+  return EDITOR_THEMES.find((theme) => theme.id === themeId) ?? EDITOR_THEMES[0];
+}
+
+function getEditorThemeExtension(themeId: EditorThemeId, isDarkMode: boolean) {
+  return resolveEditorTheme(themeId, isDarkMode).view;
+}
+
+function getSyntaxThemeExtension(themeId: EditorThemeId, isDarkMode: boolean) {
+  return syntaxHighlighting(resolveEditorTheme(themeId, isDarkMode).highlight, {
+    fallback: true,
+  });
 }
 
 export function DbCodeEditor(props: DbCodeEditorProps) {
@@ -384,8 +589,12 @@ export function DbCodeEditor(props: DbCodeEditorProps) {
             },
           ]),
           EditorView.lineWrapping,
-          themeCompartment.of(getEditorThemeExtension(isDarkMode())),
-          syntaxCompartment.of(getSyntaxThemeExtension(isDarkMode())),
+          themeCompartment.of(
+            getEditorThemeExtension(props.themeId ?? "auto", isDarkMode()),
+          ),
+          syntaxCompartment.of(
+            getSyntaxThemeExtension(props.themeId ?? "auto", isDarkMode()),
+          ),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const nextValue = update.state.doc.toString();
@@ -418,13 +627,14 @@ export function DbCodeEditor(props: DbCodeEditorProps) {
     const nextKind = props.kind;
     const nextReadOnly = Boolean(props.readOnly);
     const dark = isDarkMode();
+    const themeId = props.themeId ?? "auto";
 
     editor.dispatch({
       effects: [
         languageCompartment.reconfigure(languageExtension(nextKind)),
         readOnlyCompartment.reconfigure(EditorState.readOnly.of(nextReadOnly)),
-        themeCompartment.reconfigure(getEditorThemeExtension(dark)),
-        syntaxCompartment.reconfigure(getSyntaxThemeExtension(dark)),
+        themeCompartment.reconfigure(getEditorThemeExtension(themeId, dark)),
+        syntaxCompartment.reconfigure(getSyntaxThemeExtension(themeId, dark)),
       ],
     });
   });

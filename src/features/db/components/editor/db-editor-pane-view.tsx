@@ -3,7 +3,11 @@ import { ControlDot, RefreshIcon } from "../../../../components/ui-primitives";
 import { DbAiSidebar } from "../ai/db-ai-sidebar";
 import { shortcutLabel } from "../../../../lib/shortcuts";
 import { compactQuery, formatQuery, supportsFormat } from "../../format";
-import { DbCodeEditor } from "../db-code-editor";
+import {
+  DbCodeEditor,
+  EDITOR_THEME_OPTIONS,
+  isEditorThemeId,
+} from "../db-code-editor";
 import { DbEditorPane } from "../db-editor-pane";
 import { DbResultsPane } from "../db-results-pane";
 import { ShortcutHintButton } from "../db-icons";
@@ -23,6 +27,8 @@ export function DbEditorPaneView() {
     redisKeyTtlDraftByTabId,
     schemaCompletionCache,
     setEditorPaneSplit,
+    editorThemeId,
+    setEditorThemeId,
     setHistoryModalOpen,
     setFavoritesModalOpen,
     setRedisKeyNameDraftByTabId,
@@ -122,6 +128,19 @@ export function DbEditorPaneView() {
                 >
                   Snippets
                 </button>
+                <select
+                  class="theme-input h-8 rounded-md px-2 text-sm"
+                  title="Editor theme"
+                  value={editorThemeId()}
+                  onInput={(event) => {
+                    const next = event.currentTarget.value;
+                    if (isEditorThemeId(next)) setEditorThemeId(next);
+                  }}
+                >
+                  <For each={EDITOR_THEME_OPTIONS}>
+                    {(item) => <option value={item.id}>{item.label}</option>}
+                  </For>
+                </select>
                 <Show when={supportsFormat(connection.kind)}>
                   <ShortcutHintButton
                     class="theme-control h-8 rounded-md px-3 text-sm font-medium"
@@ -241,6 +260,7 @@ export function DbEditorPaneView() {
           <div class="h-full">
             <DbCodeEditor
               kind={connection.kind}
+              themeId={editorThemeId()}
               schema={
                 schemaCompletionCache()[
                   schemaCompletionKey(connection.id, tab.databaseName)

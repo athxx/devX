@@ -99,7 +99,11 @@
       编辑器工具条新增「Snippets」按钮 → `db-panel.tsx` 片段弹窗（保存当前查询、列表、点击插入、删除）；
       `db-ui-store.ts`:`favoritesModalOpen`；`db-panel-context.tsx`:`getCurrentConnectionFavorites` /
       `saveCurrentQueryAsFavorite` / `deleteFavorite` / `applyFavoriteToCurrentTab`（镜像 History 模式）
-- [ ] 编辑器主题对齐 DBX（确认当前主题数量）
+- [x] 编辑器主题对齐 DBX（命名主题 + 选择器，持久化于 `['temp','dbUi'].editorThemeId`）
+      `db-code-editor.tsx`：从「light/dark 二态」改为命名主题注册表 `EDITOR_THEMES`
+      （Auto/Light/Atom One Dark/GitHub Dark/Dracula/Solarized Dark，各带 EditorView.theme + HighlightStyle）；
+      `themeId` prop（"auto" 跟随 App 明暗）；工具条新增主题下拉选择器；
+      `db-ui-store.ts`:`editorThemeId` 信号；`db-panel-context.tsx` 加载/保存（镜像 editorPaneSplit）
 
 ## 明确不做（JDBC/JVM-only，无可用 Go 驱动；已在计划中记录）
 DB2、Informix、SAP HANA、Teradata、Vertica、Firebird、Exasol、Access、IRIS、
