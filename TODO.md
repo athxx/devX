@@ -74,7 +74,9 @@
       前端: `adapters/weaviate.ts`、registry、`databaseKinds`、`service.ts:loadWeaviateExplorer`（objects→表格网格）
 - [ ] Milvus — `github.com/milvus-io/milvus-sdk-go`（gRPC；若拉 cgo 则置于标签后）
 - [ ] Cassandra — `github.com/gocql/gocql`，新 runner（CQL，type `cql`）
-- [ ] Neo4j — `github.com/neo4j/neo4j-go-driver`，新 runner（Cypher，文档型结果）
+- [x] Neo4j — `github.com/neo4j/neo4j-go-driver/v5`（Bolt，纯 Go，无 cgo），Cypher 记录展平为表格网格，type `neo4j`
+      runner: `server/internal/db/neo4j.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
+      前端: `adapters/neo4j.ts`、registry、`databaseKinds`、`service.ts:loadNeo4jExplorer`（node labels→Cypher 采样→表格网格）
 - [x] InfluxDB — HTTP v2 Flux（`/api/v2/query`，注解 CSV 展平为表格网格），纯 net/http，type `influx`
       runner: `server/internal/db/influx.go` + `httpstore.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
       前端: `adapters/influxdb.ts`、registry、`databaseKinds`、`service.ts:loadInfluxExplorer`（buckets→表格网格）

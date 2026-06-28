@@ -142,6 +142,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "qdrant",
   "influxdb",
   "weaviate",
+  "neo4j",
 ];
 
 export function getConnectionBadge(connection: DbConnection) {

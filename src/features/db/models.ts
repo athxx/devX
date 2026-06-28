@@ -33,7 +33,8 @@ export type DbConnectionKind =
   | "bigtable"
   | "qdrant"
   | "influxdb"
-  | "weaviate";
+  | "weaviate"
+  | "neo4j";
 
 export type DbConnectionConfig = {
   host: string;

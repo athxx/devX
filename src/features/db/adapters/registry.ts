@@ -40,6 +40,7 @@ import { BigtableAdapter } from "./bigtable";
 import { QdrantAdapter } from "./qdrant";
 import { InfluxDbAdapter } from "./influxdb";
 import { WeaviateAdapter } from "./weaviate";
+import { Neo4jAdapter } from "./neo4j";
 
 const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redis: new RedisAdapter(),
@@ -77,6 +78,7 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   qdrant: new QdrantAdapter(),
   influxdb: new InfluxDbAdapter(),
   weaviate: new WeaviateAdapter(),
+  neo4j: new Neo4jAdapter(),
 };
 
 export function getDbAdapter(kind: DbConnectionKind): DbAdapter {

@@ -1152,6 +1152,69 @@ async function loadWeaviateExplorer(connection: DbConnection) {
   ];
 }
 
+/** Build a `neo4j` wire command from a connection's relabelled config slots. */
+function buildNeo4jCommand(
+  connection: DbConnection,
+  action: string,
+  extra: Record<string, unknown> = {},
+): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "neo4j",
+    payload: {
+      address: buildDbConnectionUrl(connection) || connection.url.trim(),
+      username: connection.config.username,
+      password: connection.config.password,
+      action,
+      database: connection.config.database,
+      ...extra,
+    },
+  };
+}
+
+// Neo4j is a graph store reached over Bolt; it has no SQL surface. The explorer
+// surfaces node labels (via the `listLabels` action) as leaves under a single
+// "Node Labels" group, mirroring how ES exposes indices. Selecting a label opens
+// a Cypher tab that fetches a sample of those nodes. The runner returns SQL-shaped
+// data (kind "sql") — listLabels rides the `rows` field as [{label:"…"}, …].
+async function loadNeo4jExplorer(connection: DbConnection) {
+  const result = await executeDbSocketCommand(
+    buildNeo4jCommand(connection, "listLabels"),
+    connection,
+  );
+
+  if (result.kind !== "sql") {
+    return [] as DbExplorerNode[];
+  }
+  const rows = (result.data as Record<string, unknown>).rows;
+  const labels = Array.isArray(rows) ? (rows as unknown[]) : [];
+
+  const labelNodes = labels
+    .map((item) => {
+      const name =
+        item && typeof item === "object"
+          ? asString((item as Record<string, unknown>).label)
+          : asString(item);
+      if (!name) return null;
+      // Each label leaf opens a Cypher sample over that label's nodes.
+      const sample = `MATCH (n:\`${name}\`)\nRETURN n\nLIMIT 100`;
+      return makeExplorerLeaf("table", name, sample, "Label", undefined, {
+        schemaName: name,
+      });
+    })
+    .filter((node): node is DbExplorerNode => Boolean(node))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return [
+    makeExplorerGroup(
+      "Node Labels",
+      "category",
+      labelNodes,
+      `${labelNodes.length}`,
+    ),
+  ];
+}
+
 export async function loadDbExplorer(connection: DbConnection) {
   const normalizedConnection = {
     ...connection,
@@ -1176,6 +1239,9 @@ export async function loadDbExplorer(connection: DbConnection) {
     // Weaviate is also a search-store but speaks its own REST protocol; it is
     // flat (classes only). Dispatch before the ES-hardcoded isSearchStore branch.
     return loadWeaviateExplorer(normalizedConnection);
+  } else if (normalizedConnection.kind === "neo4j") {
+    // Neo4j is a graph store over Bolt; it is flat (node labels only).
+    return loadNeo4jExplorer(normalizedConnection);
   } else if (adapter.isSearchStore()) {
     // ES is flat (indices only) — return the leaf list directly, no DB filter.
     return loadElasticsearchExplorer(normalizedConnection);
@@ -1423,6 +1489,11 @@ export async function loadDbObjectDetail(
         ? toSummaryEntries([
             ["Kind", node.kind],
             ["Class", node.label],
+          ])
+      : connection.kind === "neo4j"
+        ? toSummaryEntries([
+            ["Kind", node.kind],
+            ["Label", node.label],
           ])
       : adapter.isSearchStore()
         ? toSummaryEntries([

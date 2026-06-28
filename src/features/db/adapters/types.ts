@@ -80,7 +80,8 @@ export type DbDataModel =
   | "keyValue"
   | "search"
   | "wideColumn"
-  | "timeSeries";
+  | "timeSeries"
+  | "graph";
 
 /**
  * How a connection's databases are listed in the explorer root. Replaces the
