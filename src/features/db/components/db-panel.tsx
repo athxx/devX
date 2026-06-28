@@ -58,6 +58,8 @@ function DbPanelInner() {
     databaseExportIncludeDrop,
     databaseExportModal,
     databaseExportZip,
+    databaseExporting,
+    databaseExportError,
     draggedTabId,
     explorerByConnectionId,
     explorerNodeMenu,
@@ -639,18 +641,29 @@ function DbPanelInner() {
                 </label>
               </div>
 
+              <Show when={databaseExportError()}>
+                <p
+                  class="mt-3 text-sm"
+                  style={{ color: "var(--theme-danger, #dc2626)" }}
+                >
+                  {databaseExportError()}
+                </p>
+              </Show>
+
               <div class="mt-5 flex items-center justify-end gap-2">
                 <button
                   class="theme-control h-8 rounded-md px-3 text-sm font-medium"
+                  disabled={databaseExporting()}
                   onClick={() => closeDatabaseExportModal()}
                 >
                   Cancel
                 </button>
                 <button
                   class="theme-success h-8 rounded-md px-3 text-sm font-semibold"
-                  onClick={() => downloadDatabaseExport()}
+                  disabled={databaseExporting()}
+                  onClick={() => void downloadDatabaseExport()}
                 >
-                  Export
+                  {databaseExporting() ? "Exporting…" : "Export"}
                 </button>
               </div>
             </div>

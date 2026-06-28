@@ -118,6 +118,10 @@ export function createUiStore() {
     "sql" | "csv" | "json"
   >("sql");
   const [databaseExportZip, setDatabaseExportZip] = createSignal(false);
+  const [databaseExporting, setDatabaseExporting] = createSignal(false);
+  const [databaseExportError, setDatabaseExportError] = createSignal<
+    string | null
+  >(null);
 
   // --- methods (self-contained over the atoms above) ---------------------
   function closeFloatingMenus() {
@@ -220,6 +224,8 @@ export function createUiStore() {
     setDatabaseExportBulkInsert(true);
     setDatabaseExportFormat("sql");
     setDatabaseExportZip(false);
+    setDatabaseExporting(false);
+    setDatabaseExportError(null);
     setDatabaseExportModal({ connectionId, databaseName });
     closeFloatingMenus();
   }
@@ -285,6 +291,10 @@ export function createUiStore() {
     setDatabaseExportFormat,
     databaseExportZip,
     setDatabaseExportZip,
+    databaseExporting,
+    setDatabaseExporting,
+    databaseExportError,
+    setDatabaseExportError,
     // methods
     closeFloatingMenus,
     openSavedConnectionsModal,

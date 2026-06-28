@@ -87,7 +87,15 @@
 - [ ] 各非 SQL 类新增 runner + 非 SQL 适配器（参照 elasticsearch.ts / bigtable.ts）
 
 ## Phase 6 — 剩余功能补齐（DBX 功能差距）
-- [ ] 数据库整库导出 / dump
+- [x] 数据库整库导出 / dump
+      之前 `downloadDatabaseExport` 仅输出「导出计划」占位文本；本切片改为真实整库导出：
+      `service.ts`:`exportDatabaseDump(connection, databaseName, tables, options)` —
+      逐表 `SELECT * FROM <qualified>` 拉全部行（避开各方言 LIMIT/OFFSET 差异），
+      SQL 格式输出 DROP（可选）+ 适配器真实 CREATE DDL（`buildDdlQuery`，可选）+ INSERT（可选批量）；
+      CSV / JSON 按表序列化；值转义 `sqlLiteral`（单引号翻倍 / NULL / 数字 / 布尔 / Buffer→X'..' / 对象→JSON）。
+      「Zip output」选项由零依赖 STORE-only ZIP 写入器实现：`src/lib/zip.ts`:`createZip`（含 CRC-32）。
+      `db-ui-store.ts`:`databaseExporting` / `databaseExportError` 信号（导出中禁用按钮 + 错误提示）；
+      `db-panel-context.tsx`:`downloadDatabaseExport` 改为 async（`collectTableLeaves` 枚举表 → 调用服务 → 下载）。
 - [ ] 表导入（CSV / Excel）
 - [ ] 数据对比（compare）+ 同步输出
 - [ ] 数据迁移 / 传输（连接间复制行）

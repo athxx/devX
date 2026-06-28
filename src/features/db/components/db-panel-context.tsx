@@ -10,6 +10,7 @@ import {
   useContext,
 } from "solid-js";
 import { arrayMove, cloneValue } from "../../../lib/utils";
+import { createZip } from "../../../lib/zip";
 import {
   isModifierHeld,
   matchShortcut,
@@ -44,6 +45,7 @@ import {
   loadErModel,
   loadSchemaCompletionData,
   loadSchemaSnapshot,
+  exportDatabaseDump,
   saveDbWorkspace,
   startDbExecution,
   testDbConnection,
@@ -296,6 +298,10 @@ export function createDbPanelState(props: DbPanelProps) {
     setDatabaseExportFormat,
     databaseExportZip,
     setDatabaseExportZip,
+    databaseExporting,
+    setDatabaseExporting,
+    databaseExportError,
+    setDatabaseExportError,
     closeFloatingMenus,
     openSavedConnectionsModal,
     closeSavedConnectionsModal,
@@ -1044,7 +1050,8 @@ export function createDbPanelState(props: DbPanelProps) {
     return getDbAdapter(connection.kind).buildDropDatabaseTemplate(databaseName);
   }
 
-  function downloadDatabaseExport() {
+  async function downloadDatabaseExport() {
+    if (databaseExporting()) return;
     const modal = databaseExportModal();
     if (!modal) {
       return;
@@ -1056,43 +1063,48 @@ export function createDbPanelState(props: DbPanelProps) {
     }
 
     const format = databaseExportFormat();
-    const extension = databaseExportZip() ? `${format}.zip` : format;
-    const content = [
-      `-- Export plan for ${modal.databaseName}`,
-      `-- Format: ${format}`,
-      `-- Include DROP: ${databaseExportIncludeDrop() ? "yes" : "no"}`,
-      `-- Include CREATE: ${databaseExportIncludeCreate() ? "yes" : "no"}`,
-      `-- Bulk insert: ${databaseExportBulkInsert() ? "yes" : "no"}`,
-      "",
-      format === "sql"
-        ? `${databaseExportIncludeDrop() ? `${buildDropDatabaseTemplate(connection, modal.databaseName)}\n` : ""}${databaseExportIncludeCreate() ? buildCreateTableTemplate(connection, modal.databaseName) : ""}`
-        : format === "json"
-          ? JSON.stringify(
-              {
-                database: modal.databaseName,
-                includeDrop: databaseExportIncludeDrop(),
-                includeCreate: databaseExportIncludeCreate(),
-                bulkInsert: databaseExportBulkInsert(),
-              },
-              null,
-              2,
-            )
-          : `database,includeDrop,includeCreate,bulkInsert\n${modal.databaseName},${databaseExportIncludeDrop()},${databaseExportIncludeCreate()},${databaseExportBulkInsert()}`,
-    ].join("\n");
+    setDatabaseExportError(null);
+    setDatabaseExporting(true);
+    try {
+      const leaves = await collectTableLeaves(connection, modal.databaseName);
+      const content = await exportDatabaseDump(
+        connection,
+        modal.databaseName,
+        leaves,
+        {
+          includeDrop: databaseExportIncludeDrop(),
+          includeCreate: databaseExportIncludeCreate(),
+          bulkInsert: databaseExportBulkInsert(),
+          format,
+        },
+      );
 
-    const blob = new Blob([content], {
-      type:
-        format === "json"
-          ? "application/json;charset=utf-8"
-          : "text/plain;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${modal.databaseName}-export.${extension}`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-    closeDatabaseExportModal();
+      const baseName = `${modal.databaseName || connection.name}-export.${format}`;
+      const blob = databaseExportZip()
+        ? createZip([{ name: baseName, data: content }])
+        : new Blob([content], {
+            type:
+              format === "json"
+                ? "application/json;charset=utf-8"
+                : format === "csv"
+                  ? "text/csv;charset=utf-8"
+                  : "text/plain;charset=utf-8",
+          });
+
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = databaseExportZip() ? `${baseName}.zip` : baseName;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      closeDatabaseExportModal();
+    } catch (error) {
+      setDatabaseExportError(
+        error instanceof Error ? error.message : "Export failed.",
+      );
+    } finally {
+      setDatabaseExporting(false);
+    }
   }
 
   function buildConnectionSummaryQuery(connection: DbConnection) {
@@ -2805,6 +2817,8 @@ WHERE ${whereClause};`;
     databaseExportIncludeDrop,
     databaseExportModal,
     databaseExportZip,
+    databaseExporting,
+    databaseExportError,
     draggedTabId,
     editedRowsByTabId,
     editorPaneSplit,

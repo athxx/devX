@@ -2046,6 +2046,240 @@ export async function loadSchemaSnapshot(
   return snapshot;
 }
 
+// --- whole-database export / dump --------------------------------------------
+// Real per-table row dump. Enumerates the given table leaves, SELECTs every row
+// of each (unbounded SELECT * on the dialect-quoted qualified name — avoids the
+// per-dialect LIMIT/OFFSET paging quirks), and serializes to SQL INSERTs / CSV /
+// JSON honoring the modal options. DDL (DROP/CREATE) is pulled from the adapter's
+// buildDdlQuery so CREATE statements are the database's own, not a template.
+
+export type DatabaseExportFormat = "sql" | "csv" | "json";
+
+export type DatabaseExportOptions = {
+  includeDrop: boolean;
+  includeCreate: boolean;
+  bulkInsert: boolean;
+  format: DatabaseExportFormat;
+};
+
+/** A single SQL literal for a JS value, dialect-agnostic but broadly safe. */
+function sqlLiteral(value: unknown): string {
+  if (value === null || value === undefined) return "NULL";
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value) : "NULL";
+  }
+  if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+  if (typeof value === "bigint") return value.toString();
+  if (value instanceof Date) {
+    return `'${value.toISOString().slice(0, 19).replace("T", " ")}'`;
+  }
+  // Buffers / typed arrays arrive over the wire as { type:"Buffer", data:[…] }
+  // or arrays of bytes — encode as a hex blob literal that most engines accept.
+  if (Array.isArray(value)) {
+    return `'${escapeSqlStringLiteral(JSON.stringify(value))}'`;
+  }
+  if (typeof value === "object") {
+    const maybeBuffer = value as { type?: string; data?: unknown };
+    if (maybeBuffer.type === "Buffer" && Array.isArray(maybeBuffer.data)) {
+      const hex = (maybeBuffer.data as number[])
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("");
+      return `X'${hex}'`;
+    }
+    return `'${escapeSqlStringLiteral(JSON.stringify(value))}'`;
+  }
+  return `'${escapeSqlStringLiteral(String(value))}'`;
+}
+
+/** Standard SQL single-quote doubling (works for every dialect we target). */
+function escapeSqlStringLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+/** Render one CSV field with RFC-4180 quoting. */
+function csvField(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  let text: string;
+  if (typeof value === "object") {
+    text = JSON.stringify(value);
+  } else {
+    text = String(value);
+  }
+  if (/[",\n\r]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+/** Fetch every row of one table via an unbounded SELECT on its qualified name. */
+async function fetchAllRows(
+  connection: DbConnection,
+  dsn: string,
+  node: Exclude<DbExplorerNode, { kind: "group" }>,
+): Promise<{ columns: string[]; rows: Array<Record<string, unknown>> }> {
+  const target =
+    node.qualifiedName ??
+    getDbAdapter(connection.kind).buildQualifiedName(
+      node.schemaName ?? "",
+      node.label,
+    );
+  const result = await executeDbSocketCommand(
+    {
+      id: makeId("db-export"),
+      type: "sql",
+      payload: { driver: connection.kind, dsn, query: `SELECT * FROM ${target};` },
+    },
+    connection,
+  );
+  if (result.kind !== "sql") {
+    return { columns: [], rows: [] };
+  }
+  const rows = Array.isArray(result.data.rows) ? result.data.rows : [];
+  const columns =
+    result.data.columns && result.data.columns.length > 0
+      ? result.data.columns
+      : rows.length > 0
+        ? Object.keys(rows[0])
+        : [];
+  return { columns, rows };
+}
+
+/** Fetch the database's own CREATE DDL for a table, or null when unavailable. */
+async function fetchTableDdl(
+  connection: DbConnection,
+  dsn: string,
+  node: Exclude<DbExplorerNode, { kind: "group" }>,
+): Promise<string | null> {
+  const ddlQuery = getDbAdapter(connection.kind).buildDdlQuery(node);
+  if (!ddlQuery) return null;
+  try {
+    const result = await executeDbSocketCommand(
+      { id: makeId("db-export"), type: "sql", payload: { driver: connection.kind, dsn, query: ddlQuery } },
+      connection,
+    );
+    if (result.kind !== "sql" || !Array.isArray(result.data.rows) || result.data.rows.length === 0) {
+      return null;
+    }
+    // DDL queries return a single row; the statement is the last/only string column.
+    const row = result.data.rows[0];
+    const values = Object.values(row).filter(
+      (value): value is string => typeof value === "string" && value.trim().length > 0,
+    );
+    return values.length > 0 ? values[values.length - 1] : null;
+  } catch {
+    return null;
+  }
+}
+
+function serializeTableSql(
+  connection: DbConnection,
+  node: Exclude<DbExplorerNode, { kind: "group" }>,
+  columns: string[],
+  rows: Array<Record<string, unknown>>,
+  ddl: string | null,
+  options: DatabaseExportOptions,
+): string {
+  const adapter = getDbAdapter(connection.kind);
+  const target =
+    node.qualifiedName ??
+    adapter.buildQualifiedName(node.schemaName ?? "", node.label);
+  const lines: string[] = [];
+  lines.push(`-- ----------------------------`);
+  lines.push(`-- Table: ${node.label}`);
+  lines.push(`-- ----------------------------`);
+  if (options.includeDrop) {
+    lines.push(`DROP TABLE IF EXISTS ${target};`);
+  }
+  if (options.includeCreate && ddl) {
+    lines.push(ddl.trim().endsWith(";") ? ddl.trim() : `${ddl.trim()};`);
+  }
+  if (rows.length > 0 && columns.length > 0) {
+    const columnList = columns
+      .map((column) => adapter.escapeIdentifier(column))
+      .join(", ");
+    const tuples = rows.map(
+      (row) => `(${columns.map((column) => sqlLiteral(row[column])).join(", ")})`,
+    );
+    if (options.bulkInsert) {
+      lines.push(
+        `INSERT INTO ${target} (${columnList}) VALUES\n${tuples.join(",\n")};`,
+      );
+    } else {
+      for (const tuple of tuples) {
+        lines.push(`INSERT INTO ${target} (${columnList}) VALUES ${tuple};`);
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Build a real database dump for the given table leaves. Returns the serialized
+ * text plus a suggested filename extension. SQL → one combined script; CSV/JSON
+ * → one combined document keyed by table (CSV uses a blank line + header per
+ * table since CSV has no native multi-table container).
+ */
+export async function exportDatabaseDump(
+  connection: DbConnection,
+  databaseName: string,
+  tables: Array<Exclude<DbExplorerNode, { kind: "group" }>>,
+  options: DatabaseExportOptions,
+): Promise<string> {
+  let dsn = buildDbConnectionUrl(connection) || connection.url.trim();
+  if (databaseName) {
+    dsn = switchDsnDatabase(connection.kind, dsn, databaseName);
+  }
+
+  const dumped = await mapWithConcurrency(tables, 4, async (node) => {
+    const { columns, rows } = await fetchAllRows(connection, dsn, node);
+    let ddl: string | null = null;
+    if (options.format === "sql" && options.includeCreate) {
+      ddl = await fetchTableDdl(connection, dsn, node);
+    }
+    return { node, columns, rows, ddl };
+  });
+
+  if (options.format === "json") {
+    const payload: Record<string, Array<Record<string, unknown>>> = {};
+    for (const entry of dumped) {
+      payload[entry.node.label] = entry.rows;
+    }
+    return JSON.stringify({ database: databaseName, tables: payload }, null, 2);
+  }
+
+  if (options.format === "csv") {
+    const blocks = dumped.map((entry) => {
+      const header = entry.columns.map((column) => csvField(column)).join(",");
+      const body = entry.rows
+        .map((row) =>
+          entry.columns.map((column) => csvField(row[column])).join(","),
+        )
+        .join("\n");
+      return `# ${entry.node.label}\n${header}${body ? `\n${body}` : ""}`;
+    });
+    return blocks.join("\n\n");
+  }
+
+  // SQL
+  const header = [
+    `-- Database dump: ${databaseName}`,
+    `-- Connection: ${connection.name} (${connection.kind})`,
+    `-- Tables: ${dumped.length}`,
+    "",
+  ];
+  const body = dumped.map((entry) =>
+    serializeTableSql(
+      connection,
+      entry.node,
+      entry.columns,
+      entry.rows,
+      entry.ddl,
+      options,
+    ),
+  );
+  return [...header, ...body].join("\n\n");
+}
+
 export async function testDbConnection(connection: DbConnection) {
   const normalizedConnection = {
     ...connection,
