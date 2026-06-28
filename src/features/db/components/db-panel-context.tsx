@@ -105,6 +105,11 @@ export const databaseKinds: DbConnectionKind[] = [
   "redshift",
   "questdb",
   "opengauss",
+  "snowflake",
+  "trino",
+  "databend",
+  "duckdb",
+  "tdengine",
   "elasticsearch",
   "bigtable",
 ];

@@ -40,14 +40,15 @@
 - 实现：`features/db/ai/{ai-settings,ai-service,ai-operations}.ts`；设置持久化在 `['db','aiSettings']`；
   Key 前端本地存储、按请求转发；编辑器头部新增 AI 切换按钮。
 
-## Phase 3 — Tier B 驱动（新的纯 Go / cgo-gated 驱动）
-- [ ] 引入 cgo 构建标签脚手架 `//go:build cgo_drivers`（默认二进制保持纯 Go）
-- [ ] 引入 `DbDriverBackend` seam：让 `database/sql` 类驱动与 GORM 类共用 `scanSQLRows`
-- [ ] Snowflake — `github.com/snowflakedb/gosnowflake`（纯 Go，database/sql）
-- [ ] Trino — `github.com/trinodb/trino-go-client`（纯 Go，database/sql）
-- [ ] Databend — `github.com/datafuselabs/databend-go`（纯 Go，database/sql）
-- [ ] DuckDB — `github.com/marcboeker/go-duckdb`（cgo，置于 `cgo_drivers` 标签后）
-- [ ] TDengine 原生连接 — `github.com/taosdata/driver-go`（cgo，置于标签后；REST 模式可纯 Go）
+## Phase 3 — Tier B 驱动（新的纯 Go / cgo-gated 驱动）✅
+- [x] 引入 cgo 构建标签脚手架 `//go:build cgo_drivers`（默认二进制保持纯 Go） — `rawsql_cgo.go`
+- [x] 引入 `DbDriverBackend` seam：让 `database/sql` 类驱动与 GORM 类共用 `scanSQLRows` — `rawsql.go`（`lookupRawSQLBackend`/`querySQLRaw`，在 `sqlrunner.go` 的 `QuerySQL`/`DisconnectSQLConnection` 中分发）
+- [x] Snowflake — `github.com/snowflakedb/gosnowflake`（纯 Go，database/sql） — 适配器 `snowflake.ts`，注册于 `rawsql_drivers.go`
+- [x] Trino — `github.com/trinodb/trino-go-client`（纯 Go，database/sql） — 适配器 `trino.ts`
+- [x] Databend — `github.com/datafuselabs/databend-go`（纯 Go，database/sql） — 适配器 `databend.ts`
+- [x] DuckDB — `github.com/marcboeker/go-duckdb`（cgo，置于 `cgo_drivers` 标签后） — 适配器 `duckdb.ts`，注册于 `rawsql_cgo.go`
+- [x] TDengine 原生连接 — `github.com/taosdata/driver-go`（cgo，置于标签后） — 适配器 `tdengine.ts`，注册于 `rawsql_cgo.go`
+  - 注：`-tags cgo_drivers` 构建要求本机已安装 TDengine 原生 C SDK（`taos.h`）；默认纯 Go 二进制不受影响。
 
 ## Phase 4 — Schema 可视化 / 对比
 - [ ] ER 图：基于适配器已有的 FK 查询，可视化外键关系

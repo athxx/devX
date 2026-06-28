@@ -24,6 +24,11 @@ export type DbConnectionKind =
   | "redshift"
   | "questdb"
   | "opengauss"
+  | "snowflake"
+  | "trino"
+  | "databend"
+  | "duckdb"
+  | "tdengine"
   | "elasticsearch"
   | "bigtable";
 

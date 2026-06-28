@@ -45,3 +45,36 @@ func TestBuildDialectorCaseInsensitive(t *testing.T) {
 		t.Fatalf("expected case-insensitive match for Redshift, got: %v", err)
 	}
 }
+
+// TestRawSQLBackendsRegistered asserts the pure-Go Tier-B drivers register a raw
+// database/sql backend (these have no GORM dialector and route through
+// querySQLRaw). cgo-gated kinds (duckdb, tdengine) are only present under
+// `-tags cgo_drivers`, so they're intentionally not asserted here.
+func TestRawSQLBackendsRegistered(t *testing.T) {
+	for _, kind := range []string{"snowflake", "trino", "databend"} {
+		t.Run(kind, func(t *testing.T) {
+			backend, ok := lookupRawSQLBackend(kind)
+			if !ok {
+				t.Fatalf("raw backend for %q not registered", kind)
+			}
+			if backend.sqlDriverName == "" {
+				t.Fatalf("raw backend for %q has empty sql driver name", kind)
+			}
+		})
+	}
+}
+
+// TestRawSQLBackendCaseInsensitive mirrors the connection-key normalization.
+func TestRawSQLBackendCaseInsensitive(t *testing.T) {
+	if _, ok := lookupRawSQLBackend("  SnowFlake  "); !ok {
+		t.Fatal("expected case-insensitive match for snowflake raw backend")
+	}
+}
+
+// TestRawSQLBackendDisconnectNoop confirms disconnecting an unknown driver is
+// reported as not-handled so the caller falls through to the GORM path.
+func TestRawSQLBackendDisconnectNoop(t *testing.T) {
+	if handled, _ := disconnectRawSQLConnection("mysql", "dsn"); handled {
+		t.Fatal("mysql should not be handled by the raw backend path")
+	}
+}

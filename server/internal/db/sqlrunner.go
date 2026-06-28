@@ -53,6 +53,13 @@ func QuerySQL(ctx context.Context, request SQLQueryRequest, fallbackTimeout time
 	if request.TimeoutMs > 0 {
 		timeout = time.Duration(request.TimeoutMs) * time.Millisecond
 	}
+
+	// Raw database/sql drivers (Snowflake/Trino/Databend/DuckDB/…) have no GORM
+	// dialector; route them through the shared raw path before the GORM branch.
+	if backend, ok := lookupRawSQLBackend(request.Driver); ok {
+		return querySQLRaw(ctx, backend, request, timeout)
+	}
+
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -177,6 +184,10 @@ func getOrCreateSQLConnection(driver, dsn string) (*gorm.DB, *sql.DB, error) {
 }
 
 func DisconnectSQLConnection(driver, dsn string) error {
+	if handled, err := disconnectRawSQLConnection(driver, dsn); handled {
+		return err
+	}
+
 	key := strings.ToLower(strings.TrimSpace(driver)) + "\x00" + dsn
 
 	sqlConnectionsMu.Lock()

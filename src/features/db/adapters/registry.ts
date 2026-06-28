@@ -30,6 +30,11 @@ import { HighGoAdapter } from "./highgo";
 import { RedshiftAdapter } from "./redshift";
 import { QuestDbAdapter } from "./questdb";
 import { OpenGaussAdapter } from "./opengauss";
+import { SnowflakeAdapter } from "./snowflake";
+import { TrinoAdapter } from "./trino";
+import { DatabendAdapter } from "./databend";
+import { DuckDbAdapter } from "./duckdb";
+import { TDengineAdapter } from "./tdengine";
 import { ElasticsearchAdapter } from "./elasticsearch";
 import { BigtableAdapter } from "./bigtable";
 
@@ -59,6 +64,11 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redshift: new RedshiftAdapter(),
   questdb: new QuestDbAdapter(),
   opengauss: new OpenGaussAdapter(),
+  snowflake: new SnowflakeAdapter(),
+  trino: new TrinoAdapter(),
+  databend: new DatabendAdapter(),
+  duckdb: new DuckDbAdapter(),
+  tdengine: new TDengineAdapter(),
   elasticsearch: new ElasticsearchAdapter(),
   bigtable: new BigtableAdapter(),
 };
