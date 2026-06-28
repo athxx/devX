@@ -30,7 +30,8 @@ export type DbConnectionKind =
   | "duckdb"
   | "tdengine"
   | "elasticsearch"
-  | "bigtable";
+  | "bigtable"
+  | "qdrant";
 
 export type DbConnectionConfig = {
   host: string;

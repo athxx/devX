@@ -37,6 +37,7 @@ import { DuckDbAdapter } from "./duckdb";
 import { TDengineAdapter } from "./tdengine";
 import { ElasticsearchAdapter } from "./elasticsearch";
 import { BigtableAdapter } from "./bigtable";
+import { QdrantAdapter } from "./qdrant";
 
 const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redis: new RedisAdapter(),
@@ -71,6 +72,7 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   tdengine: new TDengineAdapter(),
   elasticsearch: new ElasticsearchAdapter(),
   bigtable: new BigtableAdapter(),
+  qdrant: new QdrantAdapter(),
 };
 
 export function getDbAdapter(kind: DbConnectionKind): DbAdapter {

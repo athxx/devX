@@ -144,7 +144,9 @@ async function getDbRelaySocket(relayUrl: string): Promise<WebSocket> {
                 ? "search"
                 : pending.kind === "bigtable"
                   ? "wideColumn"
-                  : "sql",
+                  : // Qdrant points are flattened to {columns, rows} by the
+                    // runner, so they ride the SQL grid path.
+                    "sql",
         data: (response.data ?? {}) as Record<string, unknown>,
       } as DbResultPayload);
     };

@@ -66,7 +66,9 @@
   - 注：仓库无前端测试 runner（无 vitest/jest），按既有惯例以 `tsc -b` 类型系统兜底
 
 ## Phase 5 — Tier C 向量/搜索 + 图/时序数据库
-- [ ] Qdrant — REST API（`/collections`、`/points/scroll`），纯 net/http
+- [x] Qdrant — REST API（`/collections`、`/points/scroll`），纯 net/http
+      runner: `server/internal/db/qdrant.go` + `httpstore.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
+      前端: `adapters/qdrant.ts`、registry、`databaseKinds`、`service.ts:loadQdrantExplorer`（points 展平为表格网格）
 - [ ] Weaviate — `github.com/weaviate/weaviate-go-client`（纯 Go HTTP）
 - [ ] Milvus — `github.com/milvus-io/milvus-sdk-go`（gRPC；若拉 cgo 则置于标签后）
 - [ ] Cassandra — `github.com/gocql/gocql`，新 runner（CQL，type `cql`）

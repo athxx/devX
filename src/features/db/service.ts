@@ -956,6 +956,76 @@ async function loadBigtableExplorer(connection: DbConnection) {
   ];
 }
 
+/** Build a `qdrant` wire command from a connection's relabelled config slots. */
+function buildQdrantCommand(
+  connection: DbConnection,
+  action: string,
+  extra: Record<string, unknown> = {},
+): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "qdrant",
+    payload: {
+      address: buildDbConnectionUrl(connection) || connection.url.trim(),
+      apiKey: connection.config.password,
+      action,
+      ...extra,
+    },
+  };
+}
+
+// Qdrant is flat — a node exposes a list of collections, no database nesting.
+// We list them via the `listCollections` action and surface each as a leaf
+// (reusing the "collection" leaf kind) under a single "Collections" group,
+// mirroring how ES exposes indices. The runner returns SQL-shaped data (mapped
+// to kind "sql"), so the collection list lives at result.data.result.
+async function loadQdrantExplorer(connection: DbConnection) {
+  const result = await executeDbSocketCommand(
+    buildQdrantCommand(connection, "listCollections"),
+    connection,
+  );
+
+  // qdrant maps to the "sql" result kind; the listCollections payload rides the
+  // SQLQueryResponse `result` field as Qdrant's raw {result:{collections:[…]}}.
+  if (result.kind !== "sql") {
+    return [] as DbExplorerNode[];
+  }
+  const raw = (result.data as Record<string, unknown>).result;
+  const inner =
+    raw && typeof raw === "object"
+      ? ((raw as Record<string, unknown>).result as Record<string, unknown> | undefined)
+      : undefined;
+  const collections = inner && Array.isArray(inner.collections) ? inner.collections : [];
+
+  const collectionNodes = collections
+    .map((item) => {
+      const name =
+        item && typeof item === "object"
+          ? asString((item as Record<string, unknown>).name)
+          : asString(item);
+      if (!name) return null;
+      return makeExplorerLeaf(
+        "collection",
+        name,
+        connection.defaultQuery,
+        "Collection",
+        undefined,
+        { schemaName: name },
+      );
+    })
+    .filter((node): node is DbExplorerNode => Boolean(node))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return [
+    makeExplorerGroup(
+      "Collections",
+      "category",
+      collectionNodes,
+      `${collectionNodes.length}`,
+    ),
+  ];
+}
+
 export async function loadDbExplorer(connection: DbConnection) {
   const normalizedConnection = {
     ...connection,
@@ -969,6 +1039,10 @@ export async function loadDbExplorer(connection: DbConnection) {
     nodes = await loadMongoExplorer(normalizedConnection);
   } else if (adapter.isKeyValueStore()) {
     nodes = await loadRedisExplorer(normalizedConnection);
+  } else if (normalizedConnection.kind === "qdrant") {
+    // Qdrant is also a search-store but speaks its own REST protocol; it is flat
+    // (collections only). Dispatch before the ES-hardcoded isSearchStore branch.
+    return loadQdrantExplorer(normalizedConnection);
   } else if (adapter.isSearchStore()) {
     // ES is flat (indices only) — return the leaf list directly, no DB filter.
     return loadElasticsearchExplorer(normalizedConnection);
@@ -1202,6 +1276,11 @@ export async function loadDbObjectDetail(
           ["Database", node.schemaName || connection.config.database],
           ["Collection", node.label],
         ])
+      : connection.kind === "qdrant"
+        ? toSummaryEntries([
+            ["Kind", node.kind],
+            ["Collection", node.label],
+          ])
       : adapter.isSearchStore()
         ? toSummaryEntries([
             ["Kind", node.kind],

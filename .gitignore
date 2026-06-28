@@ -2,3 +2,6 @@ dist
 node_modules
 .DS_Store
 
+
+# TypeScript incremental build artifact
+tsconfig.app.tsbuildinfo

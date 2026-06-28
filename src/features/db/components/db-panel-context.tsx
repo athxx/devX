@@ -139,6 +139,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "tdengine",
   "elasticsearch",
   "bigtable",
+  "qdrant",
 ];
 
 export function getConnectionBadge(connection: DbConnection) {
