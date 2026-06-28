@@ -96,6 +96,9 @@ export function createUiStore() {
   // --- history modal ------------------------------------------------------
   const [historyModalOpen, setHistoryModalOpen] = createSignal(false);
 
+  // --- saved-snippets (favorites) modal -----------------------------------
+  const [favoritesModalOpen, setFavoritesModalOpen] = createSignal(false);
+
   // --- database export modal + options -----------------------------------
   const [databaseExportModal, setDatabaseExportModal] =
     createSignal<DatabaseExportModalState | null>(null);
@@ -258,6 +261,9 @@ export function createUiStore() {
     // history modal
     historyModalOpen,
     setHistoryModalOpen,
+    // saved-snippets (favorites) modal
+    favoritesModalOpen,
+    setFavoritesModalOpen,
     // database export modal + options
     databaseExportModal,
     setDatabaseExportModal,

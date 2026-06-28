@@ -32,6 +32,7 @@ import {
   buildPagedSqlObjectQuery,
   buildDbConnectionUrl,
   createDbConnection,
+  createDbFavorite,
   createDbTab,
   buildExplainSqlQuery,
   disconnectDbConnection,
@@ -278,6 +279,8 @@ export function createDbPanelState(props: DbPanelProps) {
     setConnectionDraftState,
     historyModalOpen,
     setHistoryModalOpen,
+    favoritesModalOpen,
+    setFavoritesModalOpen,
     databaseExportModal,
     setDatabaseExportModal,
     databaseExportIncludeDrop,
@@ -1410,6 +1413,56 @@ export function createDbPanelState(props: DbPanelProps) {
     });
 
     setHistoryModalOpen(false);
+  }
+
+  function getCurrentConnectionFavorites(connectionId: string | null) {
+    if (!connectionId) {
+      return [] as DbWorkspaceState["favorites"];
+    }
+
+    return workspace().favorites.filter(
+      (item) => item.connectionId === connectionId,
+    );
+  }
+
+  /**
+   * Persist the current editor query (selection or whole doc) as a named
+   * snippet under the active connection. Mirrors the history capture path but
+   * is user-initiated rather than automatic.
+   */
+  async function saveCurrentQueryAsFavorite(name: string) {
+    const connectionId = activeConnectionId();
+    if (!connectionId) return;
+
+    const query = getEffectiveQuery().trim();
+    if (!query) return;
+
+    const favorite = createDbFavorite(connectionId, name, query);
+    await commitWorkspace((draft) => {
+      draft.favorites.push(favorite);
+    });
+  }
+
+  async function deleteFavorite(favoriteId: string) {
+    await commitWorkspace((draft) => {
+      draft.favorites = draft.favorites.filter(
+        (item) => item.id !== favoriteId,
+      );
+    });
+  }
+
+  async function applyFavoriteToCurrentTab(query: string) {
+    const tab = activeTab();
+    if (!tab) return;
+
+    await commitWorkspace((draft) => {
+      const currentQuery = draft.tabsById[tab.id]?.query ?? "";
+      draft.tabsById[tab.id].query = currentQuery.trim()
+        ? `${currentQuery.trimEnd()}\n\n${query}`
+        : query;
+    });
+
+    setFavoritesModalOpen(false);
   }
 
   function getRedisKeyTypeClass(type: string) {
@@ -2887,6 +2940,12 @@ WHERE ${whereClause};`;
     switchActiveTabConnectionTarget,
     getCurrentConnectionHistory,
     appendHistoryQueryToCurrentTab,
+    favoritesModalOpen,
+    setFavoritesModalOpen,
+    getCurrentConnectionFavorites,
+    saveCurrentQueryAsFavorite,
+    deleteFavorite,
+    applyFavoriteToCurrentTab,
     getRedisKeyTypeClass,
     refreshRedisKeyTab,
     saveRedisKey,

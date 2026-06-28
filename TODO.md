@@ -94,7 +94,11 @@
 - [ ] 字段/列级血缘分析（lineage）
 - [ ] 文件预览：拖拽 Parquet/CSV/JSON（依赖 Phase 3 的 DuckDB）
 - [ ] 连接导入：从 DBeaver / Navicat 配置导入
-- [ ] 保存的 SQL 片段（snippets）
+- [x] 保存的 SQL 片段（snippets）
+      模型/持久化已存在（`DbFavoriteQuery` + `createDbFavorite` + `['db'].favorites`），本切片补 UI：
+      编辑器工具条新增「Snippets」按钮 → `db-panel.tsx` 片段弹窗（保存当前查询、列表、点击插入、删除）；
+      `db-ui-store.ts`:`favoritesModalOpen`；`db-panel-context.tsx`:`getCurrentConnectionFavorites` /
+      `saveCurrentQueryAsFavorite` / `deleteFavorite` / `applyFavoriteToCurrentTab`（镜像 History 模式）
 - [ ] 编辑器主题对齐 DBX（确认当前主题数量）
 
 ## 明确不做（JDBC/JVM-only，无可用 Go 驱动；已在计划中记录）

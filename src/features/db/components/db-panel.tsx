@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { TabsBar } from "../../../components/tabs-bar";
 import { ControlDot, PinIcon } from "../../../components/ui-primitives";
 import { WorkspaceSidebarLayout } from "../../../components/workspace-sidebar-layout";
@@ -113,6 +113,12 @@ function DbPanelInner() {
     inspectExplorerLeaf,
     getCurrentConnectionHistory,
     appendHistoryQueryToCurrentTab,
+    favoritesModalOpen,
+    setFavoritesModalOpen,
+    getCurrentConnectionFavorites,
+    saveCurrentQueryAsFavorite,
+    deleteFavorite,
+    applyFavoriteToCurrentTab,
     refreshConnectionExplorer,
     openSavedConnectionsModal,
     closeSavedConnectionsModal,
@@ -135,6 +141,8 @@ function DbPanelInner() {
     disconnectConnection,
     removeSavedConnection,
   } = db;
+
+  const [snippetNameDraft, setSnippetNameDraft] = createSignal("");
 
   return (
     <>
@@ -385,6 +393,114 @@ function DbPanelInner() {
                 >
                   <div class="theme-text-soft rounded-xl px-2 py-3 text-xs">
                     No execution history.
+                  </div>
+                </Show>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Show>
+
+      <Show when={favoritesModalOpen()}>
+        <div
+          class="fixed inset-0 z-[331] flex items-center justify-center bg-[rgba(15,23,42,0.3)] px-4 py-6"
+          data-db-menu-root
+          onClick={() => setFavoritesModalOpen(false)}
+        >
+          <div
+            class="theme-panel-soft w-full max-w-3xl rounded-[22px] border p-5 shadow-[0_24px_60px_rgba(15,23,42,0.24)]"
+            style={{ "border-color": "var(--app-border)" }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div
+              class="flex items-start justify-between gap-4 border-b pb-4"
+              style={{ "border-color": "var(--app-border)" }}
+            >
+              <div>
+                <p class="theme-eyebrow text-xs font-semibold uppercase tracking-[0.22em]">
+                  Snippets
+                </p>
+                <h3 class="theme-text mt-2 text-lg font-semibold">
+                  Saved SQL Snippets
+                </h3>
+              </div>
+              <button
+                class="traffic-dot-button inline-flex h-5 w-5 items-center justify-center rounded-full p-0"
+                onClick={() => setFavoritesModalOpen(false)}
+              >
+                <ControlDot size="small" variant="delete" />
+              </button>
+            </div>
+            <form
+              class="mt-4 flex items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveCurrentQueryAsFavorite(snippetNameDraft()).then(() =>
+                  setSnippetNameDraft(""),
+                );
+              }}
+            >
+              <input
+                class="theme-input h-8 flex-1 rounded-md px-3 text-sm"
+                placeholder="Save current editor query as…"
+                value={snippetNameDraft()}
+                onInput={(event) =>
+                  setSnippetNameDraft(event.currentTarget.value)
+                }
+              />
+              <button
+                type="submit"
+                class="theme-control h-8 rounded-md px-3 text-sm font-medium"
+              >
+                Save
+              </button>
+            </form>
+            <div class="mt-4 max-h-[55vh] overflow-auto">
+              <div class="grid gap-2">
+                <For each={getCurrentConnectionFavorites(activeConnectionId())}>
+                  {(item) => (
+                    <div
+                      class="theme-control grid gap-2 rounded-[18px] px-4 py-3 text-left"
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <button
+                          class="theme-text min-w-0 flex-1 truncate text-left text-sm font-semibold"
+                          onClick={() =>
+                            void applyFavoriteToCurrentTab(item.query)
+                          }
+                        >
+                          {item.name}
+                        </button>
+                        <button
+                          class="traffic-dot-button inline-flex h-4 w-4 items-center justify-center rounded-full p-0"
+                          title="Delete snippet"
+                          onClick={() => void deleteFavorite(item.id)}
+                        >
+                          <ControlDot size="small" variant="delete" />
+                        </button>
+                      </div>
+                      <button
+                        class="text-left"
+                        onClick={() =>
+                          void applyFavoriteToCurrentTab(item.query)
+                        }
+                      >
+                        <pre class="theme-text-soft whitespace-pre-wrap break-all font-mono text-[11px]">
+                          {item.query}
+                        </pre>
+                      </button>
+                    </div>
+                  )}
+                </For>
+                <Show
+                  when={
+                    getCurrentConnectionFavorites(activeConnectionId())
+                      .length === 0
+                  }
+                >
+                  <div class="theme-text-soft rounded-xl px-2 py-3 text-xs">
+                    No saved snippets. Type a name above to save the current
+                    editor query.
                   </div>
                 </Show>
               </div>

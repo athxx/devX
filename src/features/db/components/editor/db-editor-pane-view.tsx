@@ -24,6 +24,7 @@ export function DbEditorPaneView() {
     schemaCompletionCache,
     setEditorPaneSplit,
     setHistoryModalOpen,
+    setFavoritesModalOpen,
     setRedisKeyNameDraftByTabId,
     setRedisKeyTtlDraftByTabId,
     shortcutOverrides,
@@ -114,6 +115,12 @@ export function DbEditorPaneView() {
                   onClick={() => setHistoryModalOpen(true)}
                 >
                   History
+                </button>
+                <button
+                  class="theme-control h-8 rounded-md px-3 text-sm font-medium"
+                  onClick={() => setFavoritesModalOpen(true)}
+                >
+                  Snippets
                 </button>
                 <Show when={supportsFormat(connection.kind)}>
                   <ShortcutHintButton
