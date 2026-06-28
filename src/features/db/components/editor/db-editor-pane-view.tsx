@@ -1,5 +1,6 @@
-import { For, Show } from "solid-js";
+import { For, Show, createSignal } from "solid-js";
 import { ControlDot, RefreshIcon } from "../../../../components/ui-primitives";
+import { DbAiSidebar } from "../ai/db-ai-sidebar";
 import { shortcutLabel } from "../../../../lib/shortcuts";
 import { compactQuery, formatQuery, supportsFormat } from "../../format";
 import { DbCodeEditor } from "../db-code-editor";
@@ -45,6 +46,8 @@ export function DbEditorPaneView() {
     canExplainActiveTab,
     setActiveEditorView,
   } = useDbPanel();
+
+  const [aiOpen, setAiOpen] = createSignal(false);
 
   function renderActiveTabPane() {
     const tab = activeTab();
@@ -134,6 +137,14 @@ export function DbEditorPaneView() {
                     Explain
                   </button>
                 </Show>
+                <button
+                  class="theme-control h-8 rounded-md px-3 text-sm font-medium"
+                  classList={{ "theme-success": aiOpen() }}
+                  title="AI 助手"
+                  onClick={() => setAiOpen((v) => !v)}
+                >
+                  AI
+                </button>
                 <ShortcutHintButton
                   class="theme-success h-8 rounded-md px-3 text-sm font-semibold"
                   shortcut={shortcutLabel("runQuery", shortcutOverrides())}
@@ -202,6 +213,8 @@ export function DbEditorPaneView() {
     );
 
     return (
+      <div class="flex h-full min-h-0 w-full">
+        <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <DbEditorPane
         header={header}
         editorMeta={<></>}
@@ -245,6 +258,11 @@ export function DbEditorPaneView() {
         }
         results={<DbResultsPane><DbResultsView /></DbResultsPane>}
       />
+        </div>
+        <Show when={aiOpen() && !isRedisKeyTab}>
+          <DbAiSidebar onClose={() => setAiOpen(false)} />
+        </Show>
+      </div>
     );
   }
 

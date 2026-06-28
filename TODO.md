@@ -30,13 +30,15 @@
    `server/internal/http/handlers/db.go` 的 `processDBCommand`（非 SQL 类）+ 新 runner
 6. `server/go.mod` — 新增驱动依赖（Tier A 无需新依赖）
 
-## Phase 2 — AI SQL 助手（紧接 Phase 1，interleaved 优先级）
-- [ ] NL→SQL 自然语言生成 SQL
-- [ ] SQL 解释 / 优化 / 修复（explain / optimize / fix）
-- [ ] 运行前安全检查（destructive 语句确认）
-- [ ] 默认模型 Claude Opus 4.8（`claude-opus-4-8`），并支持 OpenAI 兼容 endpoint
-- [ ] 新增前端面板组件（`src/features/db/components/`）
-- [ ] 新增服务端代理路由（转发到模型 API）
+## Phase 2 — AI SQL 助手（已完成）
+- [x] NL→SQL 自然语言生成 SQL
+- [x] SQL 解释 / 优化 / 修复（explain / optimize / fix）
+- [x] 运行前安全检查（destructive 语句确认；无 WHERE 的 DELETE/UPDATE 重点提示）
+- [x] 默认模型 Claude Opus 4.8（`claude-opus-4-8`），并支持 OpenAI 兼容 endpoint
+- [x] 新增前端面板组件（编辑器右侧抽屉 `components/ai/db-ai-sidebar.tsx`）
+- [x] 复用现有 `/api` 中转转发到模型 API（无需新增服务端路由）
+- 实现：`features/db/ai/{ai-settings,ai-service,ai-operations}.ts`；设置持久化在 `['db','aiSettings']`；
+  Key 前端本地存储、按请求转发；编辑器头部新增 AI 切换按钮。
 
 ## Phase 3 — Tier B 驱动（新的纯 Go / cgo-gated 驱动）
 - [ ] 引入 cgo 构建标签脚手架 `//go:build cgo_drivers`（默认二进制保持纯 Go）
