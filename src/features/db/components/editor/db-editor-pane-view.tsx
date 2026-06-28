@@ -15,6 +15,7 @@ import { DbResultsView } from "../grid/db-results-view";
 import { DbStructureView } from "../structure/db-structure-view";
 import { DbErView } from "../er/db-er-view";
 import { DbSchemaDiffView } from "../diff/db-schema-diff-view";
+import { DbDataCompareView } from "../diff/db-data-compare-view";
 import { useDbPanel } from "../db-panel-context";
 
 export function DbEditorPaneView() {
@@ -75,6 +76,10 @@ export function DbEditorPaneView() {
 
     if (tab.type === "schema-diff") {
       return <DbSchemaDiffView />;
+    }
+
+    if (tab.type === "data-compare") {
+      return <DbDataCompareView />;
     }
 
     const detail = getTabObjectDetail(tab) ?? getActiveObjectDetail();

@@ -26,6 +26,11 @@ import type {
 } from "./models";
 import { getDbAdapter } from "./adapters";
 import {
+  diffTableData,
+  type DataDiff,
+  type DataRow,
+} from "./lib/data-compare";
+import {
   sendDbCommand as executeDbSocketCommand,
   type DbSocketCommandMessage,
 } from "./lib/db-api";
@@ -2364,6 +2369,146 @@ export function buildInsertStatementsFromCsv(
     }
   }
   return lines.join("\n");
+}
+
+// ── Data compare + sync (Phase 6) ────────────────────────────────────────────
+// Compare the *rows* of one table across two same-kind connections, keyed by the
+// table's primary key, and emit the sync SQL that would make the target match the
+// source: INSERT for rows only in source, UPDATE for differing common rows, and
+// (optionally) DELETE for rows only in target. The diff itself is the pure
+// diffTableData(); this layer fetches both sides and renders the SQL.
+
+export type DataCompareResult = {
+  diff: DataDiff;
+  /** SQL that transforms target into source. Targets the source table name. */
+  syncSql: string;
+};
+
+/** Build a WHERE clause matching a row by its key columns. */
+function buildKeyPredicate(
+  adapter: ReturnType<typeof getDbAdapter>,
+  keyColumns: string[],
+  row: DataRow,
+): string {
+  return keyColumns
+    .map((column) => {
+      const literal = sqlLiteral(row[column]);
+      const escaped = adapter.escapeIdentifier(column);
+      return literal === "NULL"
+        ? `${escaped} IS NULL`
+        : `${escaped} = ${literal}`;
+    })
+    .join(" AND ");
+}
+
+/** Generate INSERT/UPDATE/DELETE statements turning target into source. */
+function buildSyncSql(
+  connection: DbConnection,
+  target: string,
+  diff: DataDiff,
+  includeDeletes: boolean,
+): string {
+  const adapter = getDbAdapter(connection.kind);
+  const lines: string[] = [
+    `-- Sync ${target}: ${diff.rowsAdded.length} insert(s), ` +
+      `${diff.rowsChanged.length} update(s), ` +
+      `${includeDeletes ? diff.rowsRemoved.length : 0} delete(s)`,
+    `-- Review carefully before running against the target.`,
+    "",
+  ];
+
+  if (diff.keyColumns.length === diff.columns.length && diff.rowsChanged.length === 0) {
+    lines.push(
+      `-- No primary key detected — rows matched on all columns, so only` +
+        ` inserts/deletes are produced.`,
+      "",
+    );
+  }
+
+  for (const row of diff.rowsAdded) {
+    const cols = diff.columns
+      .map((column) => adapter.escapeIdentifier(column))
+      .join(", ");
+    const vals = diff.columns
+      .map((column) => sqlLiteral(row[column]))
+      .join(", ");
+    lines.push(`INSERT INTO ${target} (${cols}) VALUES (${vals});`);
+  }
+
+  for (const change of diff.rowsChanged) {
+    const setClause = change.changedColumns
+      .map(
+        (column) =>
+          `${adapter.escapeIdentifier(column)} = ${sqlLiteral(change.source[column])}`,
+      )
+      .join(", ");
+    const where = buildKeyPredicate(adapter, diff.keyColumns, change.key);
+    lines.push(`UPDATE ${target} SET ${setClause} WHERE ${where};`);
+  }
+
+  if (includeDeletes) {
+    for (const row of diff.rowsRemoved) {
+      const where = buildKeyPredicate(adapter, diff.keyColumns, row);
+      lines.push(`DELETE FROM ${target} WHERE ${where};`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Compare the data of one table on the source connection against the matching
+ * table on the target connection, returning the row diff plus sync SQL. The
+ * tables are matched by qualified name; the source table's primary key drives
+ * row identity. Both sides are read in full via unbounded SELECT (mirroring the
+ * export path) so the comparison does not depend on dialect paging.
+ */
+export async function compareTableData(
+  source: DbConnection,
+  sourceNode: Exclude<DbExplorerNode, { kind: "group" }>,
+  target: DbConnection,
+  targetNode: Exclude<DbExplorerNode, { kind: "group" }>,
+  options?: { includeDeletes?: boolean },
+): Promise<DataCompareResult> {
+  const sourceDsn = buildDbConnectionUrl(source) || source.url.trim();
+  const targetDsn = buildDbConnectionUrl(target) || target.url.trim();
+
+  const [sourceData, targetData, detail] = await Promise.all([
+    fetchAllRows(source, sourceDsn, sourceNode),
+    fetchAllRows(target, targetDsn, targetNode),
+    loadDbObjectDetail(source, sourceNode).catch(() => null),
+  ]);
+
+  // Union of columns, source order first, target-only columns appended.
+  const columns = [...sourceData.columns];
+  for (const column of targetData.columns) {
+    if (!columns.includes(column)) columns.push(column);
+  }
+
+  const keyColumns = (detail?.primaryKeys ?? []).filter((column) =>
+    columns.includes(column),
+  );
+
+  const diff = diffTableData({
+    columns,
+    keyColumns,
+    sourceRows: sourceData.rows,
+    targetRows: targetData.rows,
+  });
+
+  const adapter = getDbAdapter(source.kind);
+  const targetName =
+    sourceNode.qualifiedName ??
+    adapter.buildQualifiedName(sourceNode.schemaName ?? "", sourceNode.label);
+
+  const syncSql = buildSyncSql(
+    source,
+    targetName,
+    diff,
+    options?.includeDeletes ?? false,
+  );
+
+  return { diff, syncSql };
 }
 
 export async function testDbConnection(connection: DbConnection) {

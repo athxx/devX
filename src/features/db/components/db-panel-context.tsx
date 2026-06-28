@@ -28,6 +28,7 @@ import type {
   DbObjectDetail,
   DbSortOrder,
   DbTab,
+  DbTabSource,
   DbTabType,
   DbWorkspaceState,
 } from "../models";
@@ -51,7 +52,9 @@ import {
   saveDbWorkspace,
   startDbExecution,
   testDbConnection,
+  compareTableData,
   type ErModel,
+  type DataCompareResult,
 } from "../service";
 import {
   diffSchemas,
@@ -110,6 +113,16 @@ export type SchemaDiffState = {
   error?: string;
   sourceId?: string;
   targetId?: string;
+};
+
+/** Per-tab data-compare resource (row-level table compare + sync SQL). */
+export type DataCompareState = {
+  status: "loading" | "ready" | "error";
+  result?: DataCompareResult;
+  error?: string;
+  sourceId?: string;
+  targetId?: string;
+  includeDeletes?: boolean;
 };
 
 export const databaseKinds: DbConnectionKind[] = [
@@ -532,6 +545,9 @@ export function createDbPanelState(props: DbPanelProps) {
   >({});
   const [schemaDiffByTabId, setSchemaDiffByTabId] = createSignal<
     Record<string, SchemaDiffState>
+  >({});
+  const [dataCompareByTabId, setDataCompareByTabId] = createSignal<
+    Record<string, DataCompareState>
   >({});
 
   onMount(() => {
@@ -2340,6 +2356,136 @@ WHERE ${whereClause};`;
     closeFloatingMenus();
   }
 
+  /** Data compare is only meaningful for relational tables/views. */
+  function canCompareData(connection: DbConnection) {
+    return getDbAdapter(connection.kind).isRelational();
+  }
+
+  /** Rebuild a leaf node from a tab source, for re-issuing table queries. */
+  function leafNodeFromSource(
+    source: DbTabSource,
+  ): Exclude<DbExplorerNode, { kind: "group" }> {
+    return {
+      id: source.nodeId,
+      kind: source.nodeKind,
+      label: source.label,
+      query: "",
+      schemaName: source.schemaName,
+      qualifiedName: source.qualifiedName,
+    };
+  }
+
+  /** Open (or focus) a data-compare tab anchored to a table leaf node. */
+  async function openDataCompareTab(
+    connection: DbConnection,
+    node: ExplorerLeafNode,
+  ) {
+    const tabType: DbTabType = "data-compare";
+    const source = buildSourceFromNode(node);
+    const existingId =
+      workspace().openTabIds.find(
+        (tabId) =>
+          workspace().tabsById[tabId]?.connectionId === connection.id &&
+          workspace().tabsById[tabId]?.type === tabType &&
+          workspace().tabsById[tabId]?.source?.nodeId === node.id,
+      ) ?? null;
+
+    await commitWorkspace((draft) => {
+      if (!draft.connectedConnectionIds.includes(connection.id)) {
+        draft.connectedConnectionIds = [
+          connection.id,
+          ...draft.connectedConnectionIds,
+        ];
+      }
+      draft.activeConnectionId = connection.id;
+      if (existingId && draft.tabsById[existingId]) {
+        draft.activeTabId = existingId;
+        return;
+      }
+      const tab = createDbTab(connection, tabType);
+      tab.title = `${connection.name} · Compare ${node.label}`;
+      tab.source = source;
+      draft.tabsById[tab.id] = tab;
+      draft.openTabIds.push(tab.id);
+      draft.activeTabId = tab.id;
+    });
+
+    closeFloatingMenus();
+  }
+
+  /**
+   * Compare the launching table's data between two connections and store the
+   * diff + sync SQL. The table identity comes from the tab's source node; the
+   * same qualified name is assumed to exist on the target (wire-compatible kind).
+   */
+  async function runDataCompareForTab(
+    tabId: string,
+    sourceId: string,
+    targetId: string,
+    includeDeletes: boolean,
+  ) {
+    const tab = workspace().tabsById[tabId];
+    const source = connectionMap().get(sourceId);
+    const target = connectionMap().get(targetId);
+    if (!tab?.source || !source || !target) {
+      setDataCompareByTabId((current) => ({
+        ...current,
+        [tabId]: {
+          status: "error",
+          error: "Pick two valid connections.",
+          sourceId,
+          targetId,
+          includeDeletes,
+        },
+      }));
+      return;
+    }
+
+    setDataCompareByTabId((current) => ({
+      ...current,
+      [tabId]: {
+        status: "loading",
+        result: current[tabId]?.result,
+        sourceId,
+        targetId,
+        includeDeletes,
+      },
+    }));
+
+    try {
+      const node = leafNodeFromSource(tab.source);
+      const result = await compareTableData(source, node, target, node, {
+        includeDeletes,
+      });
+      setDataCompareByTabId((current) => ({
+        ...current,
+        [tabId]: { status: "ready", result, sourceId, targetId, includeDeletes },
+      }));
+    } catch (error) {
+      setDataCompareByTabId((current) => ({
+        ...current,
+        [tabId]: {
+          status: "error",
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to compare table data.",
+          sourceId,
+          targetId,
+          includeDeletes,
+        },
+      }));
+    }
+  }
+
+  /** Open the generated sync SQL in a new editable query tab for review. */
+  async function openSyncSqlTab(connection: DbConnection, label: string, sql: string) {
+    await openConnectionActionQuery(connection, label, sql, {
+      forceNew: true,
+      resultView: "raw",
+    });
+  }
+
   /**
    * Open a fresh editable query tab pre-filled with generated SQL (e.g. the
    * structure editor's ALTER preview). Always forceNew — the DDL is a draft the
@@ -3094,10 +3240,15 @@ WHERE ${whereClause};`;
     openDdlTab,
     erModelByTabId,
     schemaDiffByTabId,
+    dataCompareByTabId,
     loadErModelForTab,
     runSchemaDiffForTab,
+    runDataCompareForTab,
     openErTab,
     openSchemaDiffTab,
+    openDataCompareTab,
+    canCompareData,
+    openSyncSqlTab,
     connectSavedConnection,
     expandConnection,
     focusConnectedConnection,

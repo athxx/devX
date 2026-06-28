@@ -86,7 +86,8 @@ export type DbTabType =
   | 'mongo'
   | 'raw'
   | 'er'
-  | 'schema-diff';
+  | 'schema-diff'
+  | 'data-compare';
 
 export type DbTab = {
   id: string;

@@ -107,7 +107,18 @@
       入口：数据库分组右键「Import」子菜单新增「From CSV file…」（`FileSpreadsheet` 图标，
       原 SQL/JSON/CSV 占位模板降级为「… template」项）；新图标注册于 `db-icons.tsx`。
       注：Excel（xlsx）为二进制格式，需引入解析器，留待后续；当前覆盖 CSV 实路径。
-- [ ] 数据对比（compare）+ 同步输出
+- [x] 数据对比（compare）+ 同步输出
+      纯函数 diff 引擎 `src/features/db/lib/data-compare.ts`:`diffTableData({columns, keyColumns, sourceRows, targetRows})`
+      —— 按主键（无主键时退化为全列）匹配行，产出 `rowsAdded` / `rowsRemoved` / `rowsChanged`（含 `changedColumns`）/ `unchangedCount`；
+      `normalize`（null/Date→ISO/对象→JSON）+ `valuesEqual`（跨类型数值 123 vs "123" 相等）；`dataDiffIsEmpty`。
+      `service.ts`:`compareTableData(source, sourceNode, target, targetNode, {includeDeletes})` —— 两端 `fetchAllRows` 全量读取，
+      主键取 `loadDbObjectDetail.primaryKeys`，调 `diffTableData`，再 `buildSyncSql` 生成使 target 对齐 source 的 SQL
+      （`buildKeyPredicate` 处理 NULL→`IS NULL`；INSERT for added / UPDATE…WHERE key for changed / DELETE…WHERE key for removed 可选）。
+      `db-panel-context.tsx`:`DataCompareState` + `dataCompareByTabId` 信号；`canCompareData`（`isRelational` 门控）/
+      `openDataCompareTab`（锚定表叶节点，`tab.source` 携带身份）/ `runDataCompareForTab` / `openSyncSqlTab` / `leafNodeFromSource`。
+      视图 `src/features/db/components/diff/db-data-compare-view.tsx`:`DbDataCompareView`（源/目标连接下拉 + 「Emit DELETEs」+ Compare +
+      增/改/删分组摘要 + 「Open sync SQL」新建可编辑 raw 标签）；派发分支于 `db-editor-pane-view.tsx`（`tab.type === "data-compare"`）。
+      入口：表叶节点右键「Compare data…」（`ArrowRightLeft` 图标，`canCompareData` 门控）。
 - [ ] 数据迁移 / 传输（连接间复制行）
 - [ ] 字段/列级血缘分析（lineage）
 - [ ] 文件预览：拖拽 Parquet/CSV/JSON（依赖 Phase 3 的 DuckDB）

@@ -220,6 +220,13 @@ function leafNodeMenuItems(
           ),
       },
     );
+    if (api.canCompareData(connection)) {
+      items.push({
+        label: "Compare data…",
+        icon: "ArrowRightLeft",
+        action: () => void api.openDataCompareTab(connection, node),
+      });
+    }
   }
 
   if (isSqlObject) {
