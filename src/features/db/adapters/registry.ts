@@ -38,6 +38,7 @@ import { TDengineAdapter } from "./tdengine";
 import { ElasticsearchAdapter } from "./elasticsearch";
 import { BigtableAdapter } from "./bigtable";
 import { QdrantAdapter } from "./qdrant";
+import { InfluxDbAdapter } from "./influxdb";
 
 const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redis: new RedisAdapter(),
@@ -73,6 +74,7 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   elasticsearch: new ElasticsearchAdapter(),
   bigtable: new BigtableAdapter(),
   qdrant: new QdrantAdapter(),
+  influxdb: new InfluxDbAdapter(),
 };
 
 export function getDbAdapter(kind: DbConnectionKind): DbAdapter {

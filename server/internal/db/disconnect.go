@@ -18,6 +18,8 @@ func DisconnectConnection(kind, driver, dsn, url, uri string) error {
 		return DisconnectBigtableClient(url)
 	case "qdrant":
 		return DisconnectQdrantClient(url)
+	case "influxdb", "influx":
+		return DisconnectInfluxClient(url)
 	default:
 		if strings.TrimSpace(driver) == "" {
 			driver = kind

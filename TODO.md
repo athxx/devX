@@ -73,7 +73,9 @@
 - [ ] Milvus — `github.com/milvus-io/milvus-sdk-go`（gRPC；若拉 cgo 则置于标签后）
 - [ ] Cassandra — `github.com/gocql/gocql`，新 runner（CQL，type `cql`）
 - [ ] Neo4j — `github.com/neo4j/neo4j-go-driver`，新 runner（Cypher，文档型结果）
-- [ ] InfluxDB — `github.com/influxdata/influxdb-client-go`（HTTP v2 Flux，type `influx`）
+- [x] InfluxDB — HTTP v2 Flux（`/api/v2/query`，注解 CSV 展平为表格网格），纯 net/http，type `influx`
+      runner: `server/internal/db/influx.go` + `httpstore.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
+      前端: `adapters/influxdb.ts`、registry、`databaseKinds`、`service.ts:loadInfluxExplorer`（buckets→表格网格）
 - [ ] 各非 SQL 类新增 runner + 非 SQL 适配器（参照 elasticsearch.ts / bigtable.ts）
 
 ## Phase 6 — 剩余功能补齐（DBX 功能差距）

@@ -79,7 +79,8 @@ export type DbDataModel =
   | "document"
   | "keyValue"
   | "search"
-  | "wideColumn";
+  | "wideColumn"
+  | "timeSeries";
 
 /**
  * How a connection's databases are listed in the explorer root. Replaces the

@@ -1026,6 +1026,70 @@ async function loadQdrantExplorer(connection: DbConnection) {
   ];
 }
 
+/** Build an `influx` wire command from a connection's relabelled config slots. */
+function buildInfluxCommand(
+  connection: DbConnection,
+  action: string,
+  extra: Record<string, unknown> = {},
+): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "influx",
+    payload: {
+      address: buildDbConnectionUrl(connection) || connection.url.trim(),
+      org: connection.config.username,
+      token: connection.config.password,
+      action,
+      ...extra,
+    },
+  };
+}
+
+// InfluxDB is flat — an org exposes a list of buckets, no database nesting. We
+// list them via the `listBuckets` action and surface each as a leaf (reusing the
+// "table" leaf kind) under a single "Buckets" group, mirroring how ES exposes
+// indices. The runner returns SQL-shaped data (kind "sql"); the bucket list
+// rides the `result` field as Influx's raw {buckets:[…]}.
+async function loadInfluxExplorer(connection: DbConnection) {
+  const result = await executeDbSocketCommand(
+    buildInfluxCommand(connection, "listBuckets"),
+    connection,
+  );
+
+  if (result.kind !== "sql") {
+    return [] as DbExplorerNode[];
+  }
+  const raw = (result.data as Record<string, unknown>).result;
+  const buckets =
+    raw && typeof raw === "object" && Array.isArray((raw as Record<string, unknown>).buckets)
+      ? ((raw as Record<string, unknown>).buckets as unknown[])
+      : [];
+
+  const bucketNodes = buckets
+    .map((item) => {
+      const name =
+        item && typeof item === "object"
+          ? asString((item as Record<string, unknown>).name)
+          : asString(item);
+      // Skip internal system buckets (_monitoring, _tasks).
+      if (!name || name.startsWith("_")) return null;
+      return makeExplorerLeaf(
+        "table",
+        name,
+        connection.defaultQuery,
+        "Bucket",
+        undefined,
+        { schemaName: name },
+      );
+    })
+    .filter((node): node is DbExplorerNode => Boolean(node))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return [
+    makeExplorerGroup("Buckets", "category", bucketNodes, `${bucketNodes.length}`),
+  ];
+}
+
 export async function loadDbExplorer(connection: DbConnection) {
   const normalizedConnection = {
     ...connection,
@@ -1043,6 +1107,9 @@ export async function loadDbExplorer(connection: DbConnection) {
     // Qdrant is also a search-store but speaks its own REST protocol; it is flat
     // (collections only). Dispatch before the ES-hardcoded isSearchStore branch.
     return loadQdrantExplorer(normalizedConnection);
+  } else if (normalizedConnection.kind === "influxdb") {
+    // InfluxDB is a time-series store over its own HTTP protocol; flat (buckets).
+    return loadInfluxExplorer(normalizedConnection);
   } else if (adapter.isSearchStore()) {
     // ES is flat (indices only) — return the leaf list directly, no DB filter.
     return loadElasticsearchExplorer(normalizedConnection);
@@ -1281,6 +1348,11 @@ export async function loadDbObjectDetail(
             ["Kind", node.kind],
             ["Collection", node.label],
           ])
+      : connection.kind === "influxdb"
+        ? toSummaryEntries([
+            ["Kind", node.kind],
+            ["Bucket", node.label],
+          ])
       : adapter.isSearchStore()
         ? toSummaryEntries([
             ["Kind", node.kind],
@@ -1327,10 +1399,12 @@ export async function loadDbObjectDetail(
         connectionId: connection.id,
         title: node.label,
         query: node.query,
-        // ES/Bigtable target the index/table via databaseName; the leaf label
-        // IS the index/table name.
+        // ES/Bigtable target the index/table via databaseName; InfluxDB targets
+        // the bucket the same way. The leaf label IS the index/table/bucket name.
         databaseName:
-          adapter.isSearchStore() || adapter.isWideColumn()
+          adapter.isSearchStore() ||
+          adapter.isWideColumn() ||
+          connection.kind === "influxdb"
             ? node.label
             : undefined,
         type: adapter.isDocumentStore()

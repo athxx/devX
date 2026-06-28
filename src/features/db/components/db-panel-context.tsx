@@ -140,6 +140,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "elasticsearch",
   "bigtable",
   "qdrant",
+  "influxdb",
 ];
 
 export function getConnectionBadge(connection: DbConnection) {

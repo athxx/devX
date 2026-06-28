@@ -31,7 +31,8 @@ export type DbConnectionKind =
   | "tdengine"
   | "elasticsearch"
   | "bigtable"
-  | "qdrant";
+  | "qdrant"
+  | "influxdb";
 
 export type DbConnectionConfig = {
   host: string;
