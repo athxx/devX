@@ -41,6 +41,7 @@ import { QdrantAdapter } from "./qdrant";
 import { InfluxDbAdapter } from "./influxdb";
 import { WeaviateAdapter } from "./weaviate";
 import { Neo4jAdapter } from "./neo4j";
+import { CassandraAdapter } from "./cassandra";
 
 const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redis: new RedisAdapter(),
@@ -79,6 +80,7 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   influxdb: new InfluxDbAdapter(),
   weaviate: new WeaviateAdapter(),
   neo4j: new Neo4jAdapter(),
+  cassandra: new CassandraAdapter(),
 };
 
 export function getDbAdapter(kind: DbConnectionKind): DbAdapter {

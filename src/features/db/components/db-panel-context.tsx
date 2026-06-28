@@ -143,6 +143,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "influxdb",
   "weaviate",
   "neo4j",
+  "cassandra",
 ];
 
 export function getConnectionBadge(connection: DbConnection) {

@@ -73,7 +73,9 @@
       runner: `server/internal/db/weaviate.go` + `httpstore.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
       前端: `adapters/weaviate.ts`、registry、`databaseKinds`、`service.ts:loadWeaviateExplorer`（objects→表格网格）
 - [ ] Milvus — `github.com/milvus-io/milvus-sdk-go`（gRPC；若拉 cgo 则置于标签后）
-- [ ] Cassandra — `github.com/gocql/gocql`，新 runner（CQL，type `cql`）
+- [x] Cassandra — `github.com/gocql/gocql`（native CQL 二进制协议，纯 Go，无 cgo），CQL 行展平为表格网格，type `cassandra`
+      runner: `server/internal/db/cassandra.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
+      前端: `adapters/cassandra.ts`、registry、`databaseKinds`、`service.ts:loadCassandraExplorer`（keyspace→tables→CQL 采样→表格网格）
 - [x] Neo4j — `github.com/neo4j/neo4j-go-driver/v5`（Bolt，纯 Go，无 cgo），Cypher 记录展平为表格网格，type `neo4j`
       runner: `server/internal/db/neo4j.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
       前端: `adapters/neo4j.ts`、registry、`databaseKinds`、`service.ts:loadNeo4jExplorer`（node labels→Cypher 采样→表格网格）

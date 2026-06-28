@@ -24,6 +24,8 @@ func DisconnectConnection(kind, driver, dsn, url, uri string) error {
 		return DisconnectWeaviateClient(url)
 	case "neo4j":
 		return DisconnectNeo4jClient(url)
+	case "cassandra":
+		return DisconnectCassandraClient(url)
 	default:
 		if strings.TrimSpace(driver) == "" {
 			driver = kind

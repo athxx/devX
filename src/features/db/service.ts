@@ -1215,6 +1215,90 @@ async function loadNeo4jExplorer(connection: DbConnection) {
   ];
 }
 
+/** Build a `cassandra` wire command from a connection's relabelled config slots. */
+function buildCassandraCommand(
+  connection: DbConnection,
+  action: string,
+  extra: Record<string, unknown> = {},
+): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "cassandra",
+    payload: {
+      address: buildDbConnectionUrl(connection) || connection.url.trim(),
+      username: connection.config.username,
+      password: connection.config.password,
+      action,
+      keyspace: connection.config.database,
+      ...extra,
+    },
+  };
+}
+
+// Cassandra speaks CQL over its native binary protocol. The explorer is two-level
+// (keyspace → tables): we list keyspaces via `listKeyspaces`, then list each
+// non-system keyspace's tables via `listTables`, surfacing one group per keyspace.
+// Selecting a table opens a CQL sample. The runner returns SQL-shaped data
+// (kind "sql"); both listings ride the `rows` field ([{keyspace_name|table_name}]).
+async function loadCassandraExplorer(connection: DbConnection) {
+  const keyspaceResult = await executeDbSocketCommand(
+    buildCassandraCommand(connection, "listKeyspaces"),
+    connection,
+  );
+  if (keyspaceResult.kind !== "sql") {
+    return [] as DbExplorerNode[];
+  }
+  const keyspaceRows = (keyspaceResult.data as Record<string, unknown>).rows;
+  const keyspaces = (Array.isArray(keyspaceRows) ? keyspaceRows : [])
+    .map((item) =>
+      item && typeof item === "object"
+        ? asString((item as Record<string, unknown>).keyspace_name)
+        : asString(item),
+    )
+    // Hide Cassandra's internal keyspaces (system, system_schema, system_auth, …).
+    .filter((name) => name && !name.startsWith("system"))
+    .sort((a, b) => a.localeCompare(b));
+
+  // Fetch each keyspace's tables in parallel, then build a group per keyspace.
+  const groups = await Promise.all(
+    keyspaces.map(async (keyspace) => {
+      const tableResult = await executeDbSocketCommand(
+        buildCassandraCommand(connection, "listTables", { keyspace }),
+        connection,
+      );
+      const tableRows =
+        tableResult.kind === "sql"
+          ? (tableResult.data as Record<string, unknown>).rows
+          : [];
+      const tableNodes = (Array.isArray(tableRows) ? tableRows : [])
+        .map((item) => {
+          const name =
+            item && typeof item === "object"
+              ? asString((item as Record<string, unknown>).table_name)
+              : asString(item);
+          if (!name) return null;
+          const qualified = `${keyspace}.${name}`;
+          const sample = `SELECT * FROM ${qualified} LIMIT 100`;
+          return makeExplorerLeaf("table", name, sample, "Table", undefined, {
+            schemaName: keyspace,
+            qualifiedName: qualified,
+          });
+        })
+        .filter((node): node is DbExplorerNode => Boolean(node))
+        .sort((a, b) => a.label.localeCompare(b.label));
+
+      return makeExplorerGroup(
+        keyspace,
+        "schema",
+        tableNodes,
+        `${tableNodes.length}`,
+      );
+    }),
+  );
+
+  return groups;
+}
+
 export async function loadDbExplorer(connection: DbConnection) {
   const normalizedConnection = {
     ...connection,
@@ -1242,6 +1326,9 @@ export async function loadDbExplorer(connection: DbConnection) {
   } else if (normalizedConnection.kind === "neo4j") {
     // Neo4j is a graph store over Bolt; it is flat (node labels only).
     return loadNeo4jExplorer(normalizedConnection);
+  } else if (normalizedConnection.kind === "cassandra") {
+    // Cassandra speaks CQL; two-level explorer (keyspace → tables) of its own.
+    return loadCassandraExplorer(normalizedConnection);
   } else if (adapter.isSearchStore()) {
     // ES is flat (indices only) — return the leaf list directly, no DB filter.
     return loadElasticsearchExplorer(normalizedConnection);
@@ -1494,6 +1581,12 @@ export async function loadDbObjectDetail(
         ? toSummaryEntries([
             ["Kind", node.kind],
             ["Label", node.label],
+          ])
+      : connection.kind === "cassandra"
+        ? toSummaryEntries([
+            ["Kind", node.kind],
+            ["Keyspace", node.schemaName ?? connection.config.database],
+            ["Table", node.label],
           ])
       : adapter.isSearchStore()
         ? toSummaryEntries([
