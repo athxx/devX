@@ -145,9 +145,9 @@ async function getDbRelaySocket(relayUrl: string): Promise<WebSocket> {
                 : pending.kind === "bigtable"
                   ? "wideColumn"
                   : // Qdrant points, InfluxDB CSV, Weaviate objects, Neo4j Cypher
-                    // records and Cassandra CQL rows are all flattened to
-                    // {columns, rows} by their runners, so they ride the SQL grid
-                    // path (kind "sql").
+                    // records, Cassandra CQL rows and Milvus query result sets are
+                    // all flattened to {columns, rows} by their runners, so they
+                    // ride the SQL grid path (kind "sql").
                     "sql",
         data: (response.data ?? {}) as Record<string, unknown>,
       } as DbResultPayload);

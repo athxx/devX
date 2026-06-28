@@ -1299,6 +1299,71 @@ async function loadCassandraExplorer(connection: DbConnection) {
   return groups;
 }
 
+/** Build a `milvus` wire command from a connection's relabelled config slots. */
+function buildMilvusCommand(
+  connection: DbConnection,
+  action: string,
+  extra: Record<string, unknown> = {},
+): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "milvus",
+    payload: {
+      address: buildDbConnectionUrl(connection) || connection.url.trim(),
+      username: connection.config.username,
+      password: connection.config.password,
+      apiKey: connection.config.options,
+      database: connection.config.database,
+      action,
+      ...extra,
+    },
+  };
+}
+
+// Milvus is a vector database reached over gRPC; it has no SQL surface. The
+// explorer is flat: list collections via `listCollections` under a single
+// "Collections" group, mirroring how Qdrant exposes collections. Selecting a
+// collection opens a query tab with an empty filter (all rows up to the limit).
+// The runner returns SQL-shaped data (kind "sql"); listCollections rides the
+// `rows` field as [{collection_name:"…"}, …].
+async function loadMilvusExplorer(connection: DbConnection) {
+  const result = await executeDbSocketCommand(
+    buildMilvusCommand(connection, "listCollections"),
+    connection,
+  );
+
+  if (result.kind !== "sql") {
+    return [] as DbExplorerNode[];
+  }
+  const rows = (result.data as Record<string, unknown>).rows;
+  const collections = Array.isArray(rows) ? (rows as unknown[]) : [];
+
+  const collectionNodes = collections
+    .map((item) => {
+      const name =
+        item && typeof item === "object"
+          ? asString((item as Record<string, unknown>).collection_name)
+          : asString(item);
+      if (!name) return null;
+      // Each collection leaf opens a query tab; an empty expr fetches all rows
+      // (the runner bounds it with a default limit).
+      return makeExplorerLeaf("table", name, "", "Collection", undefined, {
+        schemaName: name,
+      });
+    })
+    .filter((node): node is DbExplorerNode => Boolean(node))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return [
+    makeExplorerGroup(
+      "Collections",
+      "category",
+      collectionNodes,
+      `${collectionNodes.length}`,
+    ),
+  ];
+}
+
 export async function loadDbExplorer(connection: DbConnection) {
   const normalizedConnection = {
     ...connection,
@@ -1329,6 +1394,10 @@ export async function loadDbExplorer(connection: DbConnection) {
   } else if (normalizedConnection.kind === "cassandra") {
     // Cassandra speaks CQL; two-level explorer (keyspace → tables) of its own.
     return loadCassandraExplorer(normalizedConnection);
+  } else if (normalizedConnection.kind === "milvus") {
+    // Milvus is a vector DB over gRPC; flat (collections only). Dispatch before
+    // the ES-hardcoded isSearchStore branch (its adapter reports search model).
+    return loadMilvusExplorer(normalizedConnection);
   } else if (adapter.isSearchStore()) {
     // ES is flat (indices only) — return the leaf list directly, no DB filter.
     return loadElasticsearchExplorer(normalizedConnection);
@@ -1587,6 +1656,12 @@ export async function loadDbObjectDetail(
             ["Kind", node.kind],
             ["Keyspace", node.schemaName ?? connection.config.database],
             ["Table", node.label],
+          ])
+      : connection.kind === "milvus"
+        ? toSummaryEntries([
+            ["Kind", node.kind],
+            ["Database", connection.config.database || "default"],
+            ["Collection", node.label],
           ])
       : adapter.isSearchStore()
         ? toSummaryEntries([

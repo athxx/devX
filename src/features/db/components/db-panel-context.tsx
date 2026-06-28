@@ -144,6 +144,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "weaviate",
   "neo4j",
   "cassandra",
+  "milvus",
 ];
 
 export function getConnectionBadge(connection: DbConnection) {

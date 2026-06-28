@@ -72,7 +72,9 @@
 - [x] Weaviate — REST API（`/v1/schema`、`/v1/objects`、`/v1/graphql`），纯 net/http
       runner: `server/internal/db/weaviate.go` + `httpstore.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
       前端: `adapters/weaviate.ts`、registry、`databaseKinds`、`service.ts:loadWeaviateExplorer`（objects→表格网格）
-- [ ] Milvus — `github.com/milvus-io/milvus-sdk-go`（gRPC；若拉 cgo 则置于标签后）
+- [x] Milvus — `github.com/milvus-io/milvus-sdk-go/v2`（原生 gRPC，纯 Go，无 cgo），Query ResultSet 列转行展平为表格网格，type `milvus`
+      runner: `server/internal/db/milvus.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
+      前端: `adapters/milvus.ts`、registry、`databaseKinds`、`service.ts:loadMilvusExplorer`（collections→空 expr 采样→表格网格）
 - [x] Cassandra — `github.com/gocql/gocql`（native CQL 二进制协议，纯 Go，无 cgo），CQL 行展平为表格网格，type `cassandra`
       runner: `server/internal/db/cassandra.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
       前端: `adapters/cassandra.ts`、registry、`databaseKinds`、`service.ts:loadCassandraExplorer`（keyspace→tables→CQL 采样→表格网格）

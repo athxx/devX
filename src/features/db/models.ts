@@ -35,7 +35,8 @@ export type DbConnectionKind =
   | "influxdb"
   | "weaviate"
   | "neo4j"
-  | "cassandra";
+  | "cassandra"
+  | "milvus";
 
 export type DbConnectionConfig = {
   host: string;
