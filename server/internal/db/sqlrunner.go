@@ -200,20 +200,22 @@ func buildDialector(driver, dsn string) (gorm.Dialector, error) {
 	switch strings.ToLower(strings.TrimSpace(driver)) {
 	case "clickhouse":
 		return clickhouse.Open(dsn), nil
-	case "gaussdb":
+	case "gaussdb", "opengauss":
+		// openGauss is the open-source upstream of GaussDB; both speak the same
+		// protocol and share the libpq keyword DSN the gaussdb driver expects.
 		return gaussdb.Open(dsn), nil
 	case "mysql":
 		return mysql.Open(dsn), nil
 	case "tidb":
 		return mysql.Open(dsn), nil
-	case "oceanbase", "doris", "starrocks":
+	case "oceanbase", "doris", "starrocks", "kwdb", "goldendb", "selectdb", "manticore":
 		// MySQL-wire compatible; reuse the MySQL dialector and tcp(...) DSN.
 		return mysql.Open(dsn), nil
 	case "sqlite":
 		return sqlite.Open(dsn), nil
 	case "postgres", "postgresql":
 		return postgres.Open(dsn), nil
-	case "cockroachdb", "kingbase":
+	case "cockroachdb", "kingbase", "vastbase", "highgo", "redshift", "questdb":
 		// PostgreSQL-wire compatible; reuse the PostgreSQL dialector.
 		return postgres.Open(dsn), nil
 	case "sqlserver", "mssql":

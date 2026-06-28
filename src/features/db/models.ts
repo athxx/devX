@@ -15,6 +15,15 @@ export type DbConnectionKind =
   | "cockroachdb"
   | "kingbase"
   | "dameng"
+  | "kwdb"
+  | "goldendb"
+  | "selectdb"
+  | "manticore"
+  | "vastbase"
+  | "highgo"
+  | "redshift"
+  | "questdb"
+  | "opengauss"
   | "elasticsearch"
   | "bigtable";
 

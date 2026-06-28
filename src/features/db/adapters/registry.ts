@@ -21,6 +21,15 @@ import { StarRocksAdapter } from "./starrocks";
 import { CockroachDbAdapter } from "./cockroachdb";
 import { KingBaseAdapter } from "./kingbase";
 import { DamengAdapter } from "./dameng";
+import { KwDbAdapter } from "./kwdb";
+import { GoldenDbAdapter } from "./goldendb";
+import { SelectDbAdapter } from "./selectdb";
+import { ManticoreAdapter } from "./manticore";
+import { VastbaseAdapter } from "./vastbase";
+import { HighGoAdapter } from "./highgo";
+import { RedshiftAdapter } from "./redshift";
+import { QuestDbAdapter } from "./questdb";
+import { OpenGaussAdapter } from "./opengauss";
 import { ElasticsearchAdapter } from "./elasticsearch";
 import { BigtableAdapter } from "./bigtable";
 
@@ -41,6 +50,15 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   cockroachdb: new CockroachDbAdapter(),
   kingbase: new KingBaseAdapter(),
   dameng: new DamengAdapter(),
+  kwdb: new KwDbAdapter(),
+  goldendb: new GoldenDbAdapter(),
+  selectdb: new SelectDbAdapter(),
+  manticore: new ManticoreAdapter(),
+  vastbase: new VastbaseAdapter(),
+  highgo: new HighGoAdapter(),
+  redshift: new RedshiftAdapter(),
+  questdb: new QuestDbAdapter(),
+  opengauss: new OpenGaussAdapter(),
   elasticsearch: new ElasticsearchAdapter(),
   bigtable: new BigtableAdapter(),
 };
