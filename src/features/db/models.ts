@@ -72,7 +72,15 @@ export type DbTabSource = {
   sort?: DbSortOrder;
 };
 
-export type DbTabType = 'query' | 'data' | 'structure' | 'redis' | 'mongo' | 'raw';
+export type DbTabType =
+  | 'query'
+  | 'data'
+  | 'structure'
+  | 'redis'
+  | 'mongo'
+  | 'raw'
+  | 'er'
+  | 'schema-diff';
 
 export type DbTab = {
   id: string;

@@ -36,13 +36,21 @@ import {
   buildExplainSqlQuery,
   disconnectDbConnection,
   executeDbAdHocQuery,
+  loadDbExplorerDatabaseChildren,
   loadDbObjectDetail,
   loadDbWorkspace,
+  loadErModel,
   loadSchemaCompletionData,
+  loadSchemaSnapshot,
   saveDbWorkspace,
   startDbExecution,
   testDbConnection,
+  type ErModel,
 } from "../service";
+import {
+  diffSchemas,
+  type SchemaDiff,
+} from "../lib/schema-diff";
 import { getDbAdapter } from "../adapters";
 import {
   applySqlParams,
@@ -77,6 +85,25 @@ type DbConnectionDatabaseTarget = {
   connectionId: string;
   databaseName: string | null;
   label: string;
+};
+
+/** Per-tab ER model resource (mirrors objectDetailByNodeId's status shape). */
+export type ErModelState = {
+  status: "loading" | "ready" | "error";
+  model?: ErModel;
+  error?: string;
+  /** The (connectionId, databaseName) the model was built for, for reload. */
+  connectionId?: string;
+  databaseName?: string | null;
+};
+
+/** Per-tab schema-diff resource. */
+export type SchemaDiffState = {
+  status: "loading" | "ready" | "error";
+  diff?: SchemaDiff;
+  error?: string;
+  sourceId?: string;
+  targetId?: string;
 };
 
 export const databaseKinds: DbConnectionKind[] = [
@@ -442,6 +469,18 @@ export function createDbPanelState(props: DbPanelProps) {
     getTabObjectDetail,
     resetConnectionExplorer,
   } = explorer;
+
+  // ── Phase 4 schema-visualization resources ───────────────────────────────
+  // ER models and schema diffs are heavier-than-a-query computations keyed by
+  // the tab that owns them, mirroring the objectDetailByNodeId resource shape
+  // (status loading/ready/error + payload). The views read these; the loaders
+  // below assemble them via the connection-agnostic service fns.
+  const [erModelByTabId, setErModelByTabId] = createSignal<
+    Record<string, ErModelState>
+  >({});
+  const [schemaDiffByTabId, setSchemaDiffByTabId] = createSignal<
+    Record<string, SchemaDiffState>
+  >({});
 
   onMount(() => {
     void loadDbWorkspace().then((loaded) => {
@@ -1923,6 +1962,237 @@ WHERE ${whereClause};`;
     });
   }
 
+  // ── Phase 4: ER diagram + Schema diff ────────────────────────────────────
+
+  /**
+   * Enumerate the table/view leaf nodes of a database. Reuses the explorer's
+   * own database-children loader so it works regardless of whether the tree is
+   * currently expanded, and against any saved connection (not just the active
+   * one). Filters to table-like leaves (skips functions, nested groups).
+   */
+  async function collectTableLeaves(
+    connection: DbConnection,
+    databaseName: string,
+  ): Promise<ExplorerLeafNode[]> {
+    const children = await loadDbExplorerDatabaseChildren(
+      connection,
+      databaseName,
+    );
+    const leaves: ExplorerLeafNode[] = [];
+    const walk = (nodes: DbExplorerNode[]) => {
+      for (const node of nodes) {
+        if (node.kind === "group") {
+          walk(node.children);
+        } else if (node.kind === "table" || node.kind === "view") {
+          leaves.push(node);
+        }
+      }
+    };
+    walk(children);
+    return leaves;
+  }
+
+  /**
+   * Build (or rebuild) the ER model for a tab. The tab carries the connection
+   * id + database name in its source so a reload re-enumerates the same scope.
+   */
+  async function loadErModelForTab(
+    tabId: string,
+    options?: { force?: boolean },
+  ) {
+    const existing = erModelByTabId()[tabId];
+    if (!options?.force && existing?.status === "ready") return;
+
+    const tab = workspace().tabsById[tabId];
+    const connectionId = existing?.connectionId ?? tab?.connectionId;
+    const databaseName =
+      existing?.databaseName ?? tab?.databaseName ?? null;
+    const connection = connectionId
+      ? connectionMap().get(connectionId)
+      : undefined;
+    if (!connection || !databaseName) {
+      setErModelByTabId((current) => ({
+        ...current,
+        [tabId]: {
+          status: "error",
+          error: "Missing connection or database for ER diagram.",
+          connectionId,
+          databaseName,
+        },
+      }));
+      return;
+    }
+
+    setErModelByTabId((current) => ({
+      ...current,
+      [tabId]: {
+        status: "loading",
+        model: current[tabId]?.model,
+        connectionId,
+        databaseName,
+      },
+    }));
+
+    try {
+      const tables = await collectTableLeaves(connection, databaseName);
+      const model = await loadErModel(connection, tables);
+      setErModelByTabId((current) => ({
+        ...current,
+        [tabId]: { status: "ready", model, connectionId, databaseName },
+      }));
+    } catch (error) {
+      setErModelByTabId((current) => ({
+        ...current,
+        [tabId]: {
+          status: "error",
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to build ER diagram.",
+          connectionId,
+          databaseName,
+        },
+      }));
+    }
+  }
+
+  /** Open (or focus) an ER-diagram tab for a database and kick off the load. */
+  async function openErTab(connection: DbConnection, databaseName: string) {
+    const tabType: DbTabType = "er";
+    const existingId =
+      workspace().openTabIds.find(
+        (tabId) =>
+          workspace().tabsById[tabId]?.connectionId === connection.id &&
+          workspace().tabsById[tabId]?.type === tabType &&
+          (workspace().tabsById[tabId]?.databaseName ?? null) === databaseName,
+      ) ?? null;
+    let activeId = existingId;
+
+    await commitWorkspace((draft) => {
+      if (!draft.connectedConnectionIds.includes(connection.id)) {
+        draft.connectedConnectionIds = [
+          connection.id,
+          ...draft.connectedConnectionIds,
+        ];
+      }
+      draft.activeConnectionId = connection.id;
+      if (existingId && draft.tabsById[existingId]) {
+        draft.activeTabId = existingId;
+        return;
+      }
+      const tab = createDbTab(connection, tabType);
+      tab.title = `${connection.name} · ${databaseName} · ER`;
+      tab.databaseName = databaseName;
+      draft.tabsById[tab.id] = tab;
+      draft.openTabIds.push(tab.id);
+      draft.activeTabId = tab.id;
+      activeId = tab.id;
+    });
+
+    closeFloatingMenus();
+    if (activeId) {
+      // Seed the resource with the scope so reloads know what to rebuild.
+      setErModelByTabId((current) => ({
+        ...current,
+        [activeId!]: {
+          status: current[activeId!]?.status ?? "loading",
+          model: current[activeId!]?.model,
+          connectionId: connection.id,
+          databaseName,
+        },
+      }));
+      void loadErModelForTab(activeId);
+    }
+  }
+
+  /** Run a whole-database structure diff between two same-kind connections. */
+  async function runSchemaDiffForTab(
+    tabId: string,
+    sourceId: string,
+    targetId: string,
+  ) {
+    const source = connectionMap().get(sourceId);
+    const target = connectionMap().get(targetId);
+    if (!source || !target) {
+      setSchemaDiffByTabId((current) => ({
+        ...current,
+        [tabId]: { status: "error", error: "Pick two valid connections." },
+      }));
+      return;
+    }
+
+    setSchemaDiffByTabId((current) => ({
+      ...current,
+      [tabId]: { status: "loading", diff: current[tabId]?.diff, sourceId, targetId },
+    }));
+
+    try {
+      const sourceDb = getDefaultDatabaseForConnection(source);
+      const targetDb = getDefaultDatabaseForConnection(target);
+      if (!sourceDb || !targetDb) {
+        throw new Error("Could not resolve a database for both connections.");
+      }
+      const [sourceTables, targetTables] = await Promise.all([
+        collectTableLeaves(source, sourceDb),
+        collectTableLeaves(target, targetDb),
+      ]);
+      const [sourceSnapshot, targetSnapshot] = await Promise.all([
+        loadSchemaSnapshot(source, sourceTables),
+        loadSchemaSnapshot(target, targetTables),
+      ]);
+      const diff = diffSchemas(sourceSnapshot, targetSnapshot);
+      setSchemaDiffByTabId((current) => ({
+        ...current,
+        [tabId]: { status: "ready", diff, sourceId, targetId },
+      }));
+    } catch (error) {
+      setSchemaDiffByTabId((current) => ({
+        ...current,
+        [tabId]: {
+          status: "error",
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to compute schema diff.",
+          sourceId,
+          targetId,
+        },
+      }));
+    }
+  }
+
+  /** Open (or focus) a schema-diff tab anchored to a launching connection. */
+  async function openSchemaDiffTab(connection: DbConnection) {
+    const tabType: DbTabType = "schema-diff";
+    const existingId =
+      workspace().openTabIds.find(
+        (tabId) =>
+          workspace().tabsById[tabId]?.connectionId === connection.id &&
+          workspace().tabsById[tabId]?.type === tabType,
+      ) ?? null;
+
+    await commitWorkspace((draft) => {
+      if (!draft.connectedConnectionIds.includes(connection.id)) {
+        draft.connectedConnectionIds = [
+          connection.id,
+          ...draft.connectedConnectionIds,
+        ];
+      }
+      draft.activeConnectionId = connection.id;
+      if (existingId && draft.tabsById[existingId]) {
+        draft.activeTabId = existingId;
+        return;
+      }
+      const tab = createDbTab(connection, tabType);
+      tab.title = `${connection.name} · Schema Diff`;
+      draft.tabsById[tab.id] = tab;
+      draft.openTabIds.push(tab.id);
+      draft.activeTabId = tab.id;
+    });
+
+    closeFloatingMenus();
+  }
+
   /**
    * Open a fresh editable query tab pre-filled with generated SQL (e.g. the
    * structure editor's ALTER preview). Always forceNew — the DDL is a draft the
@@ -2664,6 +2934,12 @@ WHERE ${whereClause};`;
     applyTextResult,
     openConnectionTab,
     openDdlTab,
+    erModelByTabId,
+    schemaDiffByTabId,
+    loadErModelForTab,
+    runSchemaDiffForTab,
+    openErTab,
+    openSchemaDiffTab,
     connectSavedConnection,
     expandConnection,
     focusConnectedConnection,

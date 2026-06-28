@@ -1415,6 +1415,174 @@ function buildExplorerShowSqlQueryPlaceholder(
   return getDbAdapter(connection.kind).buildDdlQuery(node);
 }
 
+// --- ER diagram + schema snapshot (Phase 4) --------------------------------
+//
+// Both features reuse the existing per-table column / FK queries. The ER model
+// is a lightweight projection (just what the SVG renderer needs); the schema
+// snapshot reuses the full loadDbObjectDetail() so the diff sees columns,
+// indexes and FKs identically to the structure editor.
+
+export type ErColumn = {
+  name: string;
+  type: string;
+  pk: boolean;
+  fk: boolean;
+};
+
+export type ErTable = {
+  /** Display name (the leaf label). */
+  name: string;
+  schema?: string;
+  columns: ErColumn[];
+};
+
+export type ErEdge = {
+  name: string;
+  fromTable: string;
+  fromColumns: string[];
+  toTable: string;
+  toColumns: string[];
+};
+
+export type ErModel = {
+  tables: ErTable[];
+  edges: ErEdge[];
+};
+
+/** Run up to `limit` async thunks at a time — bounds concurrent WS queries. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  async function runner() {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await worker(items[index]);
+    }
+  }
+  const pool = Array.from({ length: Math.min(limit, items.length) }, () =>
+    runner(),
+  );
+  await Promise.all(pool);
+  return results;
+}
+
+/**
+ * Build an entity-relationship model for the given table leaf nodes (typically
+ * the children of one database/schema group). Reuses the adapter columns + FK
+ * queries via the existing WS path. Only relational kinds are supported; the
+ * caller gates on adapter.isRelational().
+ */
+export async function loadErModel(
+  connection: DbConnection,
+  tables: Array<Exclude<DbExplorerNode, { kind: "group" }>>,
+): Promise<ErModel> {
+  const dsn = buildDbConnectionUrl(connection) || connection.url.trim();
+
+  const built = await mapWithConcurrency(tables, 6, async (node) => {
+    const [columnsResult, primaryKeys, foreignKeysResult] = await Promise.all([
+      executeDbSocketCommand(
+        {
+          id: makeId("db-er"),
+          type: "sql",
+          payload: {
+            driver: connection.kind,
+            dsn,
+            query: buildSqlObjectColumnsQuery(connection, node),
+          },
+        },
+        connection,
+      ),
+      (async () => {
+        const pkQuery = buildSqlPrimaryKeyQuery(connection, node);
+        if (!pkQuery) return [] as string[];
+        const pkResult = await executeDbSocketCommand(
+          {
+            id: makeId("db-er"),
+            type: "sql",
+            payload: { driver: connection.kind, dsn, query: pkQuery },
+          },
+          connection,
+        );
+        return getDbAdapter(connection.kind).parsePrimaryKeyResult(pkResult);
+      })(),
+      (async () => {
+        const fkQuery = buildSqlForeignKeysQuery(connection, node);
+        if (!fkQuery) return null;
+        return executeDbSocketCommand(
+          {
+            id: makeId("db-er"),
+            type: "sql",
+            payload: { driver: connection.kind, dsn, query: fkQuery },
+          },
+          connection,
+        );
+      })(),
+    ]);
+
+    const columns = parseSqlColumnsResult(columnsResult);
+    const foreignKeys = foreignKeysResult
+      ? parseSqlForeignKeysResult(connection, foreignKeysResult)
+      : [];
+    const pkSet = new Set(primaryKeys);
+    const fkSet = new Set(foreignKeys.flatMap((fk) => fk.columns));
+
+    const erTable: ErTable = {
+      name: node.label,
+      schema: node.schemaName,
+      columns: columns.map((column) => ({
+        name: column.name,
+        type: column.type,
+        pk: pkSet.has(column.name),
+        fk: fkSet.has(column.name),
+      })),
+    };
+
+    const edges: ErEdge[] = foreignKeys.map((fk) => ({
+      name: fk.name,
+      fromTable: node.label,
+      fromColumns: fk.columns,
+      toTable: fk.referencedTable,
+      toColumns: fk.referencedColumns,
+    }));
+
+    return { erTable, edges };
+  });
+
+  // Keep only edges whose target table is part of this model so the renderer
+  // never dangles an arrow to a table it isn't drawing.
+  const tableNames = new Set(built.map((entry) => entry.erTable.name));
+  const edges = built
+    .flatMap((entry) => entry.edges)
+    .filter((edge) => tableNames.has(edge.toTable));
+
+  return {
+    tables: built.map((entry) => entry.erTable),
+    edges,
+  };
+}
+
+/**
+ * Load full structure detail for every given table leaf, keyed by table name.
+ * Used by the schema-diff view (one snapshot per connection side).
+ */
+export async function loadSchemaSnapshot(
+  connection: DbConnection,
+  tables: Array<Exclude<DbExplorerNode, { kind: "group" }>>,
+): Promise<Record<string, DbObjectDetail>> {
+  const details = await mapWithConcurrency(tables, 4, (node) =>
+    loadDbObjectDetail(connection, node),
+  );
+  const snapshot: Record<string, DbObjectDetail> = {};
+  tables.forEach((node, index) => {
+    snapshot[node.label] = details[index];
+  });
+  return snapshot;
+}
+
 export async function testDbConnection(connection: DbConnection) {
   const normalizedConnection = {
     ...connection,

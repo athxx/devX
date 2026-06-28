@@ -69,6 +69,12 @@ export function connectionMenuItems(
           { forceNew: true, resultView: summaryResultView },
         ),
     },
+    {
+      label: "Schema Diff",
+      icon: "ArrowRightLeft",
+      visible: adapter.isRelational(),
+      action: () => void api.openSchemaDiffTab(connection),
+    },
     SEPARATOR,
     {
       label: "Disconnect",
@@ -112,6 +118,11 @@ function databaseGroupMenuItems(
             api.buildCreateTableTemplate(connection, databaseName),
             { forceNew: true, resultView: "raw", databaseName },
           ),
+      },
+      {
+        label: "ER Diagram",
+        icon: "Network",
+        action: () => void api.openErTab(connection, databaseName),
       },
       SEPARATOR,
       {

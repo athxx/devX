@@ -50,9 +50,20 @@
 - [x] TDengine 原生连接 — `github.com/taosdata/driver-go`（cgo，置于标签后） — 适配器 `tdengine.ts`，注册于 `rawsql_cgo.go`
   - 注：`-tags cgo_drivers` 构建要求本机已安装 TDengine 原生 C SDK（`taos.h`）；默认纯 Go 二进制不受影响。
 
-## Phase 4 — Schema 可视化 / 对比
-- [ ] ER 图：基于适配器已有的 FK 查询，可视化外键关系
-- [ ] Schema diff：对比两个连接的结构差异
+## Phase 4 — Schema 可视化 / 对比 ✅
+- [x] ER 图：基于适配器已有的 FK/列/主键查询，可视化外键关系 — 纯前端零依赖 SVG
+  - 服务层 `service.ts`：`loadErModel(connection, tables)`（并发 6 拉列/PK/FK，建表盒+边）
+  - 组件 `components/er/db-er-view.tsx`：最长路径分层布局、表盒（PK🔑/FK↗ 徽标）、
+    正交折线边、拖拽平移 / 滚轮缩放 / Fit；面板态 `erModelByTabId` + `loadErModelForTab`
+  - 入口：数据库分组右键菜单「ER Diagram」（`Network` 图标，`showExtended` 门控）
+- [x] Schema diff：整库表结构对比（两个同类连接）
+  - 纯逻辑 `lib/schema-diff.ts`：`diffSchemas(a,b)` → 增/删/改 表·列·索引·外键（无 I/O）
+  - 服务层 `service.ts`：`loadSchemaSnapshot(connection, tables)`（复用 `loadDbObjectDetail`）
+  - 组件 `components/diff/db-schema-diff-view.tsx`：双连接选择（同 kind 过滤）+ Compare，
+    分组渲染 added/removed/changed；面板态 `schemaDiffByTabId` + `runSchemaDiffForTab`
+  - 入口：连接右键菜单「Schema Diff」（`ArrowRightLeft` 图标，`isRelational()` 门控）
+  - 派发：`db-editor-pane-view.tsx` 新增 `er` / `schema-diff` 两个 tab.type 分支
+  - 注：仓库无前端测试 runner（无 vitest/jest），按既有惯例以 `tsc -b` 类型系统兜底
 
 ## Phase 5 — Tier C 向量/搜索 + 图/时序数据库
 - [ ] Qdrant — REST API（`/collections`、`/points/scroll`），纯 net/http

@@ -9,6 +9,8 @@ import { DbResultsPane } from "../db-results-pane";
 import { ShortcutHintButton } from "../db-icons";
 import { DbResultsView } from "../grid/db-results-view";
 import { DbStructureView } from "../structure/db-structure-view";
+import { DbErView } from "../er/db-er-view";
+import { DbSchemaDiffView } from "../diff/db-schema-diff-view";
 import { useDbPanel } from "../db-panel-context";
 
 export function DbEditorPaneView() {
@@ -58,6 +60,14 @@ export function DbEditorPaneView() {
 
     if (tab.type === "structure") {
       return <DbStructureView />;
+    }
+
+    if (tab.type === "er") {
+      return <DbErView />;
+    }
+
+    if (tab.type === "schema-diff") {
+      return <DbSchemaDiffView />;
     }
 
     const detail = getTabObjectDetail(tab) ?? getActiveObjectDetail();
