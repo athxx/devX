@@ -38,7 +38,8 @@ export type DbConnectionKind =
   | "cassandra"
   | "milvus"
   | "bigquery"
-  | "databricks";
+  | "databricks"
+  | "hive";
 
 export type DbConnectionConfig = {
   host: string;

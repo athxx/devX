@@ -193,6 +193,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "milvus",
   "bigquery",
   "databricks",
+  "hive",
 ];
 
 export function getConnectionBadge(connection: DbConnection) {

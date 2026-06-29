@@ -57,6 +57,7 @@ func TestRawSQLBackendsRegistered(t *testing.T) {
 		"trino":      "trino",
 		"databend":   "databend",
 		"databricks": "databricks",
+		"hive":       "hive",
 	}
 	for kind, driver := range want {
 		t.Run(kind, func(t *testing.T) {

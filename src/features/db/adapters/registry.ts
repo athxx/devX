@@ -45,6 +45,7 @@ import { CassandraAdapter } from "./cassandra";
 import { MilvusAdapter } from "./milvus";
 import { BigQueryAdapter } from "./bigquery";
 import { DatabricksAdapter } from "./databricks";
+import { HiveAdapter } from "./hive";
 
 const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redis: new RedisAdapter(),
@@ -87,6 +88,7 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   milvus: new MilvusAdapter(),
   bigquery: new BigQueryAdapter(),
   databricks: new DatabricksAdapter(),
+  hive: new HiveAdapter(),
 };
 
 export function getDbAdapter(kind: DbConnectionKind): DbAdapter {

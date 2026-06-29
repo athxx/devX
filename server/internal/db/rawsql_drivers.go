@@ -7,6 +7,7 @@ package db
 // behind the `cgo_drivers` build tag.
 
 import (
+	_ "github.com/beltran/gohive/v2"
 	_ "github.com/databricks/databricks-sql-go"
 	_ "github.com/datafuselabs/databend-go"
 	_ "github.com/snowflakedb/gosnowflake"
@@ -19,4 +20,8 @@ func init() {
 	registerRawSQLBackend("trino", "trino")
 	registerRawSQLBackend("databend", "databend")
 	registerRawSQLBackend("databricks", "databricks")
+	// gohive is pure-Go for NONE/LDAP/NOSASL auth; its Kerberos/GSSAPI path is
+	// behind gosasl's own `kerberos` build tag (cgo) and stays out of the
+	// default binary.
+	registerRawSQLBackend("hive", "hive")
 }
