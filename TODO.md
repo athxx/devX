@@ -204,6 +204,10 @@ Kafka/Pulsar/RocketMQ MQ-admin、etcd/ZooKeeper/Nacos。
 - [ ] Docker 起目标库（可行时）→ 建连接 → 连接/测试通过
 - [ ] 浏览器树列出库/表 → 打开表 → 网格有数据
 - [ ] 跑查询出结果 → 结构页加载 → explain（SQL 类）
-- [ ] 无本地镜像的（Snowflake/Redshift/BigQuery）：适配器单测（URL/DSN/查询串）+ mock 传输
+- [~] 无本地镜像的（Snowflake/Redshift/BigQuery）：适配器单测（URL/DSN/查询串）+ mock 传输
+      BigQuery 已补 runner 纯逻辑单测 `server/internal/db/bigquery_test.go`（项目校验 / 客户端缓存键
+      project+cred 哈希+endpoint 维度 / `bigquery.Value` 编码 / 列序 schema 优先·否则 key 排序 / 断连
+      project 前缀匹配）；Snowflake/Redshift 走 database/sql，已由 `sqlrunner_test.go` 的 dialector/raw-backend
+      用例覆盖驱动注册（其 DSN 构造在前端适配器，仓库无 JS test runner，按惯例以 tsc 兜底）。
 - [x] `tsc -b` + `vite build` 通过；`cd server && go build ./... && go test ./internal/db/...` 通过
 - [ ] 回归：已有 27 种仍能连接（尤其复用 mysql/postgres 别名的）
