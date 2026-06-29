@@ -6,12 +6,15 @@ require (
 	cloud.google.com/go/bigquery v1.77.0
 	cloud.google.com/go/bigtable v1.50.0
 	fyne.io/systray v1.12.2
+	github.com/beltran/gohive/v2 v2.1.0
 	github.com/creack/pty v1.1.24
+	github.com/databricks/databricks-sql-go v1.13.0
 	github.com/datafuselabs/databend-go v0.9.3
 	github.com/dzwvip/gorm-oracle v0.1.2
 	github.com/elastic/go-elasticsearch/v8 v8.19.6
 	github.com/fasthttp/websocket v1.5.12
 	github.com/glebarez/sqlite v1.11.0
+	github.com/go-zookeeper/zk v1.0.4
 	github.com/gocql/gocql v1.7.0
 	github.com/godoes/gorm-dameng v0.7.2
 	github.com/gofiber/contrib/v3/websocket v1.2.1
@@ -23,6 +26,8 @@ require (
 	github.com/snowflakedb/gosnowflake v1.19.1
 	github.com/taosdata/driver-go/v3 v3.8.1
 	github.com/trinodb/trino-go-client v0.333.0
+	go.etcd.io/etcd/api/v3 v3.6.12
+	go.etcd.io/etcd/client/v3 v3.6.12
 	go.mongodb.org/mongo-driver v1.17.9
 	golang.org/x/crypto v0.53.0
 	google.golang.org/api v0.286.0
@@ -81,7 +86,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.34.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.38.4 // indirect
 	github.com/aws/smithy-go v1.23.0 // indirect
-	github.com/beltran/gohive/v2 v2.1.0 // indirect
 	github.com/beltran/gosasl v1.0.0 // indirect
 	github.com/beltran/gssapi v0.0.0-20200324152954-d86554db4bab // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -93,7 +97,6 @@ require (
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/danieljoos/wincred v1.2.2 // indirect
-	github.com/databricks/databricks-sql-go v1.13.0 // indirect
 	github.com/dnephin/pflag v1.0.7 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/dvsekhvalnov/jose2go v1.7.0 // indirect
@@ -199,9 +202,7 @@ require (
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
-	go.etcd.io/etcd/api/v3 v3.6.12 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.6.12 // indirect
-	go.etcd.io/etcd/client/v3 v3.6.12 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.42.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.68.0 // indirect

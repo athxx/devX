@@ -40,7 +40,8 @@ export type DbConnectionKind =
   | "bigquery"
   | "databricks"
   | "hive"
-  | "etcd";
+  | "etcd"
+  | "zookeeper";
 
 export type DbConnectionConfig = {
   host: string;

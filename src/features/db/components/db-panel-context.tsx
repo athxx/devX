@@ -195,6 +195,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "databricks",
   "hive",
   "etcd",
+  "zookeeper",
 ];
 
 export function getConnectionBadge(connection: DbConnection) {

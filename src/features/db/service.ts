@@ -1387,6 +1387,57 @@ async function loadEtcdExplorer(connection: DbConnection) {
   return [makeExplorerGroup("Keys", "category", keyNodes, `${keyNodes.length}`)];
 }
 
+function buildZookeeperCommand(
+  connection: DbConnection,
+  action: string,
+  extra: Record<string, unknown> = {},
+): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "zookeeper",
+    payload: {
+      address: buildDbConnectionUrl(connection) || connection.url.trim(),
+      username: connection.config.username,
+      password: connection.config.password,
+      action,
+      ...extra,
+    },
+  };
+}
+
+// ZooKeeper is a hierarchical znode store over its own TCP protocol; it has no
+// SQL surface. The explorer is flat: list the children of the root "/" via
+// `listChildren` and surface one "key" leaf per child znode under a single
+// "Znodes" group. Selecting a znode opens a query tab whose path is that znode,
+// listing its own children. The runner returns SQL-shaped data (kind "sql");
+// listChildren rides the `rows` field ([{path,name,...}]).
+async function loadZookeeperExplorer(connection: DbConnection) {
+  const result = await executeDbSocketCommand(
+    buildZookeeperCommand(connection, "listChildren", { path: "/" }),
+    connection,
+  );
+  if (result.kind !== "sql") {
+    return [] as DbExplorerNode[];
+  }
+  const rows = (result.data as Record<string, unknown>).rows;
+  const znodeNodes = (Array.isArray(rows) ? rows : [])
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      const path = asString(record.path);
+      const name = asString(record.name) || path;
+      if (!path) return null;
+      // The leaf query is the full znode path; opening it lists its children.
+      return makeExplorerLeaf("key", name, path, "Znode");
+    })
+    .filter((node): node is DbExplorerNode => Boolean(node))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return [
+    makeExplorerGroup("Znodes", "category", znodeNodes, `${znodeNodes.length}`),
+  ];
+}
+
 /** Build a `milvus` wire command from a connection's relabelled config slots. */
 function buildMilvusCommand(
   connection: DbConnection,
@@ -1552,6 +1603,11 @@ export async function loadDbExplorer(connection: DbConnection) {
     // etcd is key/value but speaks its own gRPC protocol and rides the SQL grid;
     // flat (Keys only). MUST dispatch before the isKeyValueStore() Redis branch.
     return loadEtcdExplorer(normalizedConnection);
+  } else if (normalizedConnection.kind === "zookeeper") {
+    // ZooKeeper is hierarchical key/value but speaks its own protocol and rides
+    // the SQL grid; flat (root znodes). MUST dispatch before the isKeyValueStore()
+    // Redis branch.
+    return loadZookeeperExplorer(normalizedConnection);
   } else if (adapter.isKeyValueStore()) {
     nodes = await loadRedisExplorer(normalizedConnection);
   } else if (normalizedConnection.kind === "qdrant") {
