@@ -41,7 +41,8 @@ export type DbConnectionKind =
   | "databricks"
   | "hive"
   | "etcd"
-  | "zookeeper";
+  | "zookeeper"
+  | "kafka";
 
 export type DbConnectionConfig = {
   host: string;

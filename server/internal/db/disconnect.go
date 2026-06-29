@@ -32,6 +32,8 @@ func DisconnectConnection(kind, driver, dsn, url, uri string) error {
 		return DisconnectEtcdClient(url)
 	case "zookeeper":
 		return DisconnectZookeeperClient(url)
+	case "kafka":
+		return DisconnectKafkaClient(url)
 	case "bigquery":
 		// url carries "project\x00dataset" (see BigQueryAdapter.buildDisconnectMessage).
 		return DisconnectBigQueryClient(url)

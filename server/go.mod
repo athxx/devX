@@ -26,6 +26,8 @@ require (
 	github.com/snowflakedb/gosnowflake v1.19.1
 	github.com/taosdata/driver-go/v3 v3.8.1
 	github.com/trinodb/trino-go-client v0.333.0
+	github.com/twmb/franz-go v1.21.4
+	github.com/twmb/franz-go/pkg/kadm v1.18.0
 	go.etcd.io/etcd/api/v3 v3.6.12
 	go.etcd.io/etcd/client/v3 v3.6.12
 	go.mongodb.org/mongo-driver v1.17.9
@@ -176,7 +178,7 @@ require (
 	github.com/paulmach/orb v0.11.1 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pierrec/lz4 v2.6.1+incompatible // indirect
-	github.com/pierrec/lz4/v4 v4.1.22 // indirect
+	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
@@ -195,6 +197,7 @@ require (
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/tjfoc/gmsm v1.4.1 // indirect
+	github.com/twmb/franz-go/pkg/kmsg v1.13.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.71.0 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect

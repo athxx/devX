@@ -1438,6 +1438,88 @@ async function loadZookeeperExplorer(connection: DbConnection) {
   ];
 }
 
+function buildKafkaCommand(
+  connection: DbConnection,
+  action: string,
+  extra: Record<string, unknown> = {},
+): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "kafka",
+    payload: {
+      address: buildDbConnectionUrl(connection) || connection.url.trim(),
+      username: connection.config.username,
+      password: connection.config.password,
+      action,
+      ...extra,
+    },
+  };
+}
+
+// Kafka is an event-streaming platform; it has no SQL surface. The explorer has
+// two groups: "Topics" (each leaf opens a listTopics tab) and "Consumer Groups".
+// The runner returns SQL-shaped data (kind "sql"); the listing rides the `rows`
+// field. listGroups is best-effort — a broker that rejects it (or has none)
+// simply yields an empty group rather than failing the whole explorer.
+async function loadKafkaExplorer(connection: DbConnection) {
+  const topicsResult = await executeDbSocketCommand(
+    buildKafkaCommand(connection, "listTopics"),
+    connection,
+  );
+  const topicNodes =
+    topicsResult.kind === "sql"
+      ? rowsToLeafNodes(
+          (topicsResult.data as Record<string, unknown>).rows,
+          "topic",
+          "Topic",
+        )
+      : [];
+
+  let groupNodes: DbExplorerNode[] = [];
+  try {
+    const groupsResult = await executeDbSocketCommand(
+      buildKafkaCommand(connection, "listGroups"),
+      connection,
+    );
+    if (groupsResult.kind === "sql") {
+      groupNodes = rowsToLeafNodes(
+        (groupsResult.data as Record<string, unknown>).rows,
+        "group",
+        "Consumer Group",
+      );
+    }
+  } catch {
+    groupNodes = [];
+  }
+
+  return [
+    makeExplorerGroup("Topics", "category", topicNodes, `${topicNodes.length}`),
+    makeExplorerGroup(
+      "Consumer Groups",
+      "category",
+      groupNodes,
+      `${groupNodes.length}`,
+    ),
+  ];
+}
+
+// rowsToLeafNodes maps SQL-shaped rows to sorted "key" leaves keyed by `field`.
+function rowsToLeafNodes(
+  rows: unknown,
+  field: string,
+  description: string,
+): DbExplorerNode[] {
+  return (Array.isArray(rows) ? rows : [])
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const name = asString((item as Record<string, unknown>)[field]);
+      if (!name) return null;
+      return makeExplorerLeaf("key", name, name, description);
+    })
+    .filter((node): node is DbExplorerNode => Boolean(node))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
 /** Build a `milvus` wire command from a connection's relabelled config slots. */
 function buildMilvusCommand(
   connection: DbConnection,
@@ -1608,6 +1690,10 @@ export async function loadDbExplorer(connection: DbConnection) {
     // the SQL grid; flat (root znodes). MUST dispatch before the isKeyValueStore()
     // Redis branch.
     return loadZookeeperExplorer(normalizedConnection);
+  } else if (normalizedConnection.kind === "kafka") {
+    // Kafka speaks its own protocol and rides the SQL grid; two groups (Topics,
+    // Consumer Groups). Dispatch before the SQL fallback.
+    return loadKafkaExplorer(normalizedConnection);
   } else if (adapter.isKeyValueStore()) {
     nodes = await loadRedisExplorer(normalizedConnection);
   } else if (normalizedConnection.kind === "qdrant") {

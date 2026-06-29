@@ -196,6 +196,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "hive",
   "etcd",
   "zookeeper",
+  "kafka",
 ];
 
 export function getConnectionBadge(connection: DbConnection) {

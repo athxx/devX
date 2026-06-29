@@ -48,6 +48,7 @@ import { DatabricksAdapter } from "./databricks";
 import { HiveAdapter } from "./hive";
 import { EtcdAdapter } from "./etcd";
 import { ZookeeperAdapter } from "./zookeeper";
+import { KafkaAdapter } from "./kafka";
 
 const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redis: new RedisAdapter(),
@@ -93,6 +94,7 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   hive: new HiveAdapter(),
   etcd: new EtcdAdapter(),
   zookeeper: new ZookeeperAdapter(),
+  kafka: new KafkaAdapter(),
 };
 
 export function getDbAdapter(kind: DbConnectionKind): DbAdapter {
