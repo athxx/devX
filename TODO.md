@@ -49,6 +49,8 @@
 - [x] DuckDB — `github.com/marcboeker/go-duckdb`（cgo，置于 `cgo_drivers` 标签后） — 适配器 `duckdb.ts`，注册于 `rawsql_cgo.go`
 - [x] TDengine 原生连接 — `github.com/taosdata/driver-go`（cgo，置于标签后） — 适配器 `tdengine.ts`，注册于 `rawsql_cgo.go`
   - 注：`-tags cgo_drivers` 构建要求本机已安装 TDengine 原生 C SDK（`taos.h`）；默认纯 Go 二进制不受影响。
+- [x] Databricks — `github.com/databricks/databricks-sql-go`（纯 Go，database/sql） — 适配器 `databricks.ts`，注册于 `rawsql_drivers.go`（默认端口 443，DSN `token:<token>@host:port<httpPath>`）
+- [x] Hive — `github.com/beltran/gohive`（纯 Go：NONE/LDAP/NOSASL；Kerberos=GSSAPI cgo，仅 `-tags cgo_drivers,kerberos`，同 `"hive"` 驱动名） — 适配器 `hive.ts`，注册于 `rawsql_drivers.go`（默认端口 10000）
 
 ## Phase 4 — Schema 可视化 / 对比 ✅
 - [x] ER 图：基于适配器已有的 FK/列/主键查询，可视化外键关系 — 纯前端零依赖 SVG
@@ -94,7 +96,27 @@
       schema 取列序、`bigquery.Value` JSON 安全编码）；handler/disconnect: `handlers/db.go`/`disconnect.go`
       前端: `adapters/bigquery.ts`（relational + 自定义 `bigquery` wire type）、registry、`databaseKinds`、
       连接表单（`db-connection-form.tsx`）、`service.ts:loadBigQueryExplorer`（dataset→tables 两级树，参照 Cassandra）
-- [ ] 各非 SQL 类新增 runner + 非 SQL 适配器（参照 elasticsearch.ts / bigtable.ts）
+- [x] etcd — `go.etcd.io/etcd/client/v3`（纯 Go，无 cgo），KV 展平为表格网格，type `etcd`
+      runner: `server/internal/db/etcd.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
+      前端: `adapters/etcd.ts`、registry、`databaseKinds`、`service.ts:loadEtcdExplorer`（Keys 前缀列表→表格网格）
+      （dataModel=keyValue 但 isKeyValueStore()=false，dispatch 分支置于 isKeyValueStore() 检查之前）
+- [x] ZooKeeper — `github.com/go-zookeeper/zk`（纯 Go，无 cgo），znode 展平为表格网格，type `zookeeper`
+      runner: `server/internal/db/zookeeper.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
+      前端: `adapters/zookeeper.ts`、registry、`databaseKinds`、`service.ts:loadZookeeperExplorer`（root→children 两级树）
+- [x] Kafka — `github.com/twmb/franz-go`（`kgo`/`kadm`，纯 Go，无 cgo），topics/groups 展平为表格网格，type `kafka`
+      runner: `server/internal/db/kafka.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
+      前端: `adapters/kafka.ts`、registry、`databaseKinds`、`service.ts:loadKafkaExplorer`（Topics / Consumer Groups 两组）
+- [x] Nacos — `github.com/nacos-group/nacos-sdk-go/v2`（纯 Go，无 cgo），configs/services 展平为表格网格，type `nacos`
+      runner: `server/internal/db/nacos.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
+      前端: `adapters/nacos.ts`、registry、`databaseKinds`、连接表单（namespace 槽位）、`service.ts:loadNacosExplorer`（Configs / Services 两组）
+- [x] RocketMQ — `github.com/apache/rocketmq-client-go/v2`（`/admin`，纯 Go，无 cgo），topics/groups 展平为表格网格，type `rocketmq`
+      runner: `server/internal/db/rocketmq.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
+      前端: `adapters/rocketmq.ts`、registry、`databaseKinds`、`service.ts:loadRocketMQExplorer`（Topics / Consumer Groups 两组，groups 需 broker 地址故为 best-effort）
+      （go.mod replace：`stathat.com/c/consistent` → `github.com/stathat/consistent`，修死链传递依赖；仅 consumer 负载均衡用到，admin 路径不涉及）
+- [x] Pulsar — `github.com/apache/pulsar-client-go`（`pulsaradmin`，纯 Go，无 cgo），tenants/namespaces/topics 展平为表格网格，type `pulsar`
+      runner: `server/internal/db/pulsar.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
+      前端: `adapters/pulsar.ts`、registry、`databaseKinds`、连接表单（admin HTTP 端口 8080·非 6650、tenant 槽位）、`service.ts:loadPulsarExplorer`（Tenants / Namespaces 两组，namespace 叶子打开列 topics）
+- [x] 各非 SQL 类新增 runner + 非 SQL 适配器（参照 elasticsearch.ts / bigtable.ts）— 上列 6 种 Tier-B 已落地
 
 ## Phase 6 — 剩余功能补齐（DBX 功能差距）
 - [x] 数据库整库导出 / dump
@@ -196,9 +218,10 @@
 
 ## 明确不做（JDBC/JVM-only，无可用 Go 驱动；已在计划中记录）
 DB2、Informix、SAP HANA、Teradata、Vertica、Firebird、Exasol、Access、IRIS、
-Kylin、SunDB、XuguDB、Gbase 8a/8s、YashanDB、H2、Hive、Databricks、
-Kafka/Pulsar/RocketMQ MQ-admin、etcd/ZooKeeper/Nacos。
+Kylin、SunDB、XuguDB、Gbase 8a/8s、YashanDB、H2。
 （MariaDB 按要求去掉；Bigtable / Oracle / Dameng 已保留并实现。）
+（原列于此的 8 种均有纯 Go 驱动，已实现并迁出：Hive/Databricks 见 Phase 3，
+Kafka/Pulsar/RocketMQ/etcd/ZooKeeper/Nacos 见 Phase 5。）
 
 ## 每个驱动的端到端验证清单
 - [ ] Docker 起目标库（可行时）→ 建连接 → 连接/测试通过
@@ -209,5 +232,9 @@ Kafka/Pulsar/RocketMQ MQ-admin、etcd/ZooKeeper/Nacos。
       project+cred 哈希+endpoint 维度 / `bigquery.Value` 编码 / 列序 schema 优先·否则 key 排序 / 断连
       project 前缀匹配）；Snowflake/Redshift 走 database/sql，已由 `sqlrunner_test.go` 的 dialector/raw-backend
       用例覆盖驱动注册（其 DSN 构造在前端适配器，仓库无 JS test runner，按惯例以 tsc 兜底）。
+- [~] Tier A（Databricks/Hive，走 raw-SQL seam）+ 无本地镜像的非 SQL（Kafka/Pulsar/RocketMQ/etcd/ZooKeeper/Nacos）：
+      以 runner 纯逻辑单测 + 适配器编译期注册（exhaustive `Record<DbConnectionKind,DbAdapter>`）替代 Docker 往返。
+      每个 Tier-B runner 有 `<kind>_test.go`：地址校验（空地址在建客户端前报错·无网络）/ 客户端缓存键按 addr+cred 维度 /
+      地址·端口解析与默认值 / 断连前缀匹配。Tier A 由 `sqlrunner_test.go` 覆盖 `lookupRawSQLBackend` 驱动名解析。
 - [x] `tsc -b` + `vite build` 通过；`cd server && go build ./... && go test ./internal/db/...` 通过
 - [ ] 回归：已有 27 种仍能连接（尤其复用 mysql/postgres 别名的）
