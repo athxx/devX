@@ -194,6 +194,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "bigquery",
   "databricks",
   "hive",
+  "etcd",
 ];
 
 export function getConnectionBadge(connection: DbConnection) {

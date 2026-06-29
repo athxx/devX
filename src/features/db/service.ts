@@ -1338,6 +1338,55 @@ async function loadCassandraExplorer(connection: DbConnection) {
   return groups;
 }
 
+/** Build an `etcd` wire command from a connection's config slots. */
+function buildEtcdCommand(
+  connection: DbConnection,
+  action: string,
+  extra: Record<string, unknown> = {},
+): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "etcd",
+    payload: {
+      address: buildDbConnectionUrl(connection) || connection.url.trim(),
+      username: connection.config.username,
+      password: connection.config.password,
+      action,
+      ...extra,
+    },
+  };
+}
+
+// etcd is a distributed key/value store over gRPC; it has no SQL surface. The
+// explorer is flat: range over the whole keyspace via `listKeys` and surface one
+// "key" leaf per pair under a single "Keys" group. Selecting a key opens a query
+// tab whose prefix is that exact key. The runner returns SQL-shaped data (kind
+// "sql"); listKeys rides the `rows` field ([{key,value,version}]).
+async function loadEtcdExplorer(connection: DbConnection) {
+  const result = await executeDbSocketCommand(
+    buildEtcdCommand(connection, "listKeys", { limit: 1000 }),
+    connection,
+  );
+  if (result.kind !== "sql") {
+    return [] as DbExplorerNode[];
+  }
+  const rows = (result.data as Record<string, unknown>).rows;
+  const keyNodes = (Array.isArray(rows) ? rows : [])
+    .map((item) => {
+      const name =
+        item && typeof item === "object"
+          ? asString((item as Record<string, unknown>).key)
+          : asString(item);
+      if (!name) return null;
+      // The leaf query is the key itself, used as an exact prefix on open.
+      return makeExplorerLeaf("key", name, name, "Key");
+    })
+    .filter((node): node is DbExplorerNode => Boolean(node))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return [makeExplorerGroup("Keys", "category", keyNodes, `${keyNodes.length}`)];
+}
+
 /** Build a `milvus` wire command from a connection's relabelled config slots. */
 function buildMilvusCommand(
   connection: DbConnection,
@@ -1499,6 +1548,10 @@ export async function loadDbExplorer(connection: DbConnection) {
   const adapter = getDbAdapter(normalizedConnection.kind);
   if (adapter.isDocumentStore()) {
     nodes = await loadMongoExplorer(normalizedConnection);
+  } else if (normalizedConnection.kind === "etcd") {
+    // etcd is key/value but speaks its own gRPC protocol and rides the SQL grid;
+    // flat (Keys only). MUST dispatch before the isKeyValueStore() Redis branch.
+    return loadEtcdExplorer(normalizedConnection);
   } else if (adapter.isKeyValueStore()) {
     nodes = await loadRedisExplorer(normalizedConnection);
   } else if (normalizedConnection.kind === "qdrant") {

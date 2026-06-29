@@ -39,7 +39,8 @@ export type DbConnectionKind =
   | "milvus"
   | "bigquery"
   | "databricks"
-  | "hive";
+  | "hive"
+  | "etcd";
 
 export type DbConnectionConfig = {
   host: string;

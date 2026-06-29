@@ -28,6 +28,8 @@ func DisconnectConnection(kind, driver, dsn, url, uri string) error {
 		return DisconnectCassandraClient(url)
 	case "milvus":
 		return DisconnectMilvusClient(url)
+	case "etcd":
+		return DisconnectEtcdClient(url)
 	case "bigquery":
 		// url carries "project\x00dataset" (see BigQueryAdapter.buildDisconnectMessage).
 		return DisconnectBigQueryClient(url)
