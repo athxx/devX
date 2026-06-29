@@ -55,9 +55,11 @@ import {
   testDbConnection,
   compareTableData,
   transferTableData,
+  loadColumnLineage,
   type ErModel,
   type DataCompareResult,
   type DataTransferOptions,
+  type LineageResult,
 } from "../service";
 import {
   diffSchemas,
@@ -134,6 +136,14 @@ export type DataTransferState = {
   rowCount?: number;
   error?: string;
   targetId?: string;
+};
+
+/** Per-tab column-lineage resource (relationships for a focus column). */
+export type LineageState = {
+  status: "idle" | "loading" | "ready" | "error";
+  result?: LineageResult;
+  error?: string;
+  focusColumn?: string;
 };
 
 export const databaseKinds: DbConnectionKind[] = [
@@ -562,6 +572,9 @@ export function createDbPanelState(props: DbPanelProps) {
   >({});
   const [dataTransferByTabId, setDataTransferByTabId] = createSignal<
     Record<string, DataTransferState>
+  >({});
+  const [lineageByTabId, setLineageByTabId] = createSignal<
+    Record<string, LineageState>
   >({});
 
   onMount(() => {
@@ -2629,6 +2642,106 @@ WHERE ${whereClause};`;
     }
   }
 
+  /** Column-lineage shares the relational gate with data compare/transfer. */
+  function canAnalyzeLineage(connection: DbConnection) {
+    return getDbAdapter(connection.kind).isRelational();
+  }
+
+  /** Open (or focus) a column-lineage tab anchored to a table/view leaf node. */
+  async function openColumnLineageTab(
+    connection: DbConnection,
+    node: ExplorerLeafNode,
+  ) {
+    const tabType: DbTabType = "column-lineage";
+    const source = buildSourceFromNode(node);
+    const existingId =
+      workspace().openTabIds.find(
+        (tabId) =>
+          workspace().tabsById[tabId]?.connectionId === connection.id &&
+          workspace().tabsById[tabId]?.type === tabType &&
+          workspace().tabsById[tabId]?.source?.nodeId === node.id,
+      ) ?? null;
+
+    await commitWorkspace((draft) => {
+      if (!draft.connectedConnectionIds.includes(connection.id)) {
+        draft.connectedConnectionIds = [
+          connection.id,
+          ...draft.connectedConnectionIds,
+        ];
+      }
+      draft.activeConnectionId = connection.id;
+      if (existingId && draft.tabsById[existingId]) {
+        draft.activeTabId = existingId;
+        return;
+      }
+      const tab = createDbTab(connection, tabType);
+      tab.title = `${connection.name} · Lineage ${node.label}`;
+      tab.source = source;
+      draft.tabsById[tab.id] = tab;
+      draft.openTabIds.push(tab.id);
+      draft.activeTabId = tab.id;
+    });
+
+    closeFloatingMenus();
+  }
+
+  /**
+   * Analyze the lineage of a focus column (empty → whole-table). Enumerates the
+   * connection's tables/views for a structural snapshot and mines its query
+   * history for JOIN/WHERE relationships, then stores the result on the tab.
+   */
+  async function runColumnLineageForTab(tabId: string, focusColumn?: string) {
+    const tab = workspace().tabsById[tabId];
+    const connection = tab ? connectionMap().get(tab.connectionId) : undefined;
+    if (!tab?.source || !connection) {
+      setLineageByTabId((current) => ({
+        ...current,
+        [tabId]: { status: "error", error: "Connection unavailable.", focusColumn },
+      }));
+      return;
+    }
+
+    setLineageByTabId((current) => ({
+      ...current,
+      [tabId]: { status: "loading", result: current[tabId]?.result, focusColumn },
+    }));
+
+    try {
+      const databaseName = getDefaultDatabaseForConnection(connection);
+      if (!databaseName) {
+        throw new Error("Could not resolve a database for this connection.");
+      }
+      const node = leafNodeFromSource(tab.source);
+      const tables = await collectTableLeaves(connection, databaseName);
+      const history = getCurrentConnectionHistory(connection.id).map((item) => ({
+        query: item.query,
+      }));
+      const result = await loadColumnLineage(
+        connection,
+        node,
+        tables,
+        history,
+        focusColumn,
+      );
+      setLineageByTabId((current) => ({
+        ...current,
+        [tabId]: { status: "ready", result, focusColumn },
+      }));
+    } catch (error) {
+      setLineageByTabId((current) => ({
+        ...current,
+        [tabId]: {
+          status: "error",
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to analyze column lineage.",
+          focusColumn,
+        },
+      }));
+    }
+  }
+
   /**
    * Open a fresh editable query tab pre-filled with generated SQL (e.g. the
    * structure editor's ALTER preview). Always forceNew — the DDL is a draft the
@@ -3386,15 +3499,19 @@ WHERE ${whereClause};`;
     schemaDiffByTabId,
     dataCompareByTabId,
     dataTransferByTabId,
+    lineageByTabId,
     loadErModelForTab,
     runSchemaDiffForTab,
     runDataCompareForTab,
     runDataTransferForTab,
+    runColumnLineageForTab,
     openErTab,
     openSchemaDiffTab,
     openDataCompareTab,
     openDataTransferTab,
+    openColumnLineageTab,
     canCompareData,
+    canAnalyzeLineage,
     openSyncSqlTab,
     connectSavedConnection,
     expandConnection,

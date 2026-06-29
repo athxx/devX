@@ -232,6 +232,11 @@ function leafNodeMenuItems(
           icon: "ArrowRight",
           action: () => void api.openDataTransferTab(connection, node),
         },
+        {
+          label: "Column lineage…",
+          icon: "GitBranch",
+          action: () => void api.openColumnLineageTab(connection, node),
+        },
       );
     }
   }

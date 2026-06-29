@@ -35,6 +35,11 @@ import {
   type ConnectionImportResult,
 } from "./lib/connection-import";
 import {
+  analyzeColumnLineage,
+  type LineageResult,
+  type LineageTableInfo,
+} from "./lib/column-lineage";
+import {
   sendDbCommand as executeDbSocketCommand,
   type DbSocketCommandMessage,
 } from "./lib/db-api";
@@ -2078,6 +2083,55 @@ export async function loadSchemaSnapshot(
     snapshot[node.label] = details[index];
   });
   return snapshot;
+}
+
+// --- column (field) lineage --------------------------------------------------
+// Schema-level, column-centric relationship analysis. We load a structural
+// snapshot of every table/view (columns + FKs + view DDL) once, then hand it and
+// the connection's query history to the pure analyzeColumnLineage engine. No
+// per-relationship DB round-trips — the snapshot is the only I/O.
+
+export type { LineageResult } from "./lib/column-lineage";
+
+/**
+ * Build the lineage of a focus column (or every column of a table when
+ * focusColumn is omitted). `tables` is the explorer table/view list (same shape
+ * loadSchemaSnapshot/loadErModel take); `history` is the connection's executed
+ * SQL, passed in so the service stays free of UI state.
+ */
+export async function loadColumnLineage(
+  connection: DbConnection,
+  node: Exclude<DbExplorerNode, { kind: "group" }>,
+  tables: Array<Exclude<DbExplorerNode, { kind: "group" }>>,
+  history: Array<{ query: string }>,
+  focusColumn?: string,
+): Promise<LineageResult> {
+  const detail = await loadSchemaSnapshot(connection, tables);
+  const viewKindByLabel = new Map(tables.map((t) => [t.label, t.kind === "view"]));
+
+  const snapshot: Record<string, LineageTableInfo> = {};
+  for (const [label, value] of Object.entries(detail)) {
+    snapshot[label] = {
+      columns: value.columns.map((column) => ({
+        name: column.name,
+        type: column.type,
+      })),
+      foreignKeys: (value.foreignKeys ?? []).map((fk) => ({
+        name: fk.name,
+        columns: fk.columns,
+        referencedTable: fk.referencedTable,
+        referencedColumns: fk.referencedColumns,
+      })),
+      ddl: value.ddl,
+      isView: viewKindByLabel.get(label) ?? false,
+    };
+  }
+
+  return analyzeColumnLineage({
+    focus: { table: node.label, column: focusColumn?.trim() || undefined },
+    snapshot,
+    history,
+  });
 }
 
 // --- whole-database export / dump --------------------------------------------

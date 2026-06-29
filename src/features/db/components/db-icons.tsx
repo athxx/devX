@@ -25,6 +25,7 @@ import {
   Filter,
   Folder,
   FolderPlus,
+  GitBranch,
   KeyRound,
   ListTree,
   Loader as Loader2,
@@ -111,6 +112,7 @@ const ICONS = {
   Waypoints,
   Sigma,
   Braces,
+  GitBranch,
 } satisfies Record<string, Component<LucideProps>>;
 
 export type DbIconName = keyof typeof ICONS;

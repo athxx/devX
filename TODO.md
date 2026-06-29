@@ -129,7 +129,25 @@
       「Truncate first」/「Bulk insert」+ Generate SQL；候选为同类型且非自身的连接，无候选时提示）。
       派发于 `db-editor-pane-view.tsx`（`tab.type === "data-transfer"`）；入口：表叶节点右键「Transfer data…」
       （`ArrowRight` 图标，与 Compare 同 `canCompareData` 门控；新图标注册于 `db-icons.tsx`）。
-- [ ] 字段/列级血缘分析（lineage）
+- [x] 字段/列级血缘分析（lineage）
+      纯分析模块 `src/features/db/lib/column-lineage.ts`:`analyzeColumnLineage(input)` —
+      给定库结构快照（各表列 + 外键 + 视图 DDL）+ 该连接查询历史，对焦点列（或整表全部列）
+      从四个来源产出关联列，各带置信度（镜像 DBX Field Lineage）：
+      外键 FK（high，双向）/ 视图 view（high，DDL 文本保守正则匹配 `table.column` 引用）/
+      查询历史 query-history（medium，`EQUALITY_RE` 匹配 `t.c = t.c` JOIN/WHERE 等值，焦点侧定为 from）/
+      同名列 same-name（类型一致且 `looksLikeKey` → medium，否则 low）；
+      `stripComments` 去注释、`bareName` 去 schema/引号、按 `(from,to,source)` 去重，
+      按置信度→来源→目标名稳定排序；空焦点/无历史/启发式视图均产 warning。无 I/O、无 Solid 信号。
+      `service.ts`:`loadColumnLineage(connection, node, tables, history, focusColumn?)` —
+      复用 `loadSchemaSnapshot` 建快照（按 tables 的 kind 标记 isView），调 `analyzeColumnLineage`。
+      `db-panel-context.tsx`:`LineageState` + `lineageByTabId` 信号；`canAnalyzeLineage`（`isRelational` 门控）/
+      `openColumnLineageTab`（锚定表叶节点，tab type `column-lineage`）/ `runColumnLineageForTab`
+      （`collectTableLeaves` 枚举表 + `getCurrentConnectionHistory` 取历史 → `loadColumnLineage`）。
+      视图 `components/diff/db-column-lineage-view.tsx`:`DbColumnLineageView`（焦点列输入框（空=整表）+
+      High/Medium/Low 置信度过滤复选框 + Analyze；按来源分组渲染 `from.col → to.col` + 置信度芯片
+      （high `theme-success`／medium amber `theme-warn`／low `theme-text-soft`）+ warning 块）；
+      派发于 `db-editor-pane-view.tsx`（`tab.type === "column-lineage"`）；入口：表叶节点右键「Column lineage…」
+      （`GitBranch` 图标，与 Compare 同 `canCompareData` 门控；新图标注册于 `db-icons.tsx`）。
 - [ ] 文件预览：拖拽 Parquet/CSV/JSON（依赖 Phase 3 的 DuckDB）
 - [x] 连接导入：从 DBeaver / Navicat 配置导入
       纯解析器 `src/features/db/lib/connection-import.ts`:`parseConnectionImport(text, fileName)` —

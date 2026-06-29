@@ -88,7 +88,8 @@ export type DbTabType =
   | 'er'
   | 'schema-diff'
   | 'data-compare'
-  | 'data-transfer';
+  | 'data-transfer'
+  | 'column-lineage';
 
 export type DbTab = {
   id: string;
