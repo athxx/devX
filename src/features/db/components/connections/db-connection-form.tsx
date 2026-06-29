@@ -265,6 +265,52 @@ export function DbConnectionDraftForm(props: { connection: DbConnection }): JSX.
       );
     }
 
+    if (connection.kind === "nacos") {
+      // Nacos auth is server-list + (optional) namespace + login/password,
+      // reusing the host/port/database/username/password slots; config.database
+      // is repurposed as the namespace (see NacosAdapter).
+      return (
+        <div class="grid gap-3 md:grid-cols-2">
+          {renderConfigField(
+            "Host",
+            () => cfg().host,
+            (value) => updateConnectionDraftConfig("host", value),
+            "text",
+            "127.0.0.1 (comma-separated for a cluster)",
+          )}
+          {renderConfigField(
+            "Port",
+            () => cfg().port,
+            (value) => updateConnectionDraftConfig("port", value),
+            "text",
+            "8848",
+          )}
+          {renderConfigField(
+            "Namespace",
+            () => cfg().database,
+            (value) => updateConnectionDraftConfig("database", value),
+            "text",
+            "(optional — default 'public')",
+          )}
+          {renderConfigField(
+            "Login",
+            () => cfg().username,
+            (value) => updateConnectionDraftConfig("username", value),
+            "text",
+            "(optional)",
+          )}
+          <div class="md:col-span-2">
+            {renderConfigField(
+              "Password",
+              () => cfg().password,
+              (value) => updateConnectionDraftConfig("password", value),
+              "password",
+            )}
+          </div>
+        </div>
+      );
+    }
+
     const portPlaceholder =
       connection.kind === "sqlserver"
         ? "1433"

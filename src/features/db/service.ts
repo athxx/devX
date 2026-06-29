@@ -1520,6 +1520,79 @@ function rowsToLeafNodes(
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
+function buildNacosCommand(
+  connection: DbConnection,
+  action: string,
+  extra: Record<string, unknown> = {},
+): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "nacos",
+    payload: {
+      address: buildDbConnectionUrl(connection) || connection.url.trim(),
+      username: connection.config.username,
+      password: connection.config.password,
+      // config.database is repurposed as the Nacos namespace (see NacosAdapter).
+      namespace: connection.config.database,
+      action,
+      ...extra,
+    },
+  };
+}
+
+// Nacos is a config + service-discovery registry; it has no SQL surface. The
+// explorer has two groups: "Configs" (each leaf opens a listConfigs tab keyed by
+// dataId) and "Services". The runner returns SQL-shaped data (kind "sql"); the
+// listing rides the `rows` field. listServices is best-effort — a server that
+// rejects it (or has none) simply yields an empty group rather than failing the
+// whole explorer.
+async function loadNacosExplorer(connection: DbConnection) {
+  const configsResult = await executeDbSocketCommand(
+    buildNacosCommand(connection, "listConfigs"),
+    connection,
+  );
+  const configNodes =
+    configsResult.kind === "sql"
+      ? rowsToLeafNodes(
+          (configsResult.data as Record<string, unknown>).rows,
+          "dataId",
+          "Config",
+        )
+      : [];
+
+  let serviceNodes: DbExplorerNode[] = [];
+  try {
+    const servicesResult = await executeDbSocketCommand(
+      buildNacosCommand(connection, "listServices"),
+      connection,
+    );
+    if (servicesResult.kind === "sql") {
+      serviceNodes = rowsToLeafNodes(
+        (servicesResult.data as Record<string, unknown>).rows,
+        "service",
+        "Service",
+      );
+    }
+  } catch {
+    serviceNodes = [];
+  }
+
+  return [
+    makeExplorerGroup(
+      "Configs",
+      "category",
+      configNodes,
+      `${configNodes.length}`,
+    ),
+    makeExplorerGroup(
+      "Services",
+      "category",
+      serviceNodes,
+      `${serviceNodes.length}`,
+    ),
+  ];
+}
+
 /** Build a `milvus` wire command from a connection's relabelled config slots. */
 function buildMilvusCommand(
   connection: DbConnection,
@@ -1694,6 +1767,10 @@ export async function loadDbExplorer(connection: DbConnection) {
     // Kafka speaks its own protocol and rides the SQL grid; two groups (Topics,
     // Consumer Groups). Dispatch before the SQL fallback.
     return loadKafkaExplorer(normalizedConnection);
+  } else if (normalizedConnection.kind === "nacos") {
+    // Nacos speaks its own protocol and rides the SQL grid; two groups (Configs,
+    // Services). Dispatch before the SQL fallback.
+    return loadNacosExplorer(normalizedConnection);
   } else if (adapter.isKeyValueStore()) {
     nodes = await loadRedisExplorer(normalizedConnection);
   } else if (normalizedConnection.kind === "qdrant") {

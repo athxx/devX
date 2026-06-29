@@ -42,7 +42,8 @@ export type DbConnectionKind =
   | "hive"
   | "etcd"
   | "zookeeper"
-  | "kafka";
+  | "kafka"
+  | "nacos";
 
 export type DbConnectionConfig = {
   host: string;

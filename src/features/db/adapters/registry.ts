@@ -49,6 +49,7 @@ import { HiveAdapter } from "./hive";
 import { EtcdAdapter } from "./etcd";
 import { ZookeeperAdapter } from "./zookeeper";
 import { KafkaAdapter } from "./kafka";
+import { NacosAdapter } from "./nacos";
 
 const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redis: new RedisAdapter(),
@@ -95,6 +96,7 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   etcd: new EtcdAdapter(),
   zookeeper: new ZookeeperAdapter(),
   kafka: new KafkaAdapter(),
+  nacos: new NacosAdapter(),
 };
 
 export function getDbAdapter(kind: DbConnectionKind): DbAdapter {
