@@ -124,6 +124,7 @@ function DbPanelInner() {
     refreshConnectionExplorer,
     openSavedConnectionsModal,
     closeSavedConnectionsModal,
+    importConnectionsFromFile,
     openCreateConnectionModal,
     openEditConnectionModal,
     closeConnectionModal,
@@ -251,6 +252,7 @@ function DbPanelInner() {
         onClose={closeSavedConnectionsModal}
         onFilterInput={setSavedConnectionsFilter}
         onCreate={() => openCreateConnectionModal("postgresql", true)}
+        onImport={importConnectionsFromFile}
         renderItem={(connection) => {
           const badge = getConnectionBadge(connection);
           const isConnected = workspace().connectedConnectionIds.includes(

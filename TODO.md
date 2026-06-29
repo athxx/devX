@@ -131,7 +131,19 @@
       （`ArrowRight` 图标，与 Compare 同 `canCompareData` 门控；新图标注册于 `db-icons.tsx`）。
 - [ ] 字段/列级血缘分析（lineage）
 - [ ] 文件预览：拖拽 Parquet/CSV/JSON（依赖 Phase 3 的 DuckDB）
-- [ ] 连接导入：从 DBeaver / Navicat 配置导入
+- [x] 连接导入：从 DBeaver / Navicat 配置导入
+      纯解析器 `src/features/db/lib/connection-import.ts`:`parseConnectionImport(text, fileName)` —
+      按扩展名/内容嗅探分派 DBeaver（`data-sources.json`：遍历 `connections` map，读
+      `configuration.{host,port,database,user}`）/ Navicat（`.ncx` XML：正则匹配 `<Connection>`
+      元素 + `attr()` 读 `Host/Port/Database/UserName/ConnType`，零 XML 解析依赖）；
+      `mapKind()` 把厂商驱动/Provider token 映射到 `DbConnectionKind`（mariadb→mysql、presto→trino、
+      dm/dameng→dameng 等，最具体优先）。两家密码均为加密存储，**不解密、不导入**，留空并 warning。
+      `service.ts`:`importConnectionsFromConfig(text, fileName)` → 把 partial 经私有 `normalizeConnection`
+      补全为完整 `DbConnection`（`{connections, warnings}`）。
+      `db-panel-context.tsx`:`importConnectionsFromFile()`（`pickFile(".json,.ncx")` → 读文本 → 解析 →
+      `commitWorkspace` 前插 `savedConnections` + 播种 explorer 态 → `window.alert` 摘要+warning）。
+      入口：Saved Connections 弹窗头部新增「Import」按钮（`db-saved-connections-modal.tsx` 加可选
+      `onImport` prop；`db-panel.tsx` 传入 `importConnectionsFromFile`）。
 - [x] 保存的 SQL 片段（snippets）
       模型/持久化已存在（`DbFavoriteQuery` + `createDbFavorite` + `['db'].favorites`），本切片补 UI：
       编辑器工具条新增「Snippets」按钮 → `db-panel.tsx` 片段弹窗（保存当前查询、列表、点击插入、删除）；

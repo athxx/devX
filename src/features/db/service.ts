@@ -31,6 +31,10 @@ import {
   type DataRow,
 } from "./lib/data-compare";
 import {
+  parseConnectionImport,
+  type ConnectionImportResult,
+} from "./lib/connection-import";
+import {
   sendDbCommand as executeDbSocketCommand,
   type DbSocketCommandMessage,
 } from "./lib/db-api";
@@ -340,6 +344,31 @@ export function createDbConnection(kind: DbConnectionKind): DbConnection {
     config,
     defaultQuery: defaultQueryForKind(kind),
   };
+}
+
+export type ConnectionImportOutcome = {
+  connections: DbConnection[];
+  warnings: string[];
+};
+
+/**
+ * Parse an exported client config (DBeaver data-sources.json / Navicat .ncx)
+ * into fully-normalized DbConnection records ready to add to the workspace.
+ * Vendor secrets are never decrypted — passwords come in blank (see warnings).
+ */
+export function importConnectionsFromConfig(
+  text: string,
+  fileName: string,
+): ConnectionImportOutcome {
+  const result: ConnectionImportResult = parseConnectionImport(text, fileName);
+  const connections = result.connections.map((imported) =>
+    normalizeConnection({
+      kind: imported.kind,
+      name: imported.name,
+      config: imported.config,
+    }),
+  );
+  return { connections, warnings: result.warnings };
 }
 
 export function createDbTab(

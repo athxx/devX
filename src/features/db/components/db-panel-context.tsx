@@ -37,6 +37,7 @@ import {
   buildDbConnectionUrl,
   buildInsertStatementsFromCsv,
   createDbConnection,
+  importConnectionsFromConfig,
   createDbFavorite,
   createDbTab,
   buildExplainSqlQuery,
@@ -1108,6 +1109,43 @@ export function createDbPanelState(props: DbPanelProps) {
       sql,
       { forceNew: true, resultView: "raw", databaseName },
     );
+  }
+
+  /**
+   * Import saved connections from another client's exported config (DBeaver
+   * data-sources.json / Navicat .ncx). Parsed connections are added to the
+   * saved list (passwords come in blank — vendor secrets are never decrypted);
+   * any skip/credential notes are surfaced in a single alert.
+   */
+  async function importConnectionsFromFile() {
+    closeFloatingMenus();
+    const file = await pickFile(".json,.ncx,application/json,text/xml");
+    if (!file) return;
+    const text = await file.text();
+    const { connections, warnings } = importConnectionsFromConfig(
+      text,
+      file.name,
+    );
+
+    if (connections.length > 0) {
+      await commitWorkspace((draft) => {
+        draft.savedConnections = [...connections, ...draft.savedConnections];
+      });
+      setExplorerByConnectionId((current) => {
+        const next = { ...current };
+        for (const connection of connections) {
+          next[connection.id] = { status: "idle", nodes: [] };
+        }
+        return next;
+      });
+    }
+
+    const summary =
+      connections.length > 0
+        ? `Imported ${connections.length} connection(s) from ${file.name}.`
+        : `No connections imported from ${file.name}.`;
+    const detail = warnings.length > 0 ? `\n\n${warnings.join("\n")}` : "";
+    window.alert(`${summary}${detail}`);
   }
 
   function canCreateDatabase(connection: DbConnection) {
@@ -3254,6 +3292,7 @@ WHERE ${whereClause};`;
     resolveExplorerDatabaseName,
     openConnectionActionQuery,
     importCsvFile,
+    importConnectionsFromFile,
     canCreateDatabase,
     canShowConnectionSummary,
     buildCreateDatabaseTemplate,

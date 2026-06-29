@@ -9,6 +9,7 @@ type DbSavedConnectionsModalProps<T> = {
   onClose: () => void;
   onFilterInput: (value: string) => void;
   onCreate: () => void;
+  onImport?: () => void;
   renderItem: (item: T) => JSX.Element;
 }
 
@@ -41,6 +42,14 @@ export function DbSavedConnectionsModal<T>(props: DbSavedConnectionsModalProps<T
               value={props.filter}
               onInput={(event) => props.onFilterInput(event.currentTarget.value)}
             />
+            <Show when={props.onImport}>
+              <button
+                class="theme-button h-9 rounded-xl px-4 text-sm font-semibold"
+                onClick={() => props.onImport?.()}
+              >
+                Import
+              </button>
+            </Show>
             <button class="theme-button-primary h-9 rounded-xl px-4 text-sm font-semibold" onClick={props.onCreate}>
               New
             </button>
