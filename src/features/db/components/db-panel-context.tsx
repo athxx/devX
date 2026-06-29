@@ -199,6 +199,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "kafka",
   "nacos",
   "rocketmq",
+  "pulsar",
 ];
 
 export function getConnectionBadge(connection: DbConnection) {

@@ -51,6 +51,7 @@ import { ZookeeperAdapter } from "./zookeeper";
 import { KafkaAdapter } from "./kafka";
 import { NacosAdapter } from "./nacos";
 import { RocketMQAdapter } from "./rocketmq";
+import { PulsarAdapter } from "./pulsar";
 
 const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redis: new RedisAdapter(),
@@ -99,6 +100,7 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   kafka: new KafkaAdapter(),
   nacos: new NacosAdapter(),
   rocketmq: new RocketMQAdapter(),
+  pulsar: new PulsarAdapter(),
 };
 
 export function getDbAdapter(kind: DbConnectionKind): DbAdapter {

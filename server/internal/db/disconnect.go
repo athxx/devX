@@ -38,6 +38,8 @@ func DisconnectConnection(kind, driver, dsn, url, uri string) error {
 		return DisconnectNacosClient(url)
 	case "rocketmq":
 		return DisconnectRocketMQClient(url)
+	case "pulsar":
+		return DisconnectPulsarClient(url)
 	case "bigquery":
 		// url carries "project\x00dataset" (see BigQueryAdapter.buildDisconnectMessage).
 		return DisconnectBigQueryClient(url)

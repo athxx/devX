@@ -311,6 +311,47 @@ export function DbConnectionDraftForm(props: { connection: DbConnection }): JSX.
       );
     }
 
+    if (connection.kind === "pulsar") {
+      // Pulsar admin connection: HTTP admin host/port (default 8080, NOT the
+      // 6650 binary port) + optional default tenant + optional bearer token
+      // (carried in the password slot). config.database is repurposed as the
+      // default tenant that narrows the namespace listing (see PulsarAdapter).
+      return (
+        <div class="grid gap-3 md:grid-cols-2">
+          {renderConfigField(
+            "Admin Host",
+            () => cfg().host,
+            (value) => updateConnectionDraftConfig("host", value),
+            "text",
+            "127.0.0.1",
+          )}
+          {renderConfigField(
+            "Admin Port",
+            () => cfg().port,
+            (value) => updateConnectionDraftConfig("port", value),
+            "text",
+            "8080",
+          )}
+          {renderConfigField(
+            "Tenant",
+            () => cfg().database,
+            (value) => updateConnectionDraftConfig("database", value),
+            "text",
+            "(optional — all tenants if blank)",
+          )}
+          <div class="md:col-span-2">
+            {renderConfigField(
+              "Token",
+              () => cfg().password,
+              (value) => updateConnectionDraftConfig("password", value),
+              "password",
+              "(optional bearer token)",
+            )}
+          </div>
+        </div>
+      );
+    }
+
     const portPlaceholder =
       connection.kind === "sqlserver"
         ? "1433"

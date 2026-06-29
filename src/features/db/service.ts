@@ -1659,6 +1659,80 @@ async function loadRocketMQExplorer(connection: DbConnection) {
   ];
 }
 
+function buildPulsarCommand(
+  connection: DbConnection,
+  action: string,
+  extra: Record<string, unknown> = {},
+): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "pulsar",
+    payload: {
+      address: buildDbConnectionUrl(connection) || connection.url.trim(),
+      username: connection.config.username,
+      password: connection.config.password,
+      action,
+      ...extra,
+    },
+  };
+}
+
+// Pulsar is a messaging platform; it has no SQL surface. The explorer has two
+// groups: "Tenants" (each leaf opens a listTenants tab) and "Namespaces" (every
+// namespace across all tenants, each leaf opens a listTopics query scoped to its
+// fully-qualified "tenant/namespace"). The runner returns SQL-shaped data (kind
+// "sql"); the listing rides the `rows` field. The default tenant (config.database)
+// narrows the namespace listing when set, otherwise all tenants are enumerated.
+async function loadPulsarExplorer(connection: DbConnection) {
+  const tenantsResult = await executeDbSocketCommand(
+    buildPulsarCommand(connection, "listTenants"),
+    connection,
+  );
+  const tenantNodes =
+    tenantsResult.kind === "sql"
+      ? rowsToLeafNodes(
+          (tenantsResult.data as Record<string, unknown>).rows,
+          "tenant",
+          "Tenant",
+        )
+      : [];
+
+  let namespaceNodes: DbExplorerNode[] = [];
+  try {
+    const tenant = connection.config.database.trim();
+    const namespacesResult = await executeDbSocketCommand(
+      buildPulsarCommand(connection, "listNamespaces", { query: tenant }),
+      connection,
+    );
+    if (namespacesResult.kind === "sql") {
+      // Each namespace leaf carries a listTopics query scoped to its fully
+      // qualified "tenant/namespace" so opening it lists that namespace's topics.
+      const rows = (namespacesResult.data as Record<string, unknown>).rows;
+      if (Array.isArray(rows)) {
+        namespaceNodes = rows
+          .map((row) => String((row as Record<string, unknown>).namespace ?? ""))
+          .filter((ns) => ns !== "")
+          .sort()
+          .map((ns) =>
+            makeExplorerLeaf("table", ns, ns, "Namespace"),
+          );
+      }
+    }
+  } catch {
+    namespaceNodes = [];
+  }
+
+  return [
+    makeExplorerGroup("Tenants", "category", tenantNodes, `${tenantNodes.length}`),
+    makeExplorerGroup(
+      "Namespaces",
+      "category",
+      namespaceNodes,
+      `${namespaceNodes.length}`,
+    ),
+  ];
+}
+
 /** Build a `milvus` wire command from a connection's relabelled config slots. */
 function buildMilvusCommand(
   connection: DbConnection,
@@ -1841,6 +1915,10 @@ export async function loadDbExplorer(connection: DbConnection) {
     // RocketMQ speaks its own protocol and rides the SQL grid; two groups
     // (Topics, Consumer Groups). Dispatch before the SQL fallback.
     return loadRocketMQExplorer(normalizedConnection);
+  } else if (normalizedConnection.kind === "pulsar") {
+    // Pulsar speaks its own protocol and rides the SQL grid; two groups
+    // (Tenants, Namespaces). Dispatch before the SQL fallback.
+    return loadPulsarExplorer(normalizedConnection);
   } else if (adapter.isKeyValueStore()) {
     nodes = await loadRedisExplorer(normalizedConnection);
   } else if (normalizedConnection.kind === "qdrant") {
