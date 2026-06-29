@@ -195,5 +195,5 @@ Kafka/Pulsar/RocketMQ MQ-admin、etcd/ZooKeeper/Nacos。
 - [ ] 浏览器树列出库/表 → 打开表 → 网格有数据
 - [ ] 跑查询出结果 → 结构页加载 → explain（SQL 类）
 - [ ] 无本地镜像的（Snowflake/Redshift/BigQuery）：适配器单测（URL/DSN/查询串）+ mock 传输
-- [ ] `tsc -b` + `vite build` 通过；`cd server && go build ./... && go test ./internal/db/...` 通过
+- [x] `tsc -b` + `vite build` 通过；`cd server && go build ./... && go test ./internal/db/...` 通过
 - [ ] 回归：已有 27 种仍能连接（尤其复用 mysql/postgres 别名的）
