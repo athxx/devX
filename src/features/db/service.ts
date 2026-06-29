@@ -1403,6 +1403,91 @@ async function loadMilvusExplorer(connection: DbConnection) {
   ];
 }
 
+/** Build a `bigquery` wire command from a connection's relabelled config slots. */
+function buildBigQueryCommand(
+  connection: DbConnection,
+  action: string,
+  extra: Record<string, unknown> = {},
+): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "bigquery",
+    payload: {
+      project: connection.config.host.trim(),
+      dataset: connection.config.database.trim(),
+      credentials: connection.config.serviceName,
+      location: connection.config.options.trim(),
+      action,
+      ...extra,
+    },
+  };
+}
+
+// BigQuery runs GoogleSQL but cannot ride the DSN/database/sql path (REST+gRPC,
+// GCP project auth), so it speaks its own `bigquery` wire protocol. The explorer
+// is two-level (dataset → tables), mirroring Cassandra's keyspace→tables: list
+// datasets via `listDatasets`, then each dataset's tables via `listTables`.
+// Selecting a table opens a GoogleSQL sample. The runner returns SQL-shaped data
+// (kind "sql"); both listings ride the `rows` field ([{dataset|table}]).
+async function loadBigQueryExplorer(connection: DbConnection) {
+  const datasetResult = await executeDbSocketCommand(
+    buildBigQueryCommand(connection, "listDatasets"),
+    connection,
+  );
+  if (datasetResult.kind !== "sql") {
+    return [] as DbExplorerNode[];
+  }
+  const datasetRows = (datasetResult.data as Record<string, unknown>).rows;
+  const datasets = (Array.isArray(datasetRows) ? datasetRows : [])
+    .map((item) =>
+      item && typeof item === "object"
+        ? asString((item as Record<string, unknown>).dataset)
+        : asString(item),
+    )
+    .filter((name) => Boolean(name))
+    .sort((a, b) => a.localeCompare(b));
+
+  // Fetch each dataset's tables in parallel, then build a group per dataset.
+  const groups = await Promise.all(
+    datasets.map(async (dataset) => {
+      const tableResult = await executeDbSocketCommand(
+        buildBigQueryCommand(connection, "listTables", { dataset }),
+        connection,
+      );
+      const tableRows =
+        tableResult.kind === "sql"
+          ? (tableResult.data as Record<string, unknown>).rows
+          : [];
+      const tableNodes = (Array.isArray(tableRows) ? tableRows : [])
+        .map((item) => {
+          const name =
+            item && typeof item === "object"
+              ? asString((item as Record<string, unknown>).table)
+              : asString(item);
+          if (!name) return null;
+          // GoogleSQL qualifies tables as `dataset`.`table` (backtick-quoted).
+          const qualified = `\`${dataset}\`.\`${name}\``;
+          const sample = `SELECT * FROM ${qualified} LIMIT 100`;
+          return makeExplorerLeaf("table", name, sample, "Table", undefined, {
+            schemaName: dataset,
+            qualifiedName: qualified,
+          });
+        })
+        .filter((node): node is DbExplorerNode => Boolean(node))
+        .sort((a, b) => a.label.localeCompare(b.label));
+
+      return makeExplorerGroup(
+        dataset,
+        "schema",
+        tableNodes,
+        `${tableNodes.length}`,
+      );
+    }),
+  );
+
+  return groups;
+}
+
 export async function loadDbExplorer(connection: DbConnection) {
   const normalizedConnection = {
     ...connection,
@@ -1437,6 +1522,11 @@ export async function loadDbExplorer(connection: DbConnection) {
     // Milvus is a vector DB over gRPC; flat (collections only). Dispatch before
     // the ES-hardcoded isSearchStore branch (its adapter reports search model).
     return loadMilvusExplorer(normalizedConnection);
+  } else if (normalizedConnection.kind === "bigquery") {
+    // BigQuery runs GoogleSQL but over its own REST/gRPC protocol with GCP auth;
+    // two-level explorer (dataset → tables) of its own. Dispatch before the SQL
+    // fallback, since its adapter reports the relational data-model.
+    return loadBigQueryExplorer(normalizedConnection);
   } else if (adapter.isSearchStore()) {
     // ES is flat (indices only) — return the leaf list directly, no DB filter.
     return loadElasticsearchExplorer(normalizedConnection);

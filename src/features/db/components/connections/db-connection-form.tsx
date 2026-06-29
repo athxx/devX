@@ -224,6 +224,47 @@ export function DbConnectionDraftForm(props: { connection: DbConnection }): JSX.
       );
     }
 
+    if (connection.kind === "bigquery") {
+      // BigQuery auth is project + (optional) dataset + service-account JSON,
+      // reusing the host/database/serviceName/options config slots (see
+      // BigQueryAdapter). It runs Standard SQL via the dedicated `bigquery`
+      // wire protocol, but its transport/auth differ from the DSN path.
+      return (
+        <div class="grid gap-3 md:grid-cols-2">
+          {renderConfigField(
+            "Project ID",
+            () => cfg().host,
+            (value) => updateConnectionDraftConfig("host", value),
+            "text",
+            "my-gcp-project",
+          )}
+          {renderConfigField(
+            "Dataset",
+            () => cfg().database,
+            (value) => updateConnectionDraftConfig("database", value),
+            "text",
+            "(optional — default dataset)",
+          )}
+          {renderConfigField(
+            "Location / Endpoint",
+            () => cfg().options,
+            (value) => updateConnectionDraftConfig("options", value),
+            "text",
+            "(optional, e.g. US / EU)",
+          )}
+          <div class="md:col-span-2">
+            {renderConfigField(
+              "Service Account JSON",
+              () => cfg().serviceName,
+              (value) => updateConnectionDraftConfig("serviceName", value),
+              "text",
+              "(optional — leave blank to use ADC)",
+            )}
+          </div>
+        </div>
+      );
+    }
+
     const portPlaceholder =
       connection.kind === "sqlserver"
         ? "1433"

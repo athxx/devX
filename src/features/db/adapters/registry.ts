@@ -43,6 +43,7 @@ import { WeaviateAdapter } from "./weaviate";
 import { Neo4jAdapter } from "./neo4j";
 import { CassandraAdapter } from "./cassandra";
 import { MilvusAdapter } from "./milvus";
+import { BigQueryAdapter } from "./bigquery";
 
 const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redis: new RedisAdapter(),
@@ -83,6 +84,7 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   neo4j: new Neo4jAdapter(),
   cassandra: new CassandraAdapter(),
   milvus: new MilvusAdapter(),
+  bigquery: new BigQueryAdapter(),
 };
 
 export function getDbAdapter(kind: DbConnectionKind): DbAdapter {

@@ -84,6 +84,16 @@
 - [x] InfluxDB — HTTP v2 Flux（`/api/v2/query`，注解 CSV 展平为表格网格），纯 net/http，type `influx`
       runner: `server/internal/db/influx.go` + `httpstore.go`；handler/disconnect: `handlers/db.go`/`disconnect.go`
       前端: `adapters/influxdb.ts`、registry、`databaseKinds`、`service.ts:loadInfluxExplorer`（buckets→表格网格）
+- [x] BigQuery — `cloud.google.com/go/bigquery`（REST+gRPC，纯 Go，无 cgo）。混合型：跑 GoogleSQL
+      故适配器报 relational/`dataModel`=relational、`type:"sql"` 结果（{columns,rows}），但不能走 DSN/
+      database/sql/GORM——GCP project + service-account JSON（或 ADC）鉴权，故走专用 `bigquery` 协议，
+      复用 Bigtable 的 GCP 鉴权管线（`option.WithCredentialsJSON`/`WithEndpoint`、`\x00` 键双检锁客户端缓存、
+      前缀匹配断连）+ Milvus 的 SQL 结果形状。config 槽位复用：host→project、database→dataset、
+      serviceName→service-account JSON、options→location/endpoint。
+      runner: `server/internal/db/bigquery.go`（`RunBigQueryQuery`：listDatasets/listTables/query/ping，
+      schema 取列序、`bigquery.Value` JSON 安全编码）；handler/disconnect: `handlers/db.go`/`disconnect.go`
+      前端: `adapters/bigquery.ts`（relational + 自定义 `bigquery` wire type）、registry、`databaseKinds`、
+      连接表单（`db-connection-form.tsx`）、`service.ts:loadBigQueryExplorer`（dataset→tables 两级树，参照 Cassandra）
 - [ ] 各非 SQL 类新增 runner + 非 SQL 适配器（参照 elasticsearch.ts / bigtable.ts）
 
 ## Phase 6 — 剩余功能补齐（DBX 功能差距）
@@ -186,7 +196,7 @@
 
 ## 明确不做（JDBC/JVM-only，无可用 Go 驱动；已在计划中记录）
 DB2、Informix、SAP HANA、Teradata、Vertica、Firebird、Exasol、Access、IRIS、
-Kylin、SunDB、XuguDB、Gbase 8a/8s、YashanDB、H2、Hive、BigQuery、Databricks、
+Kylin、SunDB、XuguDB、Gbase 8a/8s、YashanDB、H2、Hive、Databricks、
 Kafka/Pulsar/RocketMQ MQ-admin、etcd/ZooKeeper/Nacos。
 （MariaDB 按要求去掉；Bigtable / Oracle / Dameng 已保留并实现。）
 

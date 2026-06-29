@@ -36,7 +36,8 @@ export type DbConnectionKind =
   | "weaviate"
   | "neo4j"
   | "cassandra"
-  | "milvus";
+  | "milvus"
+  | "bigquery";
 
 export type DbConnectionConfig = {
   host: string;

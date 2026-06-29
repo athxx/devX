@@ -191,6 +191,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "neo4j",
   "cassandra",
   "milvus",
+  "bigquery",
 ];
 
 export function getConnectionBadge(connection: DbConnection) {
