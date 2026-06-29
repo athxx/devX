@@ -50,6 +50,7 @@ import { EtcdAdapter } from "./etcd";
 import { ZookeeperAdapter } from "./zookeeper";
 import { KafkaAdapter } from "./kafka";
 import { NacosAdapter } from "./nacos";
+import { RocketMQAdapter } from "./rocketmq";
 
 const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redis: new RedisAdapter(),
@@ -97,6 +98,7 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   zookeeper: new ZookeeperAdapter(),
   kafka: new KafkaAdapter(),
   nacos: new NacosAdapter(),
+  rocketmq: new RocketMQAdapter(),
 };
 
 export function getDbAdapter(kind: DbConnectionKind): DbAdapter {

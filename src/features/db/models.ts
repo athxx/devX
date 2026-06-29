@@ -43,7 +43,8 @@ export type DbConnectionKind =
   | "etcd"
   | "zookeeper"
   | "kafka"
-  | "nacos";
+  | "nacos"
+  | "rocketmq";
 
 export type DbConnectionConfig = {
   host: string;

@@ -1593,6 +1593,72 @@ async function loadNacosExplorer(connection: DbConnection) {
   ];
 }
 
+function buildRocketMQCommand(
+  connection: DbConnection,
+  action: string,
+  extra: Record<string, unknown> = {},
+): DbSocketCommandMessage {
+  return {
+    id: makeId("db-tree"),
+    type: "rocketmq",
+    payload: {
+      address: buildDbConnectionUrl(connection) || connection.url.trim(),
+      username: connection.config.username,
+      password: connection.config.password,
+      action,
+      ...extra,
+    },
+  };
+}
+
+// RocketMQ is a messaging platform; it has no SQL surface. The explorer has two
+// groups: "Topics" (each leaf opens a listTopics tab) and "Consumer Groups". The
+// runner returns SQL-shaped data (kind "sql"); the listing rides the `rows`
+// field. listGroups is best-effort — the admin API can only enumerate groups
+// from a broker address (not a nameserver), so without one it yields an empty
+// group rather than failing the whole explorer.
+async function loadRocketMQExplorer(connection: DbConnection) {
+  const topicsResult = await executeDbSocketCommand(
+    buildRocketMQCommand(connection, "listTopics"),
+    connection,
+  );
+  const topicNodes =
+    topicsResult.kind === "sql"
+      ? rowsToLeafNodes(
+          (topicsResult.data as Record<string, unknown>).rows,
+          "topic",
+          "Topic",
+        )
+      : [];
+
+  let groupNodes: DbExplorerNode[] = [];
+  try {
+    const groupsResult = await executeDbSocketCommand(
+      buildRocketMQCommand(connection, "listGroups"),
+      connection,
+    );
+    if (groupsResult.kind === "sql") {
+      groupNodes = rowsToLeafNodes(
+        (groupsResult.data as Record<string, unknown>).rows,
+        "group",
+        "Consumer Group",
+      );
+    }
+  } catch {
+    groupNodes = [];
+  }
+
+  return [
+    makeExplorerGroup("Topics", "category", topicNodes, `${topicNodes.length}`),
+    makeExplorerGroup(
+      "Consumer Groups",
+      "category",
+      groupNodes,
+      `${groupNodes.length}`,
+    ),
+  ];
+}
+
 /** Build a `milvus` wire command from a connection's relabelled config slots. */
 function buildMilvusCommand(
   connection: DbConnection,
@@ -1771,6 +1837,10 @@ export async function loadDbExplorer(connection: DbConnection) {
     // Nacos speaks its own protocol and rides the SQL grid; two groups (Configs,
     // Services). Dispatch before the SQL fallback.
     return loadNacosExplorer(normalizedConnection);
+  } else if (normalizedConnection.kind === "rocketmq") {
+    // RocketMQ speaks its own protocol and rides the SQL grid; two groups
+    // (Topics, Consumer Groups). Dispatch before the SQL fallback.
+    return loadRocketMQExplorer(normalizedConnection);
   } else if (adapter.isKeyValueStore()) {
     nodes = await loadRedisExplorer(normalizedConnection);
   } else if (normalizedConnection.kind === "qdrant") {

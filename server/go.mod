@@ -6,6 +6,7 @@ require (
 	cloud.google.com/go/bigquery v1.77.0
 	cloud.google.com/go/bigtable v1.50.0
 	fyne.io/systray v1.12.2
+	github.com/apache/rocketmq-client-go/v2 v2.1.2
 	github.com/beltran/gohive/v2 v2.1.0
 	github.com/creack/pty v1.1.24
 	github.com/databricks/databricks-sql-go v1.13.0
@@ -205,6 +206,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/orcaman/concurrent-map v0.0.0-20210501183033-44dafcb38ecc // indirect
+	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/paulmach/orb v0.11.1 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pierrec/lz4 v2.6.1+incompatible // indirect
@@ -279,3 +281,5 @@ require (
 	modernc.org/memory v1.7.2 // indirect
 	modernc.org/sqlite v1.29.6 // indirect
 )
+
+replace stathat.com/c/consistent v1.0.0 => github.com/stathat/consistent v1.0.0

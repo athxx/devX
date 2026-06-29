@@ -198,6 +198,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "zookeeper",
   "kafka",
   "nacos",
+  "rocketmq",
 ];
 
 export function getConnectionBadge(connection: DbConnection) {
