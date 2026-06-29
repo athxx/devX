@@ -37,7 +37,8 @@ export type DbConnectionKind =
   | "neo4j"
   | "cassandra"
   | "milvus"
-  | "bigquery";
+  | "bigquery"
+  | "databricks";
 
 export type DbConnectionConfig = {
   host: string;

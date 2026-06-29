@@ -44,6 +44,7 @@ import { Neo4jAdapter } from "./neo4j";
 import { CassandraAdapter } from "./cassandra";
 import { MilvusAdapter } from "./milvus";
 import { BigQueryAdapter } from "./bigquery";
+import { DatabricksAdapter } from "./databricks";
 
 const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   redis: new RedisAdapter(),
@@ -85,6 +86,7 @@ const ADAPTERS: Record<DbConnectionKind, DbAdapter> = {
   cassandra: new CassandraAdapter(),
   milvus: new MilvusAdapter(),
   bigquery: new BigQueryAdapter(),
+  databricks: new DatabricksAdapter(),
 };
 
 export function getDbAdapter(kind: DbConnectionKind): DbAdapter {

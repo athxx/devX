@@ -7,6 +7,7 @@ package db
 // behind the `cgo_drivers` build tag.
 
 import (
+	_ "github.com/databricks/databricks-sql-go"
 	_ "github.com/datafuselabs/databend-go"
 	_ "github.com/snowflakedb/gosnowflake"
 	_ "github.com/trinodb/trino-go-client/trino"
@@ -17,4 +18,5 @@ func init() {
 	registerRawSQLBackend("snowflake", "snowflake")
 	registerRawSQLBackend("trino", "trino")
 	registerRawSQLBackend("databend", "databend")
+	registerRawSQLBackend("databricks", "databricks")
 }

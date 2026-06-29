@@ -51,14 +51,21 @@ func TestBuildDialectorCaseInsensitive(t *testing.T) {
 // querySQLRaw). cgo-gated kinds (duckdb, tdengine) are only present under
 // `-tags cgo_drivers`, so they're intentionally not asserted here.
 func TestRawSQLBackendsRegistered(t *testing.T) {
-	for _, kind := range []string{"snowflake", "trino", "databend"} {
+	// Each kind maps to the driver name its package registers with sql.Register.
+	want := map[string]string{
+		"snowflake":  "snowflake",
+		"trino":      "trino",
+		"databend":   "databend",
+		"databricks": "databricks",
+	}
+	for kind, driver := range want {
 		t.Run(kind, func(t *testing.T) {
 			backend, ok := lookupRawSQLBackend(kind)
 			if !ok {
 				t.Fatalf("raw backend for %q not registered", kind)
 			}
-			if backend.sqlDriverName == "" {
-				t.Fatalf("raw backend for %q has empty sql driver name", kind)
+			if backend.sqlDriverName != driver {
+				t.Fatalf("raw backend for %q: want driver %q, got %q", kind, driver, backend.sqlDriverName)
 			}
 		})
 	}

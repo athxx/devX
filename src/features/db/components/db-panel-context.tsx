@@ -192,6 +192,7 @@ export const databaseKinds: DbConnectionKind[] = [
   "cassandra",
   "milvus",
   "bigquery",
+  "databricks",
 ];
 
 export function getConnectionBadge(connection: DbConnection) {
