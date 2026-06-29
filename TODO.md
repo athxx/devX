@@ -148,7 +148,18 @@
       （high `theme-success`／medium amber `theme-warn`／low `theme-text-soft`）+ warning 块）；
       派发于 `db-editor-pane-view.tsx`（`tab.type === "column-lineage"`）；入口：表叶节点右键「Column lineage…」
       （`GitBranch` 图标，与 Compare 同 `canCompareData` 门控；新图标注册于 `db-icons.tsx`）。
-- [ ] 文件预览：拖拽 Parquet/CSV/JSON（依赖 Phase 3 的 DuckDB）
+- [x] 文件预览：拖拽 CSV/JSON（纯前端方案；Parquet 暂缓）
+      浏览器内读取本地文件 → 解析为网格，零后端、零新依赖：CSV 复用零依赖 `src/lib/csv.ts`:`parseCsv`，
+      JSON 用内置 `JSON.parse`（数组对象→并集列 / 标量数组→单列 / 单对象→单行 / NDJSON 行回退）。
+      纯解析模块 `src/features/db/lib/file-preview.ts`:`detectFormat` / `parseCsvPreview` / `parseJsonPreview`
+      （无 I/O、无 Solid 信号，镜像 column-lineage/data-compare 的纯函数风格）。
+      `db-panel-context.tsx`:`filePreviewByTabId` 信号 + `openFilePreviewTab`（`file.text()`→解析→建 `file-preview` 标签）/
+      `handleFileDrop`（最多 8 个文件）/ `pickFilePreview`（`pickFile(".csv,.tsv,.json,.ndjson,.jsonl")`）。
+      视图 `components/diff/db-file-preview-view.tsx`:`DbFilePreviewView`（自包含；文件名+格式徽标+行列数+note；
+      `<table>` 渲染，封顶前 500 行）；派发于 `db-editor-pane-view.tsx`（`tab.type === "file-preview"`）。
+      入口：编辑器区拖拽 + 数据库分组「Import」子菜单「Preview file…」（`FileSearch` 图标，注册于 `db-icons.tsx`）。
+      注：Parquet 为列式二进制格式，需引入 JS 解析器（违小包/无 npm 原则）或后端上传 endpoint + cgo-gated DuckDB
+      `read_parquet()`（WS 命令路径需新增 multipart 上传 + 临时文件生命周期），属更大切片，明确留待后续。
 - [x] 连接导入：从 DBeaver / Navicat 配置导入
       纯解析器 `src/features/db/lib/connection-import.ts`:`parseConnectionImport(text, fileName)` —
       按扩展名/内容嗅探分派 DBeaver（`data-sources.json`：遍历 `connections` map，读

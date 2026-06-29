@@ -143,6 +143,7 @@ function DbPanelInner() {
     reorderTabsToEnd,
     disconnectConnection,
     removeSavedConnection,
+    handleFileDrop,
   } = db;
 
   const [snippetNameDraft, setSnippetNameDraft] = createSignal("");
@@ -169,7 +170,21 @@ function DbPanelInner() {
           />
         }
       >
-        <div class="flex min-h-0 flex-1 flex-col">
+        <div
+          class="flex min-h-0 flex-1 flex-col"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            const connection = activeConnection();
+            const files = event.dataTransfer?.files ?? null;
+            if (!files || files.length === 0) return;
+            if (!connection) {
+              window.alert("Connect to a database first to open a file preview.");
+              return;
+            }
+            void handleFileDrop(connection, files);
+          }}
+        >
           <Show when={tabItems().length > 0}>
             <div
               class="border-b"

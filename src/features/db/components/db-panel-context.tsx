@@ -65,6 +65,12 @@ import {
   diffSchemas,
   type SchemaDiff,
 } from "../lib/schema-diff";
+import {
+  detectFormat,
+  parseCsvPreview,
+  parseJsonPreview,
+  type FilePreviewData,
+} from "../lib/file-preview";
 import { getDbAdapter } from "../adapters";
 import {
   applySqlParams,
@@ -575,6 +581,9 @@ export function createDbPanelState(props: DbPanelProps) {
   >({});
   const [lineageByTabId, setLineageByTabId] = createSignal<
     Record<string, LineageState>
+  >({});
+  const [filePreviewByTabId, setFilePreviewByTabId] = createSignal<
+    Record<string, FilePreviewData>
   >({});
 
   onMount(() => {
@@ -2743,6 +2752,87 @@ WHERE ${whereClause};`;
   }
 
   /**
+   * Open a local CSV/JSON file as a read-only preview tab. The file is parsed
+   * entirely in the browser (no backend round-trip); the parsed grid is held on
+   * the tab via filePreviewByTabId. Parquet is recognized but not supported by
+   * this frontend-only path. The tab is anchored to the active connection only
+   * to satisfy the editor-area connection gate — the data is connection-free.
+   */
+  async function openFilePreviewTab(connection: DbConnection, file: File) {
+    const format = detectFormat(file.name);
+    if (format === "parquet") {
+      window.alert(
+        `Parquet preview isn't supported yet (${file.name}). CSV and JSON files can be previewed.`,
+      );
+      return;
+    }
+    if (!format) {
+      window.alert(`Unsupported file type: ${file.name}. Drop a .csv or .json file.`);
+      return;
+    }
+
+    let data: FilePreviewData;
+    try {
+      const text = await file.text();
+      data =
+        format === "csv"
+          ? parseCsvPreview(file.name, text)
+          : parseJsonPreview(file.name, text);
+    } catch (error) {
+      window.alert(
+        `Could not preview ${file.name}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return;
+    }
+
+    let newTabId = "";
+    await commitWorkspace((draft) => {
+      if (!draft.connectedConnectionIds.includes(connection.id)) {
+        draft.connectedConnectionIds = [
+          connection.id,
+          ...draft.connectedConnectionIds,
+        ];
+      }
+      draft.activeConnectionId = connection.id;
+      const tab = createDbTab(connection, "file-preview");
+      tab.title = file.name;
+      draft.tabsById[tab.id] = tab;
+      draft.openTabIds.push(tab.id);
+      draft.activeTabId = tab.id;
+      newTabId = tab.id;
+    });
+
+    if (newTabId) {
+      setFilePreviewByTabId((current) => ({ ...current, [newTabId]: data }));
+    }
+    closeFloatingMenus();
+  }
+
+  /** Open a preview tab per supported dropped file (capped to avoid runaway opens). */
+  async function handleFileDrop(
+    connection: DbConnection,
+    fileList: FileList | null,
+  ) {
+    const files = Array.from(fileList ?? []);
+    if (files.length === 0) return;
+    const MAX = 8;
+    for (const file of files.slice(0, MAX)) {
+      await openFilePreviewTab(connection, file);
+    }
+    if (files.length > MAX) {
+      window.alert(`Previewed the first ${MAX} of ${files.length} dropped files.`);
+    }
+  }
+
+  /** Prompt for a CSV/JSON file and open it as a preview tab. */
+  async function pickFilePreview(connection: DbConnection) {
+    closeFloatingMenus();
+    const file = await pickFile(".csv,.tsv,.json,.ndjson,.jsonl");
+    if (!file) return;
+    await openFilePreviewTab(connection, file);
+  }
+
+  /**
    * Open a fresh editable query tab pre-filled with generated SQL (e.g. the
    * structure editor's ALTER preview). Always forceNew — the DDL is a draft the
    * user reviews and runs by hand, never auto-executed.
@@ -3500,6 +3590,7 @@ WHERE ${whereClause};`;
     dataCompareByTabId,
     dataTransferByTabId,
     lineageByTabId,
+    filePreviewByTabId,
     loadErModelForTab,
     runSchemaDiffForTab,
     runDataCompareForTab,
@@ -3510,6 +3601,9 @@ WHERE ${whereClause};`;
     openDataCompareTab,
     openDataTransferTab,
     openColumnLineageTab,
+    openFilePreviewTab,
+    handleFileDrop,
+    pickFilePreview,
     canCompareData,
     canAnalyzeLineage,
     openSyncSqlTab,

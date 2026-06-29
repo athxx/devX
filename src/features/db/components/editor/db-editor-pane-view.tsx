@@ -18,6 +18,7 @@ import { DbSchemaDiffView } from "../diff/db-schema-diff-view";
 import { DbDataCompareView } from "../diff/db-data-compare-view";
 import { DbDataTransferView } from "../diff/db-data-transfer-view";
 import { DbColumnLineageView } from "../diff/db-column-lineage-view";
+import { DbFilePreviewView } from "../diff/db-file-preview-view";
 import { useDbPanel } from "../db-panel-context";
 
 export function DbEditorPaneView() {
@@ -90,6 +91,10 @@ export function DbEditorPaneView() {
 
     if (tab.type === "column-lineage") {
       return <DbColumnLineageView />;
+    }
+
+    if (tab.type === "file-preview") {
+      return <DbFilePreviewView />;
     }
 
     const detail = getTabObjectDetail(tab) ?? getActiveObjectDetail();

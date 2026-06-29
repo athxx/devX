@@ -140,6 +140,11 @@ function databaseGroupMenuItems(
             icon: "FileSpreadsheet",
             action: () => void api.importCsvFile(connection, databaseName),
           },
+          {
+            label: "Preview file…",
+            icon: "FileSearch",
+            action: () => void api.pickFilePreview(connection),
+          },
           ...(["sql", "json", "csv"] as const).map((format) => ({
             label: `${format.toUpperCase()} template`,
             icon: "FileCode" as const,
